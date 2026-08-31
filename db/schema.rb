@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_08_21_010000) do
+ActiveRecord::Schema[8.0].define(version: 2026_08_31_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -273,6 +273,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_08_21_010000) do
     t.bigint "persona_id"
     t.bigint "content_pillar_id"
     t.integer "oom_retries", default: 0, null: false
+    t.jsonb "quality_metrics", default: {}
+    t.text "reject_reason"
     t.index ["content_pillar_id"], name: "index_pipeline_runs_on_content_pillar_id"
     t.index ["persona_id"], name: "index_pipeline_runs_on_persona_id"
     t.index ["pipeline_id"], name: "index_pipeline_runs_on_pipeline_id"

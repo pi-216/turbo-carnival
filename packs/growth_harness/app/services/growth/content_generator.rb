@@ -60,6 +60,25 @@ module Growth
         }
       end
 
+      # Photo-realism / quality gate: aesthetics predictor + sharpness. A render
+      # can be safe (passes NSFW) yet still be sub-par; it must also pass this
+      # gate. Scores are persisted on the run for cohort-level analysis.
+      realism = Growth::RealismGate.new.call(image_path: image_path)
+      metrics = {
+        nsfw_score: gate.nsfw_score,
+        aesthetic_score: realism.aesthetic_score,
+        sharpness: realism.sharpness
+      }
+      run.update!(quality_metrics: metrics)
+      unless realism.safe
+        log_realism_rejection(image_path, realism, run)
+        return {
+          success: false,
+          error: "realism_rejected (#{realism.error || realism.reason})",
+          run_id: run.id, comfyjob_id: comfyjob.id, image_path: image_path
+        }
+      end
+
       # Import the fresh render as a content photo
       photo = import_photo(image_path, run)
       return { success: false, error: 'photo import failed' } unless photo
@@ -172,6 +191,27 @@ module Growth
       Rails.logger.warn("Growth::ContentGenerator #{reason} | #{image_path}")
     rescue StandardError => e
       Rails.logger.error("Growth::ContentGenerator could not log rejection: #{e.message}")
+    end
+
+    # Photo-realism rejection: log the decision (so the harness brain can
+    # distinguish "unsafe" from "sub-par" content) and record the run's
+    # reject_reason for cohort-level analysis.
+    def log_realism_rejection(image_path, realism, run)
+      reason = if realism.error
+                 "realism gate error: #{realism.error}"
+               else
+                 "realism rejected (aesthetic=#{realism.aesthetic_score} sharpness=#{realism.sharpness}): #{realism.reason}"
+               end
+      run.update!(reject_reason: reason)
+      Growth::Decision.create!(
+        goal: goal,
+        action: 'realism_rejected',
+        reason: "#{reason} | #{image_path}",
+        decided_at: Time.current
+      )
+      Rails.logger.warn("Growth::ContentGenerator #{reason} | #{image_path}")
+    rescue StandardError => e
+      Rails.logger.error("Growth::ContentGenerator could not log realism rejection: #{e.message}")
     end
 
     def import_photo(image_path, run)
