@@ -12,7 +12,7 @@ module Growth
   #
   # Env knobs (read at call time so they're runtime-tunable):
   #   AESTHETIC_MODEL_DIR      model path
-  #                            (default /mnt/fscache/essdee/aesthetics-gate/
+  #                            (default /mnt/nas-ai-models/gates/
   #                             aesthetics-predictor-v1-vit-large-patch14)
   #   AESTHETIC_PYTHON         python with torch+transformers (default ComfyUI venv)
   #   AESTHETIC_GATE_SCRIPT    scoring script (default Rails bin/aesthetics_gate.py)
@@ -20,7 +20,7 @@ module Growth
   #   SHARPNESS_THRESHOLD      reject when Laplacian variance < threshold (default 30.0)
   #   AESTHETIC_GATE_DISABLED=1   emergency bypass (accept everything)
   class RealismGate
-    DEFAULT_MODEL_DIR = '/mnt/fscache/essdee/aesthetics-gate/aesthetics-predictor-v1-vit-large-patch14'
+    DEFAULT_MODEL_DIR = '/mnt/nas-ai-models/gates/aesthetics-predictor-v1-vit-large-patch14'
     DEFAULT_PYTHON    = '/mnt/fscache/essdee/ComfyUI/venv/bin/python'
     TIMEOUT_S = 120 # first call includes model load from disk
 
