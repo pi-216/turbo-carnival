@@ -113,6 +113,27 @@ namespace :growth do
     puts "Done: #{ok}/#{count} fresh posts scheduled"
   end
 
+  desc 'Report render need + scheduler claim state (shortfall=X need=yes|no claim=<idle|ours|other> comfy=up|down)'
+  task :render_need, [:persona_name] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    goal = Growth::Goal.active.for_persona(persona).first
+
+    target = existing = shortfall = 0
+    if goal
+      target = (goal.effective_posts_per_day * Growth::CadenceEngine::LOOKAHEAD_DAYS).ceil
+      existing = Scheduling::Post
+                 .where(persona: goal.persona)
+                 .where(status: %w[draft scheduled])
+                 .where('scheduled_at > ? OR optimal_time_calculated > ?', Time.current, Time.current)
+                 .count
+      shortfall = [target - existing, 0].max
+    end
+
+    gate = Growth::SchedulerGate.status
+    puts "shortfall=#{shortfall} target=#{target} existing=#{existing} " \
+         "need=#{shortfall.positive? ? 'yes' : 'no'} claim=#{gate.claim_state} comfy=#{gate.comfyui_up ? 'up' : 'down'}"
+  end
+
   desc 'Weekly step-back review: trajectory + per-pillar engagement + persona evolution (DRY=1 audits without changing)'
   task :weekly_review, [:persona_name] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first

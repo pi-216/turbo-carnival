@@ -20,6 +20,17 @@ module Growth
 
     # Generate one fresh render + caption + scheduled post.
     def generate_one(offset_days: 1)
+      # GPU GATE (2026-09-01): never submit a render without a live scheduler
+      # claim — an unclaimed ComfyUI makes the scheduler report "idle" while
+      # the GPU is busy, double-booking it. The cron brain acquires/releases
+      # the claim via bin/comfyui_harness.sh; this gate is the fail-closed
+      # backstop so a claim-less render is impossible.
+      gate = Growth::SchedulerGate.status
+      unless gate.ready?
+        record_unclaimed(gate)
+        return { success: false, error: 'comfyui_unclaimed' }
+      end
+
       pipeline = resolve_pipeline
       unless pipeline
         return { success: false, error: "pipeline #{PIPELINE_NAME} not found" }
@@ -171,6 +182,21 @@ module Growth
         sleep POLL_INTERVAL
       end
       nil
+    end
+
+    # GPU gate rejection: no live scheduler claim means renders are skipped, not
+    # attempted. Audited so the brain can distinguish 'GPU not acquired' from
+    # NSFW/realism/caption failures.
+    def record_unclaimed(gate)
+      Growth::Decision.create!(
+        goal: goal,
+        action: 'comfyui_unclaimed',
+        reason: "render skipped — no claim (#{gate.claim_state}, comfyui #{gate.comfyui_up ? 'up' : 'down'}) | #{gate.raw}",
+        decided_at: Time.current
+      )
+      Rails.logger.warn("Growth::ContentGenerator comfyui_unclaimed: #{gate.raw}")
+    rescue StandardError => e
+      Rails.logger.error("Growth::ContentGenerator could not log comfyui_unclaimed: #{e.message}")
     end
 
     # Record an auditable rejection decision and warn in the log. The image
