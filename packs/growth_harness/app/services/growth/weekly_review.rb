@@ -44,7 +44,17 @@ module Growth
       recommendations = recommend(audit, gate_results)
       changes = Array(gate_results[:actions])
 
-      if apply
+      if apply && audit[:verdict] == 'declining'
+        # CONCLUSION STATE: followers are leaving. The strategy is broken, not
+        # behind — reweighting pillars / tweaking tags / warming captions on a
+        # shrinking audience adds noise, not signal. Record the review as-is and
+        # make NO persona changes; recommend diagnosis instead.
+        changes << {
+          kind: 'halt_persona_evolution',
+          from: {}, to: {},
+          reason: 'declining verdict — net follower loss; strategy broken, diagnosing root cause before any change'
+        }
+      elsif apply
         changes += (evolution&.reweight_toward_top(audit[:pillars]) || [])
         total_posts = audit[:pillars].sum { |p| p[:posts] }
         avg_eng = average_engagement(audit[:pillars])
@@ -122,6 +132,10 @@ module Growth
 
     def classify(delta, measured)
       ratio = goal.traj_ratio
+      # Net follower LOSS — the conclusion state: "broken", not merely "behind".
+      # Escalation/tuning on a shrinking audience only adds noise, so this
+      # verdict halts persona mutation (see review) and forces diagnosis.
+      return 'declining' if measured.to_f.negative? || delta.negative?
       return 'flat' if ratio.nil? || (measured.to_f.abs < 0.01 && delta.abs <= TRAJ_EQUAL_OK)
       return 'ahead' if ratio >= 1.5
       return 'behind' if ratio < 1.0
@@ -173,11 +187,21 @@ module Growth
       when 'behind'   then dir << 'underperforming; pivoting content mix and cadence up'
       when 'ahead'    then dir << 'over-performing; consolidating gains'
       when 'flat'     then dir << 'stalled; bolder experimentation warranted'
+      when 'declining' then dir << 'net follower loss — strategy is BROKEN, not just behind; halting persona tuning and diagnosing root cause (content quality, gates, audience fit)'
       end
       dir.join(' — ')
     end
 
     def recommend(audit, gate_results = {})
+      if audit[:verdict] == 'declining'
+        # Broken state: no tuning advice — halt and diagnose. Posting MORE to a
+        # shrinking audience is exactly the wrong experiment to run this week.
+        return [
+          'HALT cadence increases — followers are LEAVING (net loss); scale output back, do not post more to a shrinking audience',
+          'Diagnose root cause before any next step: content quality/gates (NSFW + realism rejection rates as proxies), engagement of last 10 posts vs first 10, audience fit'
+        ]
+      end
+
       recs = []
       if gate_results[:kept]&.any?
         recs << "Gates met: kept last week's changes (#{gate_results[:kept].join(', ')})"

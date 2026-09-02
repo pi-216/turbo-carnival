@@ -13,7 +13,7 @@ module Growth
     validates :reviewed_at, presence: true
     validates :verdict, presence: true
 
-    VERDICTS = %w[on_track behind ahead need_data flat].freeze
+    VERDICTS = %w[on_track behind ahead need_data flat declining].freeze
 
     def on_track?
       verdict == 'on_track'

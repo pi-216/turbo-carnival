@@ -4,13 +4,18 @@ module Growth
   # Periodic review: measure growth vs. the goal trajectory and adjust strategy.
   #
   # Decision rules (recorded in Growth::Decision for auditability):
+  # - ratio < 0            → BREAK: followers are leaving (negative measured
+  #                          growth). Escalating output is contraindicated —
+  #                          retract cadence, flag that the strategy is broken.
   # - ratio < 0.75          → escalate: raise posts_per_day (up to max), then hashtags
   # - ratio > 1.5           → cut back cadence to conserve photo inventory
   # - < 2 snapshots         → defer, noting we need data
-  # - interval not elapsed  → skip, report next due date
+  # - interval not elapsed  → skip, report next due date (EXCEPT when declining:
+  #                          follower loss is an anomaly and never waits out the interval)
   class StrategyBrain
     ESCALATE_THRESHOLD = 0.75
     CUTBACK_THRESHOLD  = 1.5
+    DECLINE_RATIO      = 0.0   # measured growth negative = audience shrinking
 
     attr_reader :goal
 
@@ -33,13 +38,38 @@ module Growth
     private
 
     def decide(ratio)
-      if ratio < ESCALATE_THRESHOLD
+      if ratio < DECLINE_RATIO
+        break_state(ratio)
+      elsif ratio < ESCALATE_THRESHOLD
         escalate(ratio)
       elsif ratio > CUTBACK_THRESHOLD
         cut_back(ratio)
       else
         hold(ratio)
       end
+    end
+
+    # CONCLUSION STATE — not just "behind". Measured growth is NEGATIVE: people
+    # are unfollowing. Pushing more content at a shrinking audience is the wrong
+    # move, so retract cadence toward minimum and log the conclusion loudly so
+    # the operator / weekly reviewer can see the strategy is broken, not slow.
+    def break_state(ratio)
+      from = { posts_per_day: goal.posts_per_day, hashtag_count: goal.hashtag_count }
+
+      if goal.posts_per_day > 1
+        goal.update!(posts_per_day: goal.posts_per_day - 1, last_reviewed_at: Time.current)
+      else
+        goal.touch(:last_reviewed_at)
+      end
+
+      log_decision(
+        :negative_growth_break,
+        from,
+        "followers are LEAVING (measured #{goal.average_daily_growth&.round(3)}/day, " \
+        "ratio #{ratio.round(3)}) — strategy broken, not behind; escalated output " \
+        "contraindicated, cadence retracted; halt scaling until root cause diagnosed " \
+        '(content quality, gates, audience fit)'
+      )
     end
 
     def escalate(ratio)
@@ -98,8 +128,24 @@ module Growth
 
     def review_due?
       return true if goal.last_reviewed_at.nil?
+      # Follower loss is an ANOMALY: fire the break conclusion on the first
+      # negative-growth tick, but do NOT spam it hourly — re-confirm on the
+      # review-interval cadence (the weekly review judges ongoing decline).
+      return true if declining? && no_recent_break_conclusion?
 
       goal.last_reviewed_at < goal.review_interval_days.days.ago
+    end
+
+    def declining?
+      measured = goal.average_daily_growth
+      !measured.nil? && measured.negative?
+    end
+
+    # True when no negative_growth_break conclusion was recorded within the
+    # current review window — i.e. this decline episode hasn't been concluded yet.
+    def no_recent_break_conclusion?
+      latest = goal.decisions.order(decided_at: :desc).find_by(action: 'negative_growth_break')
+      latest.nil? || latest.decided_at < goal.review_interval_days.days.ago
     end
 
     def skip_report
