@@ -31,8 +31,8 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHED="python3 /mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py"
 GPU=4090
 PROJECT=turbo-carnival
-VRAM=23
-DURATION=3h
+VRAM=21
+DURATION=9h
 COMFY_DIR=/mnt/fscache/essdee/ComfyUI
 COMFY_VENV=.venv
 COMFY_PORT=8188
@@ -64,6 +64,43 @@ comfyui_up() {
   [ "$(curl -s -m5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${COMFY_PORT}/system_stats" 2>/dev/null)" = "200" ]
 }
 
+# True when ComfyUI's native queue holds no work (no running, no pending
+# prompt). Used by the orphan self-heal: an unclaimed instance with queued
+# renders is producing real work and must NOT be SIGTERMed (queue-first
+# directive 2026-09-07). Exit 0 = empty/idle, exit 1 = has work.
+comfyui_queue_empty() {
+  curl -s -m5 "http://127.0.0.1:${COMFY_PORT}/queue" 2>/dev/null | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)   # not parseable → treat as idle; the up/GPU checks gate killing
+sys.exit(0 if not d.get("queue_running") and not d.get("queue_pending") else 1)
+'
+}
+
+# True when the running ComfyUI is one WE launched — its pid is recorded as
+# comfy_pid in our state file. Ownership rule: never kill what we did not
+# spawn. If the state file is missing (tmpfs wipe) we conservatively treat it
+# as foreign and leave it alone.
+comfyui_ours() {
+  local want pid
+  want="$(read_state | sed -n '3p')"
+  [ -n "$want" ] || return 1
+  pid="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
+  [ -n "$pid" ] && [ "$pid" = "$want" ]
+}
+
+# Discover the running ComfyUI's pid and record it in the state file as ours.
+record_comfy_pid() {
+  local job="$1" cp
+  cp="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
+  if [ -n "$cp" ]; then
+    write_state "$job" "$(read_state | sed -n '2p')" "$cp"
+    log "comfy pid $cp recorded for $job"
+  fi
+}
+
 gpu_idle() {
   # No current_job on the 4090 (reads shared NAS state).
   sched status --gpu "$GPU" 2>/dev/null | grep -q 'current_job: None'
@@ -72,7 +109,7 @@ gpu_idle() {
 vram_mib() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
 
 read_state() {
-  # echo job_id and heartbeat_pid from state file (empty strings if absent)
+  # echo job_id, heartbeat_pid, comfy_pid from state file (empty strings if absent)
   python3 - "$STATE_FILE" <<'PY'
 import json, sys, os
 p = sys.argv[1]
@@ -81,18 +118,21 @@ if os.path.exists(p):
         d = json.load(open(p))
         print(d.get("job_id", ""))
         print(d.get("heartbeat_pid", ""))
+        print(d.get("comfy_pid", ""))
         sys.exit(0)
     except Exception:
         pass
+print("")
 print("")
 print("")
 PY
 }
 
 write_state() {
-  python3 - "$STATE_FILE" "$1" "$2" <<'PY'
+  # args: job_id heartbeat_pid [comfy_pid]
+  python3 - "$STATE_FILE" "$1" "$2" "${3:-}" <<'PY'
 import json, sys
-json.dump({"job_id": sys.argv[2], "heartbeat_pid": sys.argv[3]}, open(sys.argv[1], "w"))
+json.dump({"job_id": sys.argv[2], "heartbeat_pid": sys.argv[3], "comfy_pid": sys.argv[4]}, open(sys.argv[1], "w"))
 PY
 }
 
@@ -128,7 +168,7 @@ cmd_status() {
 
   local job_id hb_pid
   job_id="$(read_state | head -1)"
-  hb_pid="$(read_state | tail -1)"
+  hb_pid="$(read_state | sed -n '2p')"
 
   local ours=no
   if [ -n "$current_job" ] && [ "$current_job" != "None" ] && [ "$current_job" = "$job_id" ]; then
@@ -156,7 +196,7 @@ cmd_ensure() {
 
   local job_id hb_pid sline status current_job
   job_id="$(read_state | head -1)"
-  hb_pid="$(read_state | tail -1)"
+  hb_pid="$(read_state | sed -n '2p')"
 
   if [ -n "$job_id" ]; then
     sline="$(sched status --gpu "$GPU" 2>/dev/null)"
@@ -187,11 +227,24 @@ cmd_ensure() {
   fi
 
   # Orphan self-heal: ComfyUI up but NO claim on an idle GPU == our leak.
+  # Ownership rule (Tim correction 2026-09-07): only kill instances WE
+  # launched (comfy_pid in our state file). A foreign unclaimed ComfyUI is
+  # never ours to kill — adopt it under our claim instead. And even for our
+  # own orphan, never SIGTERM while its native queue holds renders (running or
+  # pending): queued work is live work, killing it is counterproductive.
   if comfyui_up && gpu_idle; then
-    log "ensure: orphaned ComfyUI (up, no claim, GPU idle) — shutting down before acquiring"
-    kill_comfyui
-    local waited=0
-    while comfyui_up && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+    if comfyui_ours; then
+      if comfyui_queue_empty; then
+        log "ensure: our orphaned ComfyUI idle with no claim — shutting down before acquiring"
+        kill_comfyui
+        local waited=0
+        while comfyui_up && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+      else
+        log "ensure: our orphaned ComfyUI has queued renders — NOT shutting down (queue-first); acquiring claim to adopt it"
+      fi
+    else
+      log "ensure: unclaimed ComfyUI NOT launched by us (foreign) — leaving it untouched; acquiring claim to adopt it"
+    fi
   fi
 
   # GPU held by another agent (or we never had a job): acquire fresh.
@@ -207,7 +260,7 @@ cmd_ensure() {
       sched activate --gpu "$GPU" --job-id "$job" --progress-unit render >/dev/null 2>&1 || true
       local hb
       start_heartbeat_loop "$job"
-      hb="$(read_state | tail -1)"
+      hb="$(read_state | sed -n '2p')"
       write_state "$job" "$hb"
       launch_comfyui "$job"
       echo "job_id=$job"
@@ -235,6 +288,15 @@ start_heartbeat_loop() {
 
 launch_comfyui() {
   local job="$1"
+  # Adopt-or-launch: if a ComfyUI is already answering on the port (foreign
+  # or adopted orphan), recording its pid makes it "ours" — never spawn a
+  # second instance that would fail to bind (queue-first adoption, 2026-09-07).
+  if comfyui_up; then
+    log "launch_comfyui: ComfyUI already answering — adopting existing instance for $job"
+    record_comfy_pid "$job"
+    return 0
+  fi
+
   local slog="/mnt/nas-ai-models/gpu-scheduler/logs/comfyui-${job}.log"
   log "launching ComfyUI (${COMFY_DIR}) — log: ${slog}"
   ( cd "$COMFY_DIR" && setsid nohup "$COMFY_VENV/bin/python" main.py --listen 0.0.0.0 --enable-manager --fp32-text-enc >"$slog" 2>&1 & )
@@ -249,6 +311,7 @@ launch_comfyui() {
     log "WARNING: ComfyUI did not answer /system_stats within ${UP_WAIT}s — tail ${slog}"
     tail -5 "$slog" 2>/dev/null | tee -a "$HARNESS_LOG"
   fi
+  record_comfy_pid "$job"
 }
 
 cmd_heartbeat() {
@@ -265,7 +328,15 @@ cmd_heartbeat() {
 cmd_shutdown() {
   local job_id hb_pid
   job_id="$(read_state | head -1)"
-  hb_pid="$(read_state | tail -1)"
+  hb_pid="$(read_state | sed -n '2p')"
+
+  # Queue-first guard (2026-09-07): never SIGTERM a ComfyUI whose native
+  # queue still holds renders (running or pending). Killing live queued work
+  # is counterproductive — refuse and keep the claim so work drains.
+  if comfyui_up && ! comfyui_queue_empty; then
+    log "shutdown: REFUSED — ComfyUI queue still has renders (running/pending); keeping claim $job_id alive so they drain"
+    return 3
+  fi
 
   if [ -n "$hb_pid" ] && kill -0 "$hb_pid" 2>/dev/null; then
     log "shutdown: stopping heartbeat loop pid $hb_pid"
