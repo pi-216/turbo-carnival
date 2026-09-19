@@ -475,8 +475,12 @@ def check_zombie_jobs():
     fill the journal. Found 5 (TouchNeighborsJob, RecalculateCollectionCentroidJob)
     with retry counts 4-6 and zero references anywhere in the repo.
     """
+    # 15-minute window, deliberately: a 1-hour lookback kept flagging the 189
+    # pre-purge failures for a full hour AFTER the retry set was emptied, which is
+    # the crying-wolf failure mode. Short window => the issue clears within
+    # minutes of a real fix, and a genuinely recurring zombie still shows up.
     out, rc = run(["journalctl", "--user", "-u", "turbo-carnival-sidekiq",
-                   "--since", "-1 hour", "--no-pager"], timeout=40)
+                   "--since", "-15 min", "--no-pager"], timeout=40)
     if rc != 0 or not out:
         return None
     consts = re.findall(r"uninitialized constant ([A-Za-z0-9_:]+)", out)
