@@ -4,6 +4,12 @@ class JobPollerWorker
   sidekiq_options queue: :job_polling, retry: 3
 
   def perform
+    # Reconcile orphans FIRST. JobSubmitterWorker refuses to submit while any job
+    # is in `submitted`/`running`, so a single phantom row stalls submission
+    # indefinitely -- that is what froze the pipeline for four months and what
+    # blocked the OOM-retry job on 2026-09-19. See ReconcileStaleJobs.
+    ReconcileStaleJobs.call
+
     # Poll status of in-flight jobs (may transition to completed)
     in_flight_jobs = ComfyuiJob.in_flight
     in_flight_jobs.find_each do |job|

@@ -70,12 +70,17 @@ class PollJobStatus < GLCommand::Callable
     run = job.pipeline_run
     run.update!(oom_retries: (run.oom_retries || 0) + 1)
 
-    ComfyuiJob.create!(
+    # SubmitJob creates the record AND posts the workflow to ComfyUI.
+    # The previous behaviour created a bare `pending` ComfyuiJob, which nothing
+    # ever submits -- JobSubmitterWorker builds NEW jobs via SelectNextJob ->
+    # SubmitJob and never sweeps pending ComfyuiJob rows -- so the OOM retry was
+    # a silent no-op that stranded a row forever (observed: job 7542 pending
+    # since 15:40 with no comfyui_job_id while its run stayed OOM-failed).
+    SubmitJob.call(
+      job_payload: job.job_payload,
       pipeline_step: job.pipeline_step,
       pipeline_run: run,
-      parent_candidate: job.parent_candidate,
-      job_payload: job.job_payload,
-      status: "pending"
+      parent_candidate: job.parent_candidate
     )
   end
 end
