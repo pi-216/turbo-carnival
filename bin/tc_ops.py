@@ -466,10 +466,40 @@ def check_stranded_pending_jobs():
     return None
 
 
+def check_zombie_jobs():
+    """Sidekiq retries of job classes that no longer exist.
+
+    These can never succeed -- the constant is gone from the codebase -- so every
+    retry is a guaranteed NameError. They stay invisible until a Sidekiq worker
+    runs for this app (there was none until 2026-09-19), then retry forever and
+    fill the journal. Found 5 (TouchNeighborsJob, RecalculateCollectionCentroidJob)
+    with retry counts 4-6 and zero references anywhere in the repo.
+    """
+    out, rc = run(["journalctl", "--user", "-u", "turbo-carnival-sidekiq",
+                   "--since", "-1 hour", "--no-pager"], timeout=40)
+    if rc != 0 or not out:
+        return None
+    consts = re.findall(r"uninitialized constant ([A-Za-z0-9_:]+)", out)
+    if not consts:
+        return None
+    counts = {}
+    for c in consts:
+        counts[c] = counts.get(c, 0) + 1
+    top = ", ".join(f"{k} x{v}" for k, v in
+                    sorted(counts.items(), key=lambda kv: -kv[1])[:5])
+    return (
+        "sidekiq-zombie-jobs",
+        f"{len(consts)} retries of jobs whose class does not exist",
+        "warn",
+        f"{top} — purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
+    )
+
+
 CHECKS = [
     check_worker_running,
     check_backlog_backpressure,
     check_stranded_pending_jobs,
+    check_zombie_jobs,
     check_venv_drift,
     check_launch_deps_importable,
     check_slot,
