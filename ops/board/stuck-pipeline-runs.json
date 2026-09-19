@@ -3,10 +3,15 @@
   "title": "42 PipelineRun rows stuck in 'pending'",
   "severity": "warn",
   "evidence": "runs that produced output still report pending (status never advanced)",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T11:35:01-0400",
-  "last_seen": "2026-09-19T11:45:22-0400",
-  "seen_count": 4,
-  "notes": [],
+  "last_seen": "2026-09-19T11:51:48-0400",
+  "seen_count": 5,
+  "notes": [
+    {
+      "ts": "2026-09-19T11:53:08-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
   "source": "probe"
 }
