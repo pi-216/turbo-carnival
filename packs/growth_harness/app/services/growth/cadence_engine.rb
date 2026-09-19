@@ -22,9 +22,16 @@ module Growth
     def sync
       target = posts_target
       existing = scheduled_posts_count
+
+      # FIRST recover renders a killed producer abandoned (see RenderSalvage):
+      # paid-for GPU work that never became a post is queue content, and it is
+      # cheaper to finish it than to render a replacement.
+      salvage = salvage_abandoned_render(existing, target)
+      existing = scheduled_posts_count if salvage[:recovered].positive?
+
       shortfall = [target - existing, 0].max
 
-      return { created: 0, target: target, existing: existing, shortfall: 0 } if shortfall.zero?
+      return { created: 0, target: target, existing: existing, shortfall: 0, salvage: salvage } if shortfall.zero?
 
       created = 0
       failures = []
@@ -69,11 +76,31 @@ module Growth
         target: target,
         existing: existing + created,
         shortfall: shortfall,
-        failures: failures
+        failures: failures,
+        salvage: salvage
       }
     end
 
     private
+
+    # Recover renders whose sync producer was killed before the post-actions ran.
+    # Bounded by the outstanding shortfall: if the queue is already full there is
+    # nothing to recover INTO, and the candidates stay on disk for a later tick.
+    # Failures here must never break the sync, so the whole call is rescued.
+    def salvage_abandoned_render(existing, target)
+      budget = [target - existing, 0].max
+      result = Growth::RenderSalvage.new(goal: goal).call(limit: budget)
+      {
+        recovered: result.recovered,
+        rejected: result.rejected,
+        skipped: result.skipped,
+        post_ids: result.post_ids,
+        examined: result.examined
+      }
+    rescue StandardError => e
+      Rails.logger.error("Growth::CadenceEngine salvage failed: #{e.class} - #{e.message}")
+      { recovered: 0, rejected: 0, skipped: 0, post_ids: [], examined: 0 }
+    end
 
     # How many scheduled+draft posts should be in the future queue.
     def posts_target

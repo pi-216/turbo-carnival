@@ -47,6 +47,10 @@ namespace :growth do
 
     result = Growth::CadenceEngine.new(goal: goal).sync
     puts "Cadence sync: existing=#{result[:existing]} target=#{result[:target]} created=#{result[:created]} shortfall=#{result[:shortfall]}"
+    salvage = result[:salvage] || {}
+    if salvage[:examined].to_i.positive? || salvage[:recovered].to_i.positive?
+      puts "Salvage: examined=#{salvage[:examined]} recovered=#{salvage[:recovered]} rejected=#{salvage[:rejected]} skipped=#{salvage[:skipped]} posts=#{(salvage[:post_ids] || []).inspect}"
+    end
   end
 
   desc 'Capture a follower-count snapshot for the active goal'
