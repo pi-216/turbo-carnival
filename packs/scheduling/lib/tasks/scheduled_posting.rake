@@ -81,9 +81,19 @@ namespace :scheduling do
         public_url_result = Scheduling::Commands::GeneratePublicPhotoUrl.call!(photo: post.photo)
 
         if public_url_result.success?
+          # Include the post's hashtags in what we actually publish. The column has
+          # always existed (scheduling_posts.hashtags, jsonb) and a HashtagEngine has
+          # always been able to fill it, but nothing ever read it at send time: every
+          # one of the 197 posted items went out with ZERO hashtags, which is the
+          # single biggest discoverability lever for a small account.
+          published_caption = [post.caption, Array(post.hashtags).join(" ")]
+                                .map { |part| part.to_s.strip }
+                                .reject(&:empty?)
+                                .join("\n\n")
+
           instagram_result = Scheduling::Commands::SendPostToInstagram.call!(
             public_photo_url: public_url_result.public_photo_url,
-            caption: post.caption,
+            caption: published_caption,
             persona: post.persona
           )
 

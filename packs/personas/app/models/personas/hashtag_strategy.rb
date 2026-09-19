@@ -3,6 +3,7 @@
 module Personas
   class HashtagStrategy
     attr_reader :max_tags, :brand_tags, :strategy_type, :errors
+    attr_writer :brand_tags
 
     def initialize(attributes = {})
       @max_tags = attributes[:max_tags] || attributes['max_tags'] || 10
@@ -10,6 +11,15 @@ module Personas
       @strategy_type = attributes[:strategy_type] || attributes['strategy_type']
       @errors = []
       validate
+    end
+
+    # ContentStrategy::HashtagEngine reads `strategy.tags` (falling back to
+    # strategy['tags'] for a Hash). This class exposed only `brand_tags`, so
+    # NEITHER branch of the engine could ever match and the persona's configured
+    # strategy was unreachable -- the reason every published post carried zero
+    # hashtags even though the strategy existed and was populated.
+    def tags
+      Array(@brand_tags)
     end
 
     def valid?

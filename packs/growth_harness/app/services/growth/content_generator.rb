@@ -115,10 +115,15 @@ module Growth
       caption = cap.success? ? cap.caption : "Fresh look ✨"
 
       # Schedule it
+      # Hashtags: scheduling_posts has always had a hashtags column and
+      # ContentStrategy::HashtagEngine has always been able to fill it, but this
+      # path created every post without one -- all 197 posted items went out with
+      # ZERO hashtags. Fill it here, and the publisher appends them to the caption.
       sched = Scheduling::Post.create!(
         persona: persona,
         photo: photo,
         caption: caption,
+        hashtags: hashtags_for(photo),
         status: 'scheduled',
         scheduled_at: Time.current + offset_days.days,
         optimal_time_calculated: Time.current + offset_days.days,
@@ -131,6 +136,16 @@ module Growth
     end
 
     private
+
+    # Hashtags for this render, via the existing engine so the persona's
+    # hashtag_strategy + pillar terms + safe defaults apply. Returns [] rather than
+    # raising: a missing hashtag must never fail an otherwise good render.
+    def hashtags_for(photo)
+      ContentStrategy::HashtagEngine.generate(photo: photo, pillar: @pillar, count: 10)
+    rescue StandardError => e
+      Rails.logger.warn("hashtag generation failed: #{e.class} - #{e.message}")
+      []
+    end
 
     # Move the run to a TERMINAL status as soon as its outcome is known. A run left
     # 'pending' after its render finished is a lie the rest of the system believes:

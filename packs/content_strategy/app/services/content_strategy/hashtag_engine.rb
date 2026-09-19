@@ -39,11 +39,16 @@ module ContentStrategy
 
       def extract_from_pillar(pillar)
         tags = []
-        
-        # From name
-        if pillar.name.present?
-          words = pillar.name.split(/[\s_-]+/)
-          tags += words.select { |w| w.length > 3 }
+        return tags if pillar.nil?
+
+        # From name. Split on phrase separators (& , / |) but NOT on internal
+        # hyphens -- "Wellness & Self-Care" must yield #wellness + #selfcare, not
+        # #self and #care, which are meaningless as hashtags.
+        if pillar.respond_to?(:name) && pillar.name.present?
+          pillar.name.split(%r{[&,/|]+}).map(&:strip).reject(&:empty?).each do |chunk|
+            cleaned = chunk.gsub(/[\s_-]+/, "")
+            tags << cleaned if cleaned.length > 3
+          end
         end
 
         # From description if available
