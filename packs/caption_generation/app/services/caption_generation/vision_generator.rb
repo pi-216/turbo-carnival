@@ -3,6 +3,10 @@
 require 'base64'
 
 module CaptionGeneration
+  # Image path: sends the photo to a vision model. Note this path is only taken
+  # when the photo has an ActiveStorage attachment (see
+  # PostAutomation::GenerateCaption); renders imported by the growth harness are
+  # path-only, so they take CaptionGeneration::Generator instead.
   class VisionGenerator
     def self.generate(photo:, persona:, content_pillar: nil)
       new(photo: photo, persona: persona, content_pillar: content_pillar).generate
@@ -25,8 +29,8 @@ module CaptionGeneration
       prompt = build_vision_prompt
 
       # Call Ollama with vision
-      client = AI::OllamaClient.new(model: 'gemma3:27b')  # Use vision model (timeout default 180s)
-      
+      client = AI::OllamaClient.new(model: ModelConfig.model, timeout: ModelConfig.timeout)
+
       result = client.chat(
         messages: [
           {
@@ -48,9 +52,11 @@ module CaptionGeneration
         success: processed[:compliant]
       )
     rescue StandardError => e
+      ModelConfig.log_failure(component: 'vision', error: e, photo_id: @photo&.id)
       Result.new(
         text: '',
-        metadata: { error: e.message, vision: true },
+        metadata: { error: e.message, vision: true,
+                    model: ModelConfig.model, timeout: ModelConfig.timeout },
         success: false
       )
     end
@@ -127,7 +133,9 @@ module CaptionGeneration
 
     def build_metadata(processed, ai_result)
       {
-        model: ai_result[:model] || 'gemma3:27b',
+        model: ai_result[:model] || ModelConfig.model,
+        requested_model: ModelConfig.model,
+        timeout: ModelConfig.timeout,
         generator: 'vision',
         word_count: processed[:text].split.size,
         char_count: processed[:text].length,

@@ -47,6 +47,10 @@ SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 FOREIGN_HOLD_ALERT_H = 6.0
 # Starvation = we asked for the GPU and were refused, AND nothing came out.
 STARVE_WINDOW_H = 12
+# Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
+# rate means the caption path is dead and every post ships 'Fresh look'.
+CAPTION_MIN_POSTS = 3
+CAPTION_ALERT_RATIO = 0.3
 
 
 # ---------------------------------------------------------------- utilities
@@ -276,6 +280,45 @@ def check_stuck_pipeline_runs():
             "runs that produced output still report pending (status never advanced)",
         )
     return None
+
+
+def check_caption_fallback():
+    """Placeholder-caption rate over the last 24h of scheduled posts.
+
+    Silent degradation by design: ContentGenerator and Growth::RenderSalvage both
+    substitute 'Fresh look' when the caption model fails, so a dead caption path
+    ships placeholder captions to a live account with nothing in any log. The rate
+    is the only signal that distinguishes that from a healthy pipeline.
+    """
+    total = psql("select count(*) from scheduling_posts "
+                 "where created_at > now() - interval '24 hours'")
+    fb = psql("select count(*) from scheduling_posts "
+              "where created_at > now() - interval '24 hours' "
+              "and caption like 'Fresh look%'")
+    if total is None or fb is None:
+        return None
+    try:
+        total, fb = int(total), int(fb)
+    except ValueError:
+        return None
+    if total < CAPTION_MIN_POSTS or fb == 0:
+        return None
+    ratio = fb / total
+    if ratio < CAPTION_ALERT_RATIO:
+        return None
+    return (
+        "caption-fallback-rate",
+        f"{fb} of {total} posts in 24h ship the placeholder caption 'Fresh look'",
+        "warn" if ratio >= 0.5 else "info",
+        f"placeholder rate {ratio:.0%} over {total} scheduled posts created in the "
+        f"last 24h. Both ContentGenerator and RenderSalvage substitute the "
+        f"placeholder when CaptionGeneration::VisionGenerator fails, so this is a "
+        f"dead caption path, not a content choice. Check the vision model can load "
+        f"at all: a cold load of gemma3:27b from the NFS model store "
+        f"(/mnt/nas-ai-models/ollama, ~40 MB/s) exceeds Ollama's ~300s llama-server "
+        f"start timeout, so it fails with HTTP 500 'timed out waiting for "
+        f"llama-server to start' and the 180s client timeout fires first.",
+    )
 
 
 def check_render_acceptance():
@@ -618,6 +661,7 @@ CHECKS = [
     check_stuck_comfyui_jobs,
     check_stuck_pipeline_runs,
     check_render_for_terminal_run,
+    check_caption_fallback,
     check_render_acceptance,
     check_render_starved,
     check_telemetry_oom,

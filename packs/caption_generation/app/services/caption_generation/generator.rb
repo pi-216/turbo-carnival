@@ -35,9 +35,10 @@ module CaptionGeneration
         success: processed[:compliant]
       )
     rescue StandardError => e
+      ModelConfig.log_failure(component: 'text', error: e, photo_id: @photo&.id)
       Result.new(
         text: '',
-        metadata: { error: e.message },
+        metadata: { error: e.message, model: ModelConfig.model, timeout: ModelConfig.timeout },
         success: false
       )
     end
@@ -55,9 +56,9 @@ module CaptionGeneration
 
     def generate_caption(prompt)
       load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
-      
-      client = AI::OllamaClient.new
-      
+
+      client = AI::OllamaClient.new(model: ModelConfig.model, timeout: ModelConfig.timeout)
+
       result = client.chat(
         messages: [
           { role: 'system', content: prompt[:system] },
@@ -71,6 +72,8 @@ module CaptionGeneration
 
     def build_metadata(processed, context)
       {
+        model: ModelConfig.model,
+        timeout: ModelConfig.timeout,
         length: processed[:length],
         compliant: processed[:compliant],
         cluster: context[:cluster_name],
