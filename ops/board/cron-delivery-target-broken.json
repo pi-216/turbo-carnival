@@ -1,0 +1,17 @@
+{
+  "key": "cron-delivery-target-broken",
+  "title": "Growth-brain and persona-review cron results are never delivered ('unknown platform webui')",
+  "severity": "info",
+  "source": "manual",
+  "status": "open",
+  "first_seen": "2026-09-19T12:58:00-0400",
+  "last_seen": "2026-09-19T12:58:00-0400",
+  "seen_count": 1,
+  "evidence": "cron/jobs.json: tc-growth-harness-brain (43b0d5c4446d, hourly) and tc-weekly-persona-review (8d3ac21799d5, Mon 09:00) both report last_status=delivery_failed. The overnight watchdog logged the same thing twice: \"result not delivered — unknown platform 'webui'\". Every hourly growth report and the weekly persona review are therefore written to disk and thrown away.",
+  "notes": [
+    {
+      "ts": "2026-09-19T12:58:00-0400",
+      "note": "OUT OF REPO SCOPE - recorded, not acted on. This is Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json), not the turbo-carnival repo. Likely fix: `hermes cron edit <id> --deliver <target>` with a platform the gateway actually serves. Needs Tim to say which destination he wants the growth reports on; the ops-triage job's own delivery works, so the gateway has a working target elsewhere."
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "key": "sidekiq-zombie-jobs",
-  "title": "189 retries of jobs whose class does not exist",
+  "title": "43 retries of jobs whose class does not exist",
   "severity": "warn",
-  "evidence": "TouchNeighborsJob x129, RecalculateCollectionCentroidJob x60 \u2014 purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
+  "evidence": "TouchNeighborsJob x31, RecalculateCollectionCentroidJob x12 \u2014 purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
   "status": "open",
   "first_seen": "2026-09-19T12:57:57-0400",
-  "last_seen": "2026-09-19T12:57:57-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-19T12:58:58-0400",
+  "seen_count": 3,
   "source": "probe",
   "notes": []
 }
