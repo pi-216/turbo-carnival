@@ -44,15 +44,15 @@ module Growth
       recommendations = recommend(audit, gate_results)
       changes = Array(gate_results[:actions])
 
-      if apply && audit[:verdict] == 'declining'
-        # CONCLUSION STATE: followers are leaving. The strategy is broken, not
-        # behind — reweighting pillars / tweaking tags / warming captions on a
-        # shrinking audience adds noise, not signal. Record the review as-is and
-        # make NO persona changes; recommend diagnosis instead.
+      if apply && Growth::Authority::TERMINAL_VERDICTS.include?(audit[:verdict])
+        # CONCLUSION STATE: the trajectory is broken (net loss), the render
+        # resource is walled off, or the goal is mathematically unattainable.
+        # No persona/cadence tuning is mandated on these — halt, diagnose, and
+        # escalate to the scheduler / re-target as the verdict directs.
         changes << {
           kind: 'halt_persona_evolution',
           from: {}, to: {},
-          reason: 'declining verdict — net follower loss; strategy broken, diagnosing root cause before any change'
+          reason: "#{audit[:verdict]} verdict — no strategy tuning mandated; diagnose / reclaim resource / re-target before any change"
         }
       elsif apply
         changes += (evolution&.reweight_toward_top(audit[:pillars]) || [])
@@ -123,7 +123,7 @@ module Growth
       {
         followers_delta: delta,
         measured: measured,
-        verdict: classify(delta, measured),
+        verdict: authority_verdict(classify(delta, measured)),
         pillars: pillars,
         hashtag_signal: hashtag_signal,
         caption_signal: caption_signal
@@ -141,6 +141,22 @@ module Growth
       return 'behind' if ratio < 1.0
 
       'on_track'
+    end
+
+    # Authority override: a trajectory behind can be a resource problem or a dead
+    # goal, neither of which is fixable by persona/cadence tuning. Sequence the
+    # verdicts: resource-block first (reclaim the GPU), then judge goal math.
+    def authority_verdict(base)
+      return base if base == 'declining'
+
+      return 'resource_blocked' if authority.resource_blocked?
+      return 'goal_unattainable' if authority.goal_unattainable?
+
+      base
+    end
+
+    def authority
+      @authority ||= Growth::Authority.new(goal: goal)
     end
 
     # Aggregate engagement per content pillar from posted posts + insights.
@@ -199,6 +215,20 @@ module Growth
         return [
           'HALT cadence increases — followers are LEAVING (net loss); scale output back, do not post more to a shrinking audience',
           'Diagnose root cause before any next step: content quality/gates (NSFW + realism rejection rates as proxies), engagement of last 10 posts vs first 10, audience fit'
+        ]
+      end
+
+      if audit[:verdict] == 'resource_blocked'
+        return [
+          'RECLAIM the render resource: the GPU is walled off for most of this window (comfyui_unclaimed/cadence_blocked density above threshold); escalate to the GPU scheduler, do not tune strategy against a starved pipeline',
+          'A walled-off render resource explains the trajectory gap — this is not a content-quality or cadence failure; fix the resource first, then re-measure'
+        ]
+      end
+
+      if audit[:verdict] == 'goal_unattainable'
+        return [
+          'HALT production: the goal is unattainable at current leverage (required daily growth diverges from measured beyond the pre-registered threshold for the required consecutive reviews)',
+          'Surface to the operator: re-target target_followers/deadline, or retire the goal — do not keep grinding output at a mathematically dead goal'
         ]
       end
 

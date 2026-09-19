@@ -80,7 +80,7 @@ module Growth
       elsif goal.hashtag_count < 30
         goal.update!(hashtag_count: goal.hashtag_count + 5, last_reviewed_at: Time.current)
       else
-        return hold_declared(ratio, 'at max effort')
+        return exhaust(ratio)
       end
 
       log_decision(:escalate_cadence, from, reason_text(ratio, ahead: false))
@@ -102,6 +102,28 @@ module Growth
     def hold_declared(ratio, note)
       goal.touch(:last_reviewed_at)
       { view: 'hold', ratio: ratio.round(2), note: note }
+    end
+
+    # ESCALATION EXHAUSTED — all volume knobs are at max yet the trajectory is
+    # still behind. Persist this as a Decision (the old code returned a transient
+    # hash and wrote nothing — silence masquerading as "hold"). This is the
+    # authority's signal that volume cannot fix the gap; the weekly review's
+    # resource_blocked / goal_unattainable verdicts take it from here.
+    def exhaust(ratio)
+      from = { posts_per_day: goal.posts_per_day, hashtag_count: goal.hashtag_count }
+      goal.touch(:last_reviewed_at)
+      Growth::Decision.create!(
+        goal: goal,
+        snapshot: goal.latest_snapshot,
+        action: 'strategy_exhausted',
+        reason: "at max effort (posts_per_day=#{goal.posts_per_day}/#{goal.max_posts_per_day}, " \
+                "hashtag_count=#{goal.hashtag_count}/30) yet ratio #{ratio.round(3)} — " \
+                'no volume knob left; fix the render resource or re-target the goal',
+        from_values: from,
+        to_values: from,
+        decided_at: Time.current
+      )
+      { view: 'strategy_exhausted', ratio: ratio.round(2), to: from }
     end
 
     def log_decision(action, from, reason)

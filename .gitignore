@@ -31,6 +31,9 @@
 # Ignore master key for decrypting credentials and more.
 /config/master.key
 
+# Stray SQLite artifacts: this app is postgresql-only (config/database.yml).
+/db/*.sqlite3
+
 /app/assets/builds/*
 !/app/assets/builds/.keep
 
