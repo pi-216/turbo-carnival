@@ -37,3 +37,6 @@
 /config/credentials/production.key
 
 /config/credentials/development.key
+
+# Python bytecode from bin/ ops tooling
+__pycache__/
