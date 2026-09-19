@@ -16,6 +16,10 @@
     {
       "ts": "2026-09-19T12:50:47-0400",
       "note": "This triage run confirms the prior agent's call: NOT a technical fix. The persona's intended age is a product fact we do not have, and both candidate repairs (adding an explicit adult descriptor to Growth::PillarPrompt::SAFE_BASE - which currently states no age at all - or dropping 'petite face, small nose' from workflow node 88) change who Sarah IS. Escalated to Tim for a decision; left open deliberately."
+    },
+    {
+      "ts": "2026-09-19T14:36:35-0400",
+      "note": "Mechanism identified (2026-09-19 triage run). The live render path (pipeline 21 turbo-one-step-clean, step 40, node 79 = the NEGATIVE prompt) contains: adult, mature_face, sunken_eyes. The active workflow therefore POSITIVELY discourages adult/mature facial features, which is the mechanical cause of the youthful read; it is Pony-era negative boilerplate, not a creative choice about Sarah. Also confirmed live: node 88 no longer carries the sexualized tokens (underbooba/underboobs/submissive/obedient survive only in the deprecated pipeline-20 preset, kept under ops/backups/), and the age-adjacent tokens left are petit face tokens plus cute. Nothing in the repo states an age: personas has no age column, and SOUL.md/THESIS.md/FOUNDERS.md/packs are silent on it. Open question is one line from Tim - what age should Sarah read as. Pre-scoped fix once answered: drop adult, mature_face from node 79 negative (optionally also add an explicit adult descriptor to Growth::PillarPrompt::SAFE_BASE), then re-measure with a vision read. Re-measure needs a 4090 window and we hold no claim (prx-tg-latent-first-v34 holds it), so verification is blocked-on-slot. Left open, not guessed."
     }
   ]
 }

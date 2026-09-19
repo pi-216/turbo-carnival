@@ -1,0 +1,17 @@
+{
+  "key": "growth-tick-kills-its-own-render",
+  "title": "The growth tick's 180s foreground timeout SIGKILLs ContentGenerator mid-render, abandoning paid-for renders",
+  "severity": "warn",
+  "evidence": "The 13:08 EDT tick ran growth:sync_cadence in the foreground with a 180s budget; a 5-render shortfall takes ~45 min end-to-end (each render ~6 min: torch.compile init + 35/25-step inpaint + NSFW gate + realism gate + Ollama caption + schedule), so the tool call was killed mid-render. Result on 2026-09-19: PipelineRun 471 (sync_producer=Growth::ContentGenerator, created 17:01:15Z) had its render complete (job 7555 -> completed 17:04:53Z, ImageCandidate created) but the process that could write the terminal status was gone; the run sat pending until ReconcileStaleRuns reaped it at 18:38Z. The same failure produced the 42 pending runs cleaned up by hand earlier today and the tick's own report flagged it: 'a fixed 180s foreground timeout will repeatedly kill it mid-render'. Cost is real GPU time spent for renders that may never reach a scheduled post.",
+  "status": "open",
+  "source": "manual",
+  "first_seen": "2026-09-19T14:40:09-0400",
+  "last_seen": "2026-09-19T14:40:09-0400",
+  "seen_count": 1,
+  "notes": [
+    {
+      "ts": "2026-09-19T14:40:09-0400",
+      "note": "Damage is now BOUNDED in-repo: ReconcileStaleRuns (2026-09-19) terminalises abandoned sync runs at 30 min so they stop tripping the stuck-run probe. That fixes the debris, not the waste -- the producer still dies mid-render. The remaining fix is in the cron prompt, which is Hermes config outside this repo: tc-growth-harness-brain must not run growth:sync_cadence under a fixed 180s foreground budget. Options, cheapest first: (1) run it detached (direct >> log 2>&1 &) and let the next tick's render_need top up what is missing -- sync_cadence counts existing posts, so a partial run is safe to resume; (2) split it into per-slot batches (one render per call, ~10 min budget); (3) raise the tick's tool timeout above the observed ~45 min worst case. Filed rather than acted on because the prompt lives in ~/.hermes/profiles/turbo-carnival/cron/jobs.json, outside this repo."
+    }
+  ]
+}
