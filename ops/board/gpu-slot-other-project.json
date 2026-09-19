@@ -1,0 +1,17 @@
+{
+  "key": "gpu-slot-other-project",
+  "title": "4090 held by another project (prx-tg-latent-first-v34)",
+  "severity": "info",
+  "evidence": "we hold no claim; our queue entries=0",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T14:26:35-0400",
+  "last_seen": "2026-09-19T14:26:35-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-19T14:33:34-0400",
+      "note": "condition no longer reproduces"
+    }
+  ]
+}

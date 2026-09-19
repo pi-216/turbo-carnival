@@ -41,6 +41,13 @@ GPU = "4090"
 
 SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 
+# A foreign project holding the 4090 is the NORMAL shared-resource state (our rules
+# forbid interfering), so it is only worth an issue once the hold is long enough to
+# starve our renders. Below this, filing it is board churn, not signal.
+FOREIGN_HOLD_ALERT_H = 6.0
+# Starvation = we asked for the GPU and were refused, AND nothing came out.
+STARVE_WINDOW_H = 12
+
 
 # ---------------------------------------------------------------- utilities
 def run(cmd, timeout=25, cwd=None):
@@ -179,17 +186,49 @@ def check_launch_deps_importable():
     return None
 
 
+def foreign_hold_hours():
+    """Hours the 4090 has been held by a non-turbo-carnival job; None if ours/idle.
+
+    state.json timestamps are UTC ("...Z") — mktime would read them as local and
+    skew the age by the UTC offset (calendar.timegm, not time.mktime).
+    """
+    st = sched_state()
+    g = (st.get("gpus") or {}).get(GPU) or {}
+    if g.get("status") not in ("busy", "claimed"):
+        return None
+    since = g.get("current_since")
+    if not since:
+        return None
+    try:
+        t = calendar.timegm(time.strptime(since[:19], "%Y-%m-%dT%H:%M:%S"))
+    except Exception:
+        return None
+    return (time.time() - t) / 3600.0
+
+
 def check_slot():
+    """Our claim state. The 'someone else holds the 4090' case is NORMAL sharing.
+
+    Filing every foreign hold as an issue produced a board entry that could never
+    be actioned (the rules are explicit: never touch another project's job) and
+    re-opened on every probe. Real contention is reported by check_render_starved
+    (refusals + no output); here we only keep a record once a foreign hold is long
+    enough to matter for capacity planning.
+    """
     status, job, ours, ourjob = our_claim()
     q = queue(GPU)
     ahead = [j for j in q if j.get("project") == "turbo-carnival"]
     if status == "busy" and not ours and job:
-        return (
-            "gpu-slot-other-project",
-            f"4090 held by another project ({job})",
-            "info",
-            f"we hold no claim; our queue entries={len(ahead)}",
-        )
+        held = foreign_hold_hours()
+        if ahead or (held is not None and held >= FOREIGN_HOLD_ALERT_H):
+            return (
+                "gpu-slot-other-project",
+                f"4090 held by another project ({job})",
+                "info",
+                f"we hold no claim; held {held:.1f}h; our queue entries={len(ahead)}" if held
+                else f"we hold no claim; our queue entries={len(ahead)}",
+            )
+        return None
     if ours and not comfyui_up():
         return (
             "comfyui-down-while-claimed",
@@ -254,6 +293,43 @@ def check_render_acceptance():
             "No photo produced in 24h (pipeline running but accepting nothing)",
             "critical",
             "photos created in last 24h = 0",
+        )
+    return None
+
+
+def check_render_starved():
+    """The render loop is blocked on the shared GPU AND producing nothing.
+
+    Replaces the old "another project holds the 4090" info entry as the contention
+    signal. That entry fired on routine sharing (unactionable, and re-opened every
+    probe); this fires only on the condition that actually starves the harness: the
+    GPU was requested and refused (comfyui_unclaimed / cadence_blocked decisions)
+    and ZERO photos were accepted in the same window. Canonical case: 2026-08-16 ->
+    2026-09-16, ~96h of foreign holds with hourly refusals and a queue that drained
+    to empty while every individual report looked merely "behind".
+
+    Both halves are required: refusals alone are expected under sharing, empty
+    output alone is check_render_acceptance's job (24h, critical).
+    """
+    photos = psql(f"select count(*) from photos where created_at > now() - interval '{STARVE_WINDOW_H} hours'")
+    refused = psql("select count(*) from growth_decisions where action in "
+                   "('comfyui_unclaimed','cadence_blocked') and decided_at > now() - "
+                   f"interval '{STARVE_WINDOW_H} hours'")
+    if photos is None or refused is None:
+        return None
+    try:
+        photos, refused = int(photos), int(refused)
+    except ValueError:
+        return None
+    if photos == 0 and refused >= 1:
+        job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
+        held = foreign_hold_hours()
+        return (
+            "render-starved",
+            f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
+            "warn",
+            f"photos_{STARVE_WINDOW_H}h=0 refusals_{STARVE_WINDOW_H}h={refused} "
+            f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else ""),
         )
     return None
 
@@ -543,6 +619,7 @@ CHECKS = [
     check_stuck_pipeline_runs,
     check_render_for_terminal_run,
     check_render_acceptance,
+    check_render_starved,
     check_telemetry_oom,
     check_harness_log_growth,
     check_queue_growth,
