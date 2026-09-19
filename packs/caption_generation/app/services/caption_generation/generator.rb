@@ -38,7 +38,10 @@ module CaptionGeneration
       ModelConfig.log_failure(component: 'text', error: e, photo_id: @photo&.id)
       Result.new(
         text: '',
-        metadata: { error: e.message, model: ModelConfig.model, timeout: ModelConfig.timeout },
+        metadata: { error: e.message, model: model_choice[:model],
+                    requested_model: ModelConfig.model,
+                    model_selection: model_choice[:reason],
+                    timeout: model_choice[:timeout] },
         success: false
       )
     end
@@ -57,7 +60,8 @@ module CaptionGeneration
     def generate_caption(prompt)
       load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
 
-      client = AI::OllamaClient.new(model: ModelConfig.model, timeout: ModelConfig.timeout)
+      choice = model_choice
+      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout])
 
       result = client.chat(
         messages: [
@@ -70,10 +74,19 @@ module CaptionGeneration
       result[:text]
     end
 
+    # Resolved once per call: which model answers depends on what Ollama has
+    # resident right now (see ModelConfig.resolve), and the metadata must record
+    # the same choice the client was built with.
+    def model_choice
+      @model_choice ||= ModelConfig.resolve
+    end
+
     def build_metadata(processed, context)
       {
-        model: ModelConfig.model,
-        timeout: ModelConfig.timeout,
+        model: model_choice[:model],
+        requested_model: ModelConfig.model,
+        model_selection: model_choice[:reason],
+        timeout: model_choice[:timeout],
         length: processed[:length],
         compliant: processed[:compliant],
         cluster: context[:cluster_name],

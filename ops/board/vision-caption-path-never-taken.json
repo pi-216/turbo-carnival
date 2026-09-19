@@ -12,6 +12,10 @@
     {
       "ts": "2026-09-19T17:10:00-0400",
       "note": "Filed rather than changed: whether captions should describe the actual image is a product decision, and the text path is not broken per se - it produces on-voice captions from the pillar/context. But the vision path has been unreachable for ~4 months, so any tuning of the vision prompt is tuning dead code, and the caption model choice is really only about the text path. If vision captions are wanted, the fix is to attach the render bytes in import_photo (or have GenerateCaption fall back to servable_file_path instead of image.attached?). Not actioned - needs Tim."
+    },
+    {
+      "ts": "2026-09-19T17:37:02-0400",
+      "note": "2026-09-19 ops-triage: still a product decision for Tim, but the mechanical fix is now precisely scoped and one line long. PostAutomation::GenerateCaption routes to VisionGenerator only when photo.image.attached?; Growth::ContentGenerator#import_photo creates photos path-only, so every harness render takes the text path. VisionGenerator itself already supports path-only photos (it reads photo.servable_file_path first and only falls back to the ActiveStorage blob), so the routing condition is stricter than the generator capability -- routing on servable_file_path would switch the whole harness to image-described captions. That changes caption CONTENT (describes the render vs. the pillar/context text) and adds an image payload to every call, so it stays Tim call, not a bug fix. Relevant new context: the caption model ladder shipped this run means the vision path would use gemma3:4b whenever the 27B is cold, and gemma3:4b is multimodal, so the path would actually work if routed to."
     }
   ]
 }

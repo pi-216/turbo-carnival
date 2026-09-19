@@ -312,12 +312,18 @@ def check_caption_fallback():
         "warn" if ratio >= 0.5 else "info",
         f"placeholder rate {ratio:.0%} over {total} scheduled posts created in the "
         f"last 24h. Both ContentGenerator and RenderSalvage substitute the "
-        f"placeholder when CaptionGeneration::VisionGenerator fails, so this is a "
-        f"dead caption path, not a content choice. Check the vision model can load "
-        f"at all: a cold load of gemma3:27b from the NFS model store "
-        f"(/mnt/nas-ai-models/ollama, ~40 MB/s) exceeds Ollama's ~300s llama-server "
-        f"start timeout, so it fails with HTTP 500 'timed out waiting for "
-        f"llama-server to start' and the 180s client timeout fires first.",
+        f"placeholder when the caption call fails, so this is a dead caption path, "
+        f"not a content choice. Every recent render takes the TEXT path "
+        f"(CaptionGeneration::Generator); the vision path is unreachable while "
+        f"photos are imported without an ActiveStorage attachment. Mechanism: "
+        f"gemma3:27b cannot be COLD-loaded on max395 - its 16.5 GB of weights sit "
+        f"on the NFS model store (~40 MB/s) and exceed Ollama's ~300s llama-server "
+        f"start timeout - so a call against a non-resident 27B burns the full "
+        f"client timeout and still fails. CaptionGeneration::ModelConfig.resolve "
+        f"now picks the model from Ollama's /api/ps (the preferred model when it "
+        f"is resident, otherwise the fallback model), so a rate that persists "
+        f"means BOTH models are failing: grep the log for '[caption]' and read "
+        f"the caption metadata's model_selection.",
     )
 
 

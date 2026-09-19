@@ -82,6 +82,27 @@ module AI
       false
     end
 
+    # Names of the models currently RESIDENT in Ollama's memory (/api/ps).
+    #
+    # A resident model answers in seconds; one that is not has to be read from
+    # disk first. On max395 the model store is NFS (~40 MB/s), so a 27B cold
+    # load cannot finish inside Ollama's ~300s llama-server start timeout.
+    # Callers use this to choose a model that can actually answer rather than
+    # waiting out the full client timeout and failing.
+    #
+    # Bounded timeouts on purpose: this runs inside the growth tick's caption
+    # path, and an unresponsive Ollama must not be able to hang the tick.
+    def loaded_models
+      response = connection.get('/api/ps') do |req|
+        req.options.open_timeout = 5
+        req.options.timeout = 10
+      end
+      parsed = JSON.parse(response.body)
+      Array(parsed['models']).filter_map { |m| m['name'] || m['model'] }.reject(&:empty?)
+    rescue Faraday::Error => e
+      raise Error, "Failed to list loaded models: #{e.message}"
+    end
+
     private
 
     def connection

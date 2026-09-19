@@ -29,7 +29,8 @@ module CaptionGeneration
       prompt = build_vision_prompt
 
       # Call Ollama with vision
-      client = AI::OllamaClient.new(model: ModelConfig.model, timeout: ModelConfig.timeout)
+      choice = model_choice
+      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout])
 
       result = client.chat(
         messages: [
@@ -56,12 +57,22 @@ module CaptionGeneration
       Result.new(
         text: '',
         metadata: { error: e.message, vision: true,
-                    model: ModelConfig.model, timeout: ModelConfig.timeout },
+                    model: model_choice[:model],
+                    requested_model: ModelConfig.model,
+                    model_selection: model_choice[:reason],
+                    timeout: model_choice[:timeout] },
         success: false
       )
     end
 
     private
+
+    # Resolved once per call: which model answers depends on what Ollama has
+    # resident right now (see ModelConfig.resolve), and the metadata must record
+    # the same choice the client was built with.
+    def model_choice
+      @model_choice ||= ModelConfig.resolve
+    end
 
     def encode_image
       # Prefer the local/NAS file (no B2). Falls back to the ActiveStorage blob.
@@ -133,9 +144,10 @@ module CaptionGeneration
 
     def build_metadata(processed, ai_result)
       {
-        model: ai_result[:model] || ModelConfig.model,
+        model: ai_result[:model] || model_choice[:model],
         requested_model: ModelConfig.model,
-        timeout: ModelConfig.timeout,
+        model_selection: model_choice[:reason],
+        timeout: model_choice[:timeout],
         generator: 'vision',
         word_count: processed[:text].split.size,
         char_count: processed[:text].length,

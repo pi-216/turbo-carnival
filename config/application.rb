@@ -29,8 +29,14 @@ module TurboCarnival
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = false
 
-    # Allow the Cloudflare-tunnel host used to serve media to Instagram
-    config.hosts << '.pi216.ai'
+    # Allow the Cloudflare-tunnel host used to serve media to Instagram.
+    # Test-only guard: in the test environment this append turns Rails' permissive
+    # default into a one-entry allowlist, so every request spec that uses the
+    # default host (www.example.com) is rejected with 403 by
+    # ActionDispatch::HostAuthorization before it reaches the app -- which silently
+    # disabled the whole request-spec suite (7 failures in
+    # spec/requests/scheduling_posts_spec.rb). Production behaviour is unchanged.
+    config.hosts << '.pi216.ai' unless Rails.env.test?
     
     # Configure session store
     config.session_store :cookie_store, key: '_turbo_carnival_session'
