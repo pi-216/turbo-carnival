@@ -466,14 +466,37 @@ def check_stranded_pending_jobs():
     return None
 
 
-def check_zombie_jobs():
-    """Sidekiq retries of job classes that no longer exist.
+def _repo_defines_class(name):
+    """True when app/ or a pack defines this constant (Zeitwerk leaf-name match)."""
+    leaf = name.split("::")[-1]
+    pat = re.compile(rf"\b(?:class|module)\s+{re.escape(leaf)}\b")
+    for root in (APP / "app", APP / "packs", APP / "lib"):
+        for p in root.rglob("*.rb"):
+            try:
+                if pat.search(p.read_text(errors="ignore")):
+                    return True
+            except OSError:
+                continue
+    return False
 
-    These can never succeed -- the constant is gone from the codebase -- so every
-    retry is a guaranteed NameError. They stay invisible until a Sidekiq worker
-    runs for this app (there was none until 2026-09-19), then retry forever and
-    fill the journal. Found 5 (TouchNeighborsJob, RecalculateCollectionCentroidJob)
-    with retry counts 4-6 and zero references anywhere in the repo.
+
+def check_zombie_jobs():
+    """Sidekiq NameErrors for job classes this app cannot resolve.
+
+    Two very different causes, and the fix for one is useless for the other:
+
+    1. REAL ZOMBIE -- the class was deleted (or renamed) and stale retries keep
+       re-running. Fix: purge Sidekiq's retry set.
+    2. FOREIGN PAYLOAD -- the class never belonged to this app at all: the worker
+       is consuming another project's queue, which happens when both share a
+       Redis DB (Sidekiq defaults to DB 0). Canonical: on 2026-09-19 this worker
+       ran TouchNeighborsJob / RecalculateCollectionCentroidJob /
+       IdentifyPotentialDuplicatesJob -- all crawlr's, none in this repo -- for
+       ~90 min because config/initializers/sidekiq.rb set no redis url. Purging
+       the retry set (the first response) just made it recur. Fix: isolate the
+       Redis DB (and keep the isolation in the initializer, not only in .env).
+
+    The evidence names which of the two it is; the two are NOT interchangeable.
     """
     # 15-minute window, deliberately: a 1-hour lookback kept flagging the 189
     # pre-purge failures for a full hour AFTER the retry set was emptied, which is
@@ -489,13 +512,22 @@ def check_zombie_jobs():
     counts = {}
     for c in consts:
         counts[c] = counts.get(c, 0) + 1
+    foreign = sorted(c for c in counts if not _repo_defines_class(c))
     top = ", ".join(f"{k} x{v}" for k, v in
                     sorted(counts.items(), key=lambda kv: -kv[1])[:5])
+    if foreign:
+        hint = (f"{', '.join(foreign)} — NOT defined in this repo: the worker is "
+                "consuming another project's queue (shared Redis DB). Check "
+                "REDIS_URL / config/initializers/sidekiq.rb isolation; purging "
+                "the retry set only makes it recur")
+    else:
+        hint = f"{top} — purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)"
     return (
         "sidekiq-zombie-jobs",
-        f"{len(consts)} retries of jobs whose class does not exist",
+        f"{len(consts)} retries of jobs whose class does not exist"
+        + (" (foreign queue)" if foreign else ""),
         "warn",
-        f"{top} — purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
+        f"{top} — {hint}",
     )
 
 

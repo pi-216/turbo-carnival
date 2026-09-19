@@ -1,12 +1,22 @@
 {
   "key": "sidekiq-zombie-jobs",
-  "title": "43 retries of jobs whose class does not exist",
+  "title": "1 retries of jobs whose class does not exist",
   "severity": "warn",
-  "evidence": "TouchNeighborsJob x31, RecalculateCollectionCentroidJob x12 \u2014 purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
-  "status": "open",
+  "evidence": "IdentifyPotentialDuplicatesJob x1 \u2014 purge via Sidekiq::RetrySet (only entries whose klass resolves to no constant)",
+  "status": "closed",
   "first_seen": "2026-09-19T12:57:57-0400",
-  "last_seen": "2026-09-19T12:58:58-0400",
-  "seen_count": 3,
+  "last_seen": "2026-09-19T13:25:53-0400",
+  "seen_count": 6,
   "source": "probe",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-19T13:51:35-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T13:54:33-0400",
+      "note": "ROOT CAUSE: config/initializers/sidekiq.rb set no redis url, so the Sidekiq 7 worker defaulted to redis://localhost:6379/0 \u2014 crawlr's DB. This worker therefore consumed crawlr's 'default' queue and raised NameError on crawlr classes (TouchNeighborsJob x127, RecalculateCollectionCentroidJob x60, IdentifyPotentialDuplicatesJob, ActiveStorage::AnalyzeJob for crawlr blobs) from 16:02Z until 17:23Z. The earlier 'purge the retry set' response treated a symptom and it recurred. FIX: redis DB isolation in the initializer (server AND client -> /1, committed) plus .env REDIS_URL; probe check_zombie_jobs now classifies classes absent from the repo as FOREIGN-queue contamination and points at REDIS_URL isolation instead of the retry set. VERIFIED: journalctl -u turbo-carnival-sidekiq has 0 foreign-class executions since 17:23Z (worker restarted 13:23 EDT, pid 1960691, connections confirmed on DB 1 via redis MONITOR); probe re-run -> 0 warn; crawlr-sidekiq still consuming its own DB 0 queue normally."
+    }
+  ],
+  "closed_at": "2026-09-19T13:54:33-0400"
 }
