@@ -28,7 +28,10 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHED="python3 /mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py"
+SCHEDULER_PY=/mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py
+SCHED="python3 $SCHEDULER_PY"
+PY3="$(command -v python3)"
+COMFY_MEM_MAX=24G        # memory ceiling for ComfyUI's OWN cgroup (see launch_comfyui)
 GPU=4090
 PROJECT=turbo-carnival
 VRAM=21
@@ -44,7 +47,18 @@ POLL_INTERVAL=10
 
 mkdir -p "$(dirname "$HARNESS_LOG")"
 
-sched() { python3 /mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py "$@"; }
+sched() { python3 "$SCHEDULER_PY" "$@"; }
+
+# Transient systemd user unit names this harness owns. Both ComfyUI and the
+# heartbeat loop run in their OWN cgroups so they survive the launching shell
+# AND the Hermes cron worker's 4 GiB memory scope.
+comfy_unit() { echo "comfyui-svc-${1#comfyui-}"; }
+hb_unit()    { echo "comfyui-hb-${1#comfyui-}"; }
+hb_alive()   { systemctl --user is-active "$(hb_unit "$1")" >/dev/null 2>&1; }
+stop_heartbeat() {
+  local job="$1"; [ -n "$job" ] || return 0
+  systemctl --user stop "$(hb_unit "$job")" >/dev/null 2>&1 || true
+}
 
 # Remove a job WE created from the scheduler queue. release() alone returns
 # "not_owner" while another agent holds the GPU, leaving a queued entry that
@@ -175,8 +189,8 @@ cmd_status() {
     ours=yes
   fi
   # Claim can be active but state file lost (e.g. tmpfs wipes): if the GPU is
-  # claimed and a heartbeat loop is still ours by pgrep, treat as ours.
-  if [ "$ours" = "no" ] && [ -n "$hb_pid" ] && kill -0 "$hb_pid" 2>/dev/null; then
+  # claimed and our heartbeat UNIT is still active, treat the claim as ours.
+  if [ "$ours" = "no" ] && [ -n "${job_id:-}" ] && hb_alive "$job_id"; then
     ours=yes
   fi
 
@@ -204,8 +218,8 @@ cmd_ensure() {
     status="$(echo "$sline" | sed -n 's/^  status: *//p' | tr -d ' ')"
 
     if [ "$current_job" = "$job_id" ] && [ "$status" != "idle" ]; then
-      # We already hold the claim. (Re)start heartbeat loop if it died.
-      if [ -n "$hb_pid" ] && ! kill -0 "$hb_pid" 2>/dev/null; then
+      # We already hold the claim. (Re)start the heartbeat unit if it died.
+      if ! hb_alive "$job_id"; then
         start_heartbeat_loop "$job_id"
       fi
       if comfyui_up; then
@@ -276,14 +290,21 @@ cmd_ensure() {
 }
 
 start_heartbeat_loop() {
-  local job="$1"
-  # Detached loop: heartbeat every 5 min until killed. Survives the agent.
-  ( while true; do
-      sched heartbeat --gpu "$GPU" --job-id "$job" --progress 1 --vram-used "$VRAM" >>"$HARNESS_LOG" 2>&1
-      sleep "$HEARTBEAT_INTERVAL"
-    done ) &
-  write_state "$job" "$!"
-  log "heartbeat loop started (pid $!) for $job — every ${HEARTBEAT_INTERVAL}s"
+  local job="$1" unit pid
+  unit="$(hb_unit "$job")"
+  # The loop MUST outlive the cron execution that starts it. A plain `( ... ) &`
+  # subshell dies with its owner (executions.db status='unknown'), the heartbeat
+  # goes stale, and the claim is reaped after 30 min with no `release` — which
+  # orphans the job FILE at the FIFO head and starves every project behind it.
+  # Run it as its own systemd user unit so the claim lives as long as ComfyUI does.
+  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+  systemd-run --user --unit="$unit" --collect \
+    bash -c "while true; do $PY3 $SCHEDULER_PY heartbeat --gpu $GPU --job-id $job --progress 1 --vram-used $VRAM >>$HARNESS_LOG 2>&1; sleep $HEARTBEAT_INTERVAL; done" >/dev/null 2>&1
+  pid="$(systemctl --user show -p MainPID --value "$unit" 2>/dev/null)"
+  case "$pid" in ''|0) pid="" ;; esac
+  write_state "$job" "$pid"
+  log "heartbeat unit ${unit} started (MainPID ${pid:-?}) for $job — every ${HEARTBEAT_INTERVAL}s"
 }
 
 launch_comfyui() {
@@ -298,8 +319,22 @@ launch_comfyui() {
   fi
 
   local slog="/mnt/nas-ai-models/gpu-scheduler/logs/comfyui-${job}.log"
-  log "launching ComfyUI (${COMFY_DIR}) — log: ${slog}"
-  ( cd "$COMFY_DIR" && setsid nohup "$COMFY_VENV/bin/python" main.py --listen 0.0.0.0 --enable-manager --fp32-text-enc >"$slog" 2>&1 & )
+  local unit; unit="$(comfy_unit "$job")"
+  # Launch in ComfyUI's OWN transient cgroup. A plain `setsid nohup` escapes the
+  # session but NOT the cgroup: when this harness runs from a Hermes cron tick,
+  # ComfyUI inherits that worker's scope (memory.max = 4 GiB) and the kernel OOM
+  # killer SIGKILLs it ~25 s into model load (Flux weights ≈ 3.9 GB anon RSS) —
+  # every tick, mid-render, with only a leaked-semaphore warning in the log.
+  # systemd-run --user gives it a dedicated unit with a real ceiling.
+  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+  log "launching ComfyUI (${COMFY_DIR}) in unit ${unit} (MemoryMax=${COMFY_MEM_MAX}) — log: ${slog}"
+  systemd-run --user --unit="$unit" --collect \
+    --property MemoryMax="${COMFY_MEM_MAX}" --property MemoryAccounting=yes \
+    --property StandardOutput=append:"$slog" --property StandardError=append:"$slog" \
+    --working-directory "$COMFY_DIR" \
+    "$COMFY_DIR/${COMFY_VENV}/bin/python" main.py --listen 0.0.0.0 --enable-manager --fp32-text-enc >/dev/null 2>&1 \
+    || log "WARNING: systemd-run failed to start unit ${unit}"
 
   local waited=0
   while ! comfyui_up && [ "$waited" -lt "$UP_WAIT" ]; do
@@ -338,12 +373,15 @@ cmd_shutdown() {
     return 3
   fi
 
-  if [ -n "$hb_pid" ] && kill -0 "$hb_pid" 2>/dev/null; then
-    log "shutdown: stopping heartbeat loop pid $hb_pid"
-    kill "$hb_pid" 2>/dev/null
+  if [ -n "$job_id" ]; then
+    if hb_alive "$job_id"; then
+      log "shutdown: stopping heartbeat unit $(hb_unit "$job_id")"
+    fi
+    stop_heartbeat "$job_id"
   fi
 
   kill_comfyui
+  [ -n "$job_id" ] && systemctl --user stop "$(comfy_unit "$job_id")" >/dev/null 2>&1 || true
 
   if [ -n "$job_id" ]; then
     log "shutdown: releasing claim $job_id"
