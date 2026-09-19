@@ -1,0 +1,17 @@
+{
+  "key": "vision-caption-path-never-taken",
+  "title": "No photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image (CaptionGeneration::VisionGenerator is dead code in production)",
+  "severity": "info",
+  "source": "manual",
+  "status": "open",
+  "first_seen": "2026-09-19T17:10:00-0400",
+  "last_seen": "2026-09-19T17:10:00-0400",
+  "seen_count": 1,
+  "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
+  "notes": [
+    {
+      "ts": "2026-09-19T17:10:00-0400",
+      "note": "Filed rather than changed: whether captions should describe the actual image is a product decision, and the text path is not broken per se - it produces on-voice captions from the pillar/context. But the vision path has been unreachable for ~4 months, so any tuning of the vision prompt is tuning dead code, and the caption model choice is really only about the text path. If vision captions are wanted, the fix is to attach the render bytes in import_photo (or have GenerateCaption fall back to servable_file_path instead of image.attached?). Not actioned - needs Tim."
+    }
+  ]
+}

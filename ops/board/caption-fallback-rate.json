@@ -1,17 +1,21 @@
 {
   "key": "caption-fallback-rate",
-  "title": "Posts ship with the placeholder caption 'Fresh look' when Ollama's vision caption times out at 180s",
-  "severity": "info",
-  "evidence": "6 of the last 29 scheduled posts (created within 72h, checked 2026-09-19 20:1x UTC) carry the exact fallback string 'Fresh look' (posts 333-337 plus one more), i.e. ~21% of published captions are a placeholder. Reproduced live during the ops-triage run: PostAutomation::GenerateCaption.call(photo: 346) returned success=false with 'Caption generation failed: Ollama request timed out after 180s. This may happen on first model load (30-60s). Try again.' while the watchdog simultaneously reported the caption service up (gemma3:27b loaded) -- so this is the cold-load/first-call timeout, not an outage. ContentGenerator and RenderSalvage both fall back to the placeholder on failure by design, which is why the degradation is silent: the post still goes out, so nothing looks broken.",
+  "title": "5 of 8 posts in 24h ship the placeholder caption 'Fresh look'",
+  "severity": "warn",
+  "evidence": "placeholder rate 62% over 8 scheduled posts created in the last 24h. Both ContentGenerator and RenderSalvage substitute the placeholder when CaptionGeneration::VisionGenerator fails, so this is a dead caption path, not a content choice. Check the vision model can load at all: a cold load of gemma3:27b from the NFS model store (/mnt/nas-ai-models/ollama, ~40 MB/s) exceeds Ollama's ~300s llama-server start timeout, so it fails with HTTP 500 'timed out waiting for llama-server to start' and the 180s client timeout fires first.",
   "status": "open",
   "first_seen": "2026-09-19T20:20:00+0000",
-  "last_seen": "2026-09-19T20:20:00+0000",
-  "seen_count": 1,
-  "source": "manual",
+  "last_seen": "2026-09-19T17:03:32-0400",
+  "seen_count": 3,
+  "source": "probe",
   "notes": [
     {
       "ts": "2026-09-19T20:20:00+0000",
       "note": "Pre-scoped fix, not applied: (1) retry ONCE on AI::OllamaClient::TimeoutError in CaptionGeneration::VisionGenerator -- the retry hits a warm model and is cheap; (2) or raise the vision timeout / send keep_alive so the 27B stays resident. Measure before choosing: captioning happens inside the same sync path the growth tick kills (see growth-tick-launch-mode), so a longer caption timeout widens that exposure. Also worth a counter: the fallback rate should be visible per cycle rather than inferred from post text, because 100% fallback would look exactly like a healthy pipeline."
+    },
+    {
+      "ts": "2026-09-19T17:03:08-0400",
+      "note": "ROOT CAUSE MEASURED 2026-09-19 20:2x-21:0x UTC. Not a 180s-timeout-tuning problem: gemma3:27b cannot be cold-loaded on max395 at all. Its weights live on the NFS model store (OLLAMA_MODELS=/mnt/nas-ai-models/ollama, NFS4 from 192.168.86.43, direct read measured 42 MB/s), so a cold load must read ~16.5 GB = ~375s, longer than Ollama's default 300s llama-server start timeout. Ollama kills the load and returns HTTP 500 'timed out waiting for llama-server to start'; the app's 180s client timeout fires first so the caller only sees a timeout. Evidence: three consecutive cold loads failed (POST /api/chat 499 at 3m0s twice - client aborted, journal 'client connection closed before llama-server finished loading, aborting load'; POST /api/generate 500 at 5m3s/5m4s - server aborted); control gemma3:4b (3.3 GB) loaded and answered HTTP 200 in 147s. This also explains the shape of the rate: five consecutive placeholders 15:15-17:15 UTC, then three real captions 17:23-17:50 (model resident), then a placeholder again at 19:56 (evicted after KEEP_ALIVE=30m). SHIPPED (commit 1f22fce): CaptionGeneration::ModelConfig is now the single source of truth for the caption model + client timeout, env-overridable (CAPTION_MODEL / CAPTION_TIMEOUT); both generators (the text path every recent render takes, and the vision path) use it and log the failure with model/timeout/photo id instead of failing silently; caption metadata records model+timeout. Defaults unchanged. VERIFIED: CAPTION_MODEL=gemma3:4b CAPTION_TIMEOUT=300 through PostAutomation::GenerateCaption returned a real caption in 104.1s (metadata model=gemma3:4b timeout=300). REMAINS BLOCKED on a human decision: the default is still gemma3:27b, so placeholders keep shipping until either the max395 infra is fixed (see caption-model-cold-load-exceeds-ollama-timeout) or CAPTION_MODEL is set in the growth tick's environment. This key is now probe-owned: bin/tc_ops.py files it from the placeholder rate over the posts created in the last 24h (>=3 posts, >=30% placeholder, warn at >=50%) and auto-closes it when the rate recovers."
     }
   ]
 }
