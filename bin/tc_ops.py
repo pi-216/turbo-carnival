@@ -245,7 +245,7 @@ def check_slot():
 
 def check_stuck_comfyui_jobs():
     n = psql("select count(*) from comfyui_jobs where status='submitted' "
-             "and created_at < now() - interval '30 minutes'")
+             "and created_at < (now() at time zone 'UTC') - interval '30 minutes'")
     if n is None:
         return None
     try:
@@ -265,7 +265,7 @@ def check_stuck_comfyui_jobs():
 
 def check_stuck_pipeline_runs():
     n = psql("select count(*) from pipeline_runs where status='pending' "
-             "and created_at < now() - interval '2 hours'")
+             "and created_at < (now() at time zone 'UTC') - interval '2 hours'")
     if n is None:
         return None
     try:
@@ -293,7 +293,7 @@ def caption_provenance(hours=24):
     """
     sql = ("select coalesce(caption_metadata->>'model_selection', 'unrecorded'), "
            "count(*) from scheduling_posts "
-           f"where created_at > now() - interval '{hours} hours' group by 1 "
+           f"where created_at > (now() at time zone 'UTC') - interval '{hours} hours' group by 1 "
            "order by 2 desc")
     out, rc = run(["psql", "-At", "-d", DB, "-c", sql])
     if rc != 0 or not out:
@@ -307,37 +307,94 @@ def caption_provenance(hours=24):
     return ", ".join(parts) or None
 
 
+def caption_window(hours=24):
+    """[(created_at, is_placeholder)] newest first; None when the DB is unreadable.
+
+    None (not []) so the caller can stay silent without asserting the window is
+    healthy -- an unreadable DB is a coverage hole, not a clean bill of health.
+    """
+    sql = ("select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SSZ'), "
+           "case when caption like 'Fresh look%' then 1 else 0 end "
+           "from scheduling_posts "
+           f"where created_at > (now() at time zone 'UTC') - interval '{hours} hours' "
+           "order by created_at desc")
+    out, rc = run(["psql", "-At", "-F", "|", "-d", DB, "-c", sql])
+    if rc != 0:
+        return None
+    rows = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        ts, _, ph = line.rpartition("|")
+        rows.append((ts.strip(), ph.strip() == "1"))
+    return rows
+
+
+def caption_verdict(rows, min_posts=CAPTION_MIN_POSTS,
+                    alert_ratio=CAPTION_ALERT_RATIO):
+    """Pure decision over a newest-first [(created_at, is_placeholder)] window.
+
+    Returns (severity, fb, total, detail) or None.
+
+    The trailing-window RATE alone cannot separate a dead caption path from one
+    that was FIXED mid-window: the placeholders of the failed stretch stay inside
+    the last 24h for up to a day after the fix, so a rate-only check keeps
+    warning long after the condition stopped reproducing (2026-09-19: the caption
+    model ladder shipped at 21:39Z while five pre-fix placeholders held the board
+    at 62% for the rest of the day, with no post created since the fix).
+
+    The failure is LIVE only while the NEWEST post in the window is a
+    placeholder: a dead path substitutes the placeholder on EVERY post, so the
+    newest one is always affected; once a real caption lands, the condition has
+    stopped reproducing at the latest data point and the rate is history.
+    """
+    if not rows or len(rows) < min_posts:
+        return None
+    total = len(rows)
+    fb = sum(1 for _, ph in rows if ph)
+    if fb == 0:
+        return None
+    ratio = fb / total
+    if ratio < alert_ratio:
+        return None
+    newest_ts, newest_ph = rows[0]
+    if not newest_ph:
+        return None
+    last_real = next((ts for ts, ph in rows if not ph), None)
+    first_ph = next((ts for ts, ph in reversed(rows) if ph), None)
+    return (
+        "warn" if ratio >= 0.5 else "info", fb, total,
+        f"LIVE: newest post {newest_ts} is a placeholder; "
+        f"placeholder stretch {first_ph}..{newest_ts}; "
+        f"last real caption {last_real or 'none in window'}",
+    )
+
+
 def check_caption_fallback():
     """Placeholder-caption rate over the last 24h of scheduled posts.
 
     Silent degradation by design: ContentGenerator and Growth::RenderSalvage both
     substitute 'Fresh look' when the caption model fails, so a dead caption path
     ships placeholder captions to a live account with nothing in any log. The rate
-    is the only signal that distinguishes that from a healthy pipeline.
+    is the only signal that distinguishes that from a healthy pipeline -- but only
+    while it is still reproducing, so the decision goes through caption_verdict()
+    (see there for why the rate alone files a false positive after a fix).
     """
-    total = psql("select count(*) from scheduling_posts "
-                 "where created_at > now() - interval '24 hours'")
-    fb = psql("select count(*) from scheduling_posts "
-              "where created_at > now() - interval '24 hours' "
-              "and caption like 'Fresh look%'")
-    if total is None or fb is None:
+    rows = caption_window()
+    if rows is None:
         return None
-    try:
-        total, fb = int(total), int(fb)
-    except ValueError:
+    verdict = caption_verdict(rows)
+    if verdict is None:
         return None
-    if total < CAPTION_MIN_POSTS or fb == 0:
-        return None
+    sev, fb, total, detail = verdict
     ratio = fb / total
-    if ratio < CAPTION_ALERT_RATIO:
-        return None
     provenance = caption_provenance()
     return (
         "caption-fallback-rate",
         f"{fb} of {total} posts in 24h ship the placeholder caption 'Fresh look'",
-        "warn" if ratio >= 0.5 else "info",
+        sev,
         f"placeholder rate {ratio:.0%} over {total} scheduled posts created in the "
-        f"last 24h. Both ContentGenerator and RenderSalvage substitute the "
+        f"last 24h. {detail}. Both ContentGenerator and RenderSalvage substitute the "
         f"placeholder when the caption call fails, so this is a dead caption path, "
         f"not a content choice. Every recent render takes the TEXT path "
         f"(CaptionGeneration::Generator); the vision path is unreachable while "
@@ -357,7 +414,7 @@ def check_caption_fallback():
 
 def check_render_acceptance():
     """Output != accepted output: photos created is the real acceptance signal."""
-    n = psql("select count(*) from photos where created_at > now() - interval '24 hours'")
+    n = psql("select count(*) from photos where created_at > (now() at time zone 'UTC') - interval '24 hours'")
     if n is None:
         return None
     try:
@@ -388,9 +445,9 @@ def check_render_starved():
     Both halves are required: refusals alone are expected under sharing, empty
     output alone is check_render_acceptance's job (24h, critical).
     """
-    photos = psql(f"select count(*) from photos where created_at > now() - interval '{STARVE_WINDOW_H} hours'")
+    photos = psql(f"select count(*) from photos where created_at > (now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
     refused = psql("select count(*) from growth_decisions where action in "
-                   "('comfyui_unclaimed','cadence_blocked') and decided_at > now() - "
+                   "('comfyui_unclaimed','cadence_blocked') and decided_at > (now() at time zone 'UTC') - "
                    f"interval '{STARVE_WINDOW_H} hours'")
     if photos is None or refused is None:
         return None
@@ -523,7 +580,7 @@ def check_render_for_terminal_run():
     """
     n = psql("select count(*) from comfyui_jobs j "
              "join pipeline_runs r on r.id = j.pipeline_run_id "
-             "where j.created_at > now() - interval '24 hours' "
+             "where j.created_at > (now() at time zone 'UTC') - interval '24 hours' "
              "and r.status in ('failed','completed') "
              "and j.created_at > r.updated_at")
     if n is None:
@@ -536,7 +593,7 @@ def check_render_for_terminal_run():
         detail = psql("select p.name || ':run' || r.id || ' ' || r.status || ' #job' || j.id "
                       "from comfyui_jobs j join pipeline_runs r on r.id = j.pipeline_run_id "
                       "join pipelines p on p.id = r.pipeline_id "
-                      "where j.created_at > now() - interval '24 hours' "
+                      "where j.created_at > (now() at time zone 'UTC') - interval '24 hours' "
                       "and r.status in ('failed','completed') "
                       "and j.created_at > r.updated_at order by j.id desc limit 5")
         return (
@@ -601,7 +658,7 @@ def check_stranded_pending_jobs():
     run stayed OOM-failed). Fixed in PollJobStatus; this check keeps it fixed.
     """
     n = psql("select count(*) from comfyui_jobs where status='pending' "
-             "and comfyui_job_id is null and created_at < now() - interval '30 minutes'")
+             "and comfyui_job_id is null and created_at < (now() at time zone 'UTC') - interval '30 minutes'")
     if n is None:
         return None
     try:
@@ -684,7 +741,33 @@ def check_zombie_jobs():
     )
 
 
+def check_probe_inputs():
+    """Coverage guard: a probe that cannot measure must not report green.
+
+    Every other check returns None for BOTH "healthy" and "could not read the
+    input" (psql down, state.json missing or unparseable, NAS unmounted), so a
+    blind probe reads as a clean board -- exactly the silence-looks-like-success
+    failure this board exists to catch. File the coverage hole explicitly.
+    """
+    problems = []
+    if psql("select 1") != "1":
+        problems.append(f"psql cannot read {DB} (every DB-backed check reports nothing)")
+    if not SCHED_DIR.exists():
+        problems.append(f"{SCHED_DIR} is not mounted (no scheduler checks ran)")
+    elif not ((sched_state().get("gpus") or {}).get(GPU)):
+        problems.append(f"state.json has no '{GPU}' entry (slot/queue checks report nothing)")
+    if not problems:
+        return None
+    return (
+        "probe-inputs-unreadable",
+        "ops probe cannot read its inputs -- the board is blind, not clean",
+        "critical",
+        "; ".join(problems),
+    )
+
+
 CHECKS = [
+    check_probe_inputs,
     check_worker_running,
     check_backlog_backpressure,
     check_stranded_pending_jobs,
@@ -817,12 +900,23 @@ def cmd_show(argv):
 
 def cmd_close(argv):
     if not argv:
-        print("usage: tc_ops.py close KEY [--note TEXT]", file=sys.stderr)
+        print("usage: tc_ops.py close KEY [-n|--note TEXT]", file=sys.stderr)
         return 2
     key = argv[0]
+    # A note flag with no value used to IndexError; and when the flag itself
+    # landed in the note slot the board kept the literal "--note" as the
+    # resolution (observed 2026-09-19). Refuse rather than persist a non-note.
     note = ""
-    if "--note" in argv:
-        note = argv[argv.index("--note") + 1]
+    for flag in ("--note", "-n"):
+        if flag in argv:
+            i = argv.index(flag) + 1
+            note = argv[i] if i < len(argv) else ""
+            break
+    if not note or note.startswith("-"):
+        print("usage: tc_ops.py close KEY [-n|--note TEXT] "
+              "(a resolution note is required, and it must be the flag's value)",
+              file=sys.stderr)
+        return 2
     p = issue_path(key)
     if not p.exists():
         print(f"no such issue: {key}", file=sys.stderr)
@@ -830,9 +924,16 @@ def cmd_close(argv):
     rec = json.loads(p.read_text())
     rec["status"] = "closed"
     rec["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    rec.setdefault("notes", []).append({"ts": rec["closed_at"], "note": note or "closed"})
+    rec.setdefault("notes", []).append({"ts": rec["closed_at"], "note": note})
     p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"closed {key}: {note}")
+    # A probe-owned key is re-filed from live signals on the next tick unless the
+    # CONDITION stops reproducing -- closing it by hand only works if the probe
+    # agrees. Say so, or the same close gets attempted again every run.
+    if rec.get("source", "probe") == "probe":
+        print(f"note: '{key}' is probe-owned; the next probe re-files it unless "
+              f"the condition itself stops reproducing. Fix the signal, not the "
+              f"board entry.")
     return 0
 
 
@@ -851,6 +952,69 @@ def cmd_touch(argv):
     return 0
 
 
+def cmd_selftest(_argv):
+    """Assert the pure decisions this board depends on (no DB, no board writes).
+
+    Added after two board defects shipped: the caption check filed a false
+    positive for a whole day after a fix (rate-only window), and `close --note`
+    with no value persisted the literal string "--note" as a resolution. Both are
+    decisions, so both are testable without a database.
+    """
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+
+    T = lambda h: f"2026-09-19T{h}:00:00Z"
+    fails = []
+
+    def expect(name, got, want):
+        if got != want:
+            fails.append(f"{name}: got {got!r}, want {want!r}")
+
+    # caption_verdict: (rows newest-first, expected severity or None)
+    cases = [
+        ("live-break", [(T(12), True), (T(11), True), (T(10), True), (T(9), False)], "warn"),
+        ("recovered-head", [(T(12), False), (T(11), True), (T(10), True), (T(9), True)], None),
+        ("single-blip", [(T(12), False), (T(11), True)], None),
+        ("low-rate", [(T(12), True)] + [(T(11 - i), False) for i in range(4)], None),
+        ("info-band", [(T(12), True), (T(11), False), (T(10), False)], "info"),
+        ("no-posts", [], None),
+    ]
+    for name, rows, want in cases:
+        v = caption_verdict(rows)
+        expect(f"caption_verdict[{name}]", v[0] if v else None, want)
+
+    # close: a note flag with no value must be refused, not persisted.
+    tmp = Path(tempfile.mkdtemp())
+    tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
+    globals()["BOARD"] = tmp
+    try:
+        (tmp / "k.json").write_text(json.dumps(
+            {"key": "k", "status": "open", "source": "probe", "notes": []}))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc_missing = cmd_close(["k", "--note"])
+        mid = json.loads((tmp / "k.json").read_text())
+        with redirect_stdout(buf):
+            rc_ok = cmd_close(["k", "-n", "resolved by selftest"])
+        rec = json.loads((tmp / "k.json").read_text())
+        expect("close[missing-note] rc", rc_missing, 2)
+        expect("close[missing-note] untouched", (mid["status"], len(mid["notes"])), ("open", 0))
+        expect("close[-n] rc", rc_ok, 0)
+        expect("close[-n] note", rec["notes"][-1]["note"], "resolved by selftest")
+        expect("close[probe-owned] warns", "probe-owned" in buf.getvalue(), True)
+    finally:
+        globals()["BOARD"] = tc_ops_board
+        for f in tmp.glob("*.json"):
+            f.unlink()
+        tmp.rmdir()
+
+    for f in fails:
+        print(f"FAIL {f}")
+    print(f"selftest: {len(cases) + 5} assertions, {len(fails)} failures")
+    return 1 if fails else 0
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -858,7 +1022,7 @@ def main():
     cmd, argv = sys.argv[1], sys.argv[2:]
     return {
         "probe": cmd_probe, "list": cmd_list, "show": cmd_show,
-        "close": cmd_close, "touch": cmd_touch,
+        "close": cmd_close, "touch": cmd_touch, "selftest": cmd_selftest,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 

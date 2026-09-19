@@ -32,6 +32,10 @@
     {
       "ts": "2026-09-19T17:37:02-0400",
       "note": "2026-09-19 21:3x UTC ops-triage: unchanged, still blocked on the same two things, neither of which moved this run. (1) Human decision -- what age should Sarah read as. The pre-scoped fix stays unapplied: drop adult, mature_face from node 79 (the NEGATIVE prompt) of pipeline 21 turbo-one-step-clean, optionally add an explicit adult descriptor to Growth::PillarPrompt::SAFE_BASE. Guessing would silently change who Sarah is. (2) A 4090 window to re-measure with a vision read: re-checked live at 21:31 UTC, the 4090 is still busy with prx-tg-latent-first-v34 (16.0 GB, 10 h, requested 15:00:28Z, ours=no, comfyui=down), so no claim, no renders, no prompt or identity text touched. Note for whoever picks this up: the re-measurement cannot use CaptionGeneration::VisionGenerator while photos are imported without an ActiveStorage attachment -- read the render file directly via servable_file_path instead."
+    },
+    {
+      "ts": "2026-09-19T19:40:36-0400",
+      "note": "Blocked on two things 2026-09-19 23:5xZ, neither of them fixable from here: (1) Tim's statement of the intended persona age -- editing Growth::PillarPrompt::SAFE_BASE or the node-88 tokens changes who Sarah IS, a creative-identity decision; (2) a 4090 window to re-measure any prompt change with a vision read, which we do not have (prx-tg-latent-first-v34 holds the claim; the render queue is at target so no tick will request one). No renders were run, per the no-claim rule."
     }
   ]
 }
