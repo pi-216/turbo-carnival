@@ -1,0 +1,21 @@
+{
+  "key": "comfyui-vram-contention-sampler-oom",
+  "title": "Flux render OOMs at SamplerCustomAdvanced when a second pipeline's model is cached in VRAM",
+  "severity": "critical",
+  "evidence": "torch.OutOfMemoryError: Allocation on device 0 would exceed allowed memory (out of memory) at node 84 SamplerCustomAdvanced; ComfyUI logs '[ERROR] Got an OOM, unloading all loaded models'. Host RAM was NOT the constraint this time (MemoryMax=infinity, 86 GiB free, telemetry oom_kill_events=0, mem_peak 71.7 GiB). VRAM was 22.8/24 GiB. The same workflow SUCCEEDED at 96GiB-capped config when no second model family was resident (gen-1789830366 -> photos#339 -> scheduling_posts#333). Correlated with the unblocked JobSubmitterWorker submitting a sarah-carnival-v1 (pony/SDXL CRPv18_PM40) job concurrently with turbo-one-step-clean (flux) work; the comfy log shows SDXLClipModel and FluxClipModel both being loaded in the same window.",
+  "status": "open",
+  "source": "manual",
+  "first_seen": "2026-09-19T11:45:00-0400",
+  "last_seen": "2026-09-19T11:45:00-0400",
+  "seen_count": 1,
+  "notes": [
+    {
+      "ts": "2026-09-19T11:45:00-0400",
+      "note": "Hypotheses to test in order: (1) serialize model families so flux and pony are never cached simultaneously; (2) stale sarah-carnival-v1 work from the deprecated ELO/image_candidate era should be expired rather than submitted at all - it has produced nothing since 2026-05-28; (3) if contention is ruled out, the flux workflow is genuinely at/over the 24 GiB edge and needs a VRAM budget change (lower resolution, or ComfyUI --lowvram since host RAM is now abundant). Do NOT add launch flags without evidence: the known-good launch is `main.py --listen 0.0.0.0`."
+    },
+    {
+      "ts": "2026-09-19T11:42:45-0400",
+      "note": "condition no longer reproduces"
+    }
+  ]
+}

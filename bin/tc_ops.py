@@ -42,9 +42,9 @@ SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 
 
 # ---------------------------------------------------------------- utilities
-def run(cmd, timeout=25):
+def run(cmd, timeout=25, cwd=None):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
         return p.stdout.strip(), p.returncode
     except Exception:
         return "", 1
@@ -139,13 +139,18 @@ def check_venv_drift():
     for line in out.splitlines():
         if "==" in line:
             n, v = line.split("==", 1)
-            installed[n.lower()] = v
+            # Distributions normalise '-' and '_' interchangeably
+            # (comfyui-frontend-package installs as comfyui_frontend_package),
+            # so compare normalised names or every wheel named with dashes
+            # reads as "NOT INSTALLED".
+            installed[n.lower().replace("-", "_")] = v
     drift = [
-        f"{n}: pinned {v}, installed {installed.get(n, 'MISSING')}"
+        f"{n}: pinned {v}, installed {installed.get(n.replace('-', '_'), 'MISSING')}"
         for n, v in pins.items()
-        if n in installed and installed[n] != v
+        if n.replace("-", "_") in installed and installed[n.replace("-", "_")] != v
     ]
-    missing = [f"{n}: pinned {v}, NOT INSTALLED" for n, v in pins.items() if n not in installed]
+    missing = [f"{n}: pinned {v}, NOT INSTALLED"
+               for n, v in pins.items() if n.replace("-", "_") not in installed]
     if drift or missing:
         return (
             "comfyui-venv-drift",
@@ -161,7 +166,7 @@ def check_launch_deps_importable():
     py = COMFY_DIR / ".venv" / "bin" / "python"
     if not py.exists():
         return None
-    out, rc = run([str(py), "-c", "import comfy.storage"], timeout=60, )
+    out, rc = run([str(py), "-c", "import comfy.storage"], timeout=60, cwd=str(COMFY_DIR))
     if rc != 0:
         tail = (out or "").strip().splitlines()[-3:]
         return (
@@ -323,7 +328,52 @@ def check_scheduler_dispatcher():
     return None
 
 
+def check_worker_running():
+    """Sidekiq liveness — the failure that rotted 4 months of bookkeeping.
+
+    JobPollerWorker (the only thing that advances ComfyuiJob/PipelineRun to a
+    terminal status) and JobSubmitterWorker both live in Sidekiq. No Sidekiq
+    process ran for this app from ~2026-05-28 to 2026-09-19: no ComfyuiJob was
+    marked completed in that time, 241 rows accumulated as `submitted`, and
+    JobSubmitterWorker back-pressured on them ("241 jobs in flight, waiting...")
+    so nothing new could be submitted at all. The render path still worked
+    (ContentGenerator submits synchronously), which is why it went unnoticed.
+    """
+    out, rc = run(["pgrep", "-af", "sidekiq"])
+    ours = [l for l in out.splitlines()
+            if "turbo-carnival" in l and "pgrep" not in l and "bash -c" not in l]
+    if not ours:
+        return (
+            "sidekiq-worker-not-running",
+            "No Sidekiq worker for turbo-carnival (job statuses cannot advance, submissions back-pressure)",
+            "critical",
+            "expected process 'sidekiq ... turbo-carnival'; run: systemctl --user status turbo-carnival-sidekiq",
+        )
+    return None
+
+
+def check_backlog_backpressure():
+    """Phantom in-flight jobs block JobSubmitterWorker entirely."""
+    n = psql("select count(*) from comfyui_jobs where status in ('submitted','running')")
+    if n is None:
+        return None
+    try:
+        n = int(n)
+    except ValueError:
+        return None
+    if n > 10:
+        return (
+            "submitter-backpressure",
+            f"{n} jobs in non-terminal in-flight state — JobSubmitterWorker refuses to submit while these exist",
+            "critical",
+            "reconcile orphans (ids absent from ComfyUI history/queue) to a terminal status",
+        )
+    return None
+
+
 CHECKS = [
+    check_worker_running,
+    check_backlog_backpressure,
     check_venv_drift,
     check_launch_deps_importable,
     check_slot,
@@ -342,7 +392,7 @@ def issue_path(key):
     return BOARD / f"{key}.json"
 
 
-def file_issue(key, title, severity, evidence):
+def file_issue(key, title, severity, evidence, source="probe"):
     BOARD.mkdir(parents=True, exist_ok=True)
     p = issue_path(key)
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -355,11 +405,14 @@ def file_issue(key, title, severity, evidence):
                    last_seen=now, status="open")
         rec["seen_count"] = rec.get("seen_count", 1) + 1
         rec.setdefault("first_seen", now)
+        # A probe must not silently claim ownership of a hand-filed issue.
+        if rec.get("source", "probe") == "probe":
+            rec["source"] = source
     else:
         rec = {
             "key": key, "title": title, "severity": severity, "evidence": evidence,
             "status": "open", "first_seen": now, "last_seen": now,
-            "seen_count": 1, "notes": [],
+            "seen_count": 1, "source": source, "notes": [],
         }
     p.write_text(json.dumps(rec, indent=2) + "\n")
     return rec
@@ -386,7 +439,8 @@ def cmd_probe(_argv):
             rec = json.loads(p.read_text())
         except Exception:
             continue
-        if rec.get("status") == "open" and rec.get("key") not in live:
+        if rec.get("status") == "open" and rec.get("key") not in live \
+                and rec.get("source", "probe") == "probe":
             rec["status"] = "auto-closed"
             rec["notes"] = rec.get("notes", []) + [
                 {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
