@@ -31,7 +31,18 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULER_PY=/mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py
 SCHED="python3 $SCHEDULER_PY"
 PY3="$(command -v python3)"
-COMFY_MEM_MAX=24G        # memory ceiling for ComfyUI's OWN cgroup (see launch_comfyui)
+# NO artificial memory cap on ComfyUI (Tim, 2026-09-19): "if you have the GPU,
+# there is no one else in the blast radius — that's what the scheduler is for."
+# The GPU claim already guarantees exclusivity, so a MemoryMax protects nothing
+# and actively harms: ComfyUI reports ram_total = its cgroup limit and sizes its
+# RAM cache / offload budget from that number, so the cap both starved offload
+# and made ComfyUI believe the machine was small. Measured progression:
+#   24G -> cgroup OOM mid model-load (anon-rss 23.7 GiB)
+#   48G -> VRAM OOM at node SamplerCustomAdvanced (offload starved, swap full)
+#   96G -> render succeeds; genuine working set peaks at 69.3 GiB
+# "infinity" keeps MemoryAccounting on, so the telemetry sampler can still read
+# memory.current/peak/events, but nothing kills ComfyUI for using RAM.
+COMFY_MEM_MAX=infinity
 GPU=4090
 PROJECT=turbo-carnival
 VRAM=21
@@ -106,13 +117,107 @@ comfyui_ours() {
 }
 
 # Discover the running ComfyUI's pid and record it in the state file as ours.
+# This is also the instrumentation hook: every path that ends with a live
+# ComfyUI (fresh launch AND adoption of an orphan) passes through here, so the
+# cgroup assertion and the telemetry sampler always start.
 record_comfy_pid() {
   local job="$1" cp
   cp="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
   if [ -n "$cp" ]; then
     write_state "$job" "$(read_state | sed -n '2p')" "$cp"
     log "comfy pid $cp recorded for $job"
+    instrument_comfyui "$job" "$cp"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Launch instrumentation (added 2026-09-19)
+#
+# Why: on 2026-09-18 ComfyUI was SIGKILLed by the kernel cgroup OOM killer ~22 s
+# after launch, on EVERY hourly tick, because it had inherited the Hermes cron
+# worker scope (memory.max = 4 GiB) instead of escaping into its own unit.
+# Neither the harness log nor ComfyUI's own log said so — the only evidence was
+# in `journalctl -k` ("Killed process 335708 (python) anon-rss:3989872kB",
+# oom_memcg=.../hermes-worker-cron-43b0d5c4446d-exec-*.scope) and it aged out.
+# Two additions close that gap:
+#   1. assert the launched pid's cgroup is a comfyui-svc-* unit — fail loudly
+#   2. sample that cgroup's memory + oom_kill counters from a SURVIVING unit
+# ---------------------------------------------------------------------------
+TELE_SCRIPT="$APP_DIR/script/comfyui_telemetry.py"
+TELE_FILE="$APP_DIR/log/comfyui_telemetry.jsonl"
+TELE_OUT="$APP_DIR/log/comfyui_telemetry.out"
+TELE_INTERVAL=30         # seconds between cgroup/VRAM samples
+
+tele_unit() { echo "comfyui-tele-${1#comfyui-}"; }
+
+pid_cgroup_of() { [ -n "${1:-}" ] && cat "/proc/$1/cgroup" 2>/dev/null | cut -d: -f3; }
+
+instrument_comfyui() {
+  local job="$1" cp="$2" cg
+  cg="$(pid_cgroup_of "$cp")"
+  log "instrument: comfy pid $cp cgroup=${cg:-unknown}"
+  case "$cg" in
+    *comfyui-svc-*)
+      log "instrument: OK — launch is in its own unit cgroup, not the cron scope" ;;
+    *hermes-worker-cron*)
+      log "instrument: ERROR — comfy pid $cp is INSIDE a hermes cron worker cgroup (${cg}); the 4 GiB cap will OOM-kill it. Fix the launch path before spending the claim." ;;
+    *)
+      log "instrument: WARN — unexpected cgroup for comfy pid $cp: ${cg:-unknown}" ;;
+  esac
+  start_telemetry "$job" "$cp"
+}
+
+start_telemetry() {
+  local job="$1" cp="$2" unit
+  if [ ! -f "$TELE_SCRIPT" ]; then
+    log "instrument: telemetry script missing ($TELE_SCRIPT) — skipping sampler"
+    return 0
+  fi
+  unit="$(tele_unit "$job")"
+  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+  # Its own unit => it survives the death it is watching; a sampler inside the
+  # cron scope would be OOM-killed alongside ComfyUI and record nothing.
+  systemd-run --user --unit="$unit" --collect \
+    --property StandardOutput=append:"$TELE_OUT" \
+    --property StandardError=append:"$TELE_OUT" \
+    "$PY3" "$TELE_SCRIPT" --pid "$cp" --job "$job" \
+    --out "$TELE_FILE" --interval "$TELE_INTERVAL" >/dev/null 2>&1 \
+    || log "instrument: WARN telemetry unit $unit failed to start"
+  log "instrument: telemetry unit ${unit} watching pid $cp every ${TELE_INTERVAL}s → $TELE_FILE"
+}
+
+telemetry_report() {
+  # Log the last telemetry record for a job, plus the AUTHORITATIVE kernel
+  # attribution. A --collect'd transient unit takes its cgroup counters with it
+  # the moment it is collected, so the sampler can miss the final oom_kill
+  # increment; the kernel journal is the reliable record, and the OOM line names
+  # our own unit in oom_memcg=, so grep by unit name.
+  local job="$1" last unit jl
+  unit="comfyui-svc-${1#comfyui-}"
+  if [ -f "$TELE_FILE" ]; then
+    last="$(grep -F "\"job\": \"${job}\"" "$TELE_FILE" 2>/dev/null | tail -1)"
+    [ -n "$last" ] || last="$(tail -1 "$TELE_FILE" 2>/dev/null)"
+    log "instrument: last telemetry: ${last:-none}"
+    case "$last" in
+      *'"oom_kill_events": 0'*|*'"oom_kill_events": null'*|"") : ;;
+      *'"oom_kill_events"'*) log "instrument: OOM KILL recorded by the watcher — see $TELE_FILE" ;;
+    esac
+  else
+    log "instrument: no telemetry file for ${job:-?}"
+  fi
+  jl="$(journalctl -k --since '-30 min' --no-pager 2>/dev/null | grep -F "$unit" | grep -i -E 'oom-kill|Killed process' | tail -2)"
+  if [ -n "$jl" ]; then
+    log "instrument: KERNEL OOM ATTRIBUTION (unit $unit): $jl"
+    log "instrument: unit MemoryMax is ${COMFY_MEM_MAX} — if the OOM is attributed to this unit, raise COMFY_MEM_MAX before relaunching."
+  fi
+}
+
+cmd_telemetry() {
+  local n="${1:-10}"
+  if [ ! -f "$TELE_FILE" ]; then echo "no telemetry at $TELE_FILE"; return 1; fi
+  echo "== last ${n} telemetry records ($TELE_FILE) =="
+  tail -n "$n" "$TELE_FILE"
 }
 
 gpu_idle() {
@@ -228,6 +333,7 @@ cmd_ensure() {
         return 0
       fi
       log "ensure: claim $job_id active but ComfyUI down — relaunching"
+      telemetry_report "$job_id"
       launch_comfyui "$job_id"
       echo "job_id=$job_id"
       return 0
@@ -307,8 +413,39 @@ start_heartbeat_loop() {
   log "heartbeat unit ${unit} started (MainPID ${pid:-?}) for $job — every ${HEARTBEAT_INTERVAL}s"
 }
 
+# ---------------------------------------------------------------------------
+# Self-healing venv provisioning (Tim, 2026-09-19: "if the hourly/nightly
+# monitoring jobs report problems, fix them" — so build the fix into the launch).
+# A `git pull` that bumps a pinned dependency is invisible until the next launch,
+# which then dies with ModuleNotFoundError. Observed: requirements.txt pinned
+# comfy-aimdo==0.5.5 while the venv had 0.5.3, which has no storage.py ->
+# "No module named 'comfy_aimdo.storage'"; `import comfy.storage` fails and
+# ComfyUI cannot start at all. The known-good manual launch includes the pip
+# step — this makes the harness do it, but ONLY when the venv is actually
+# inconsistent, so the healthy path stays fast.
+# ---------------------------------------------------------------------------
+ensure_comfyui_deps() {
+  local py="$COMFY_DIR/${COMFY_VENV}/bin/python"
+  local pip="$COMFY_DIR/${COMFY_VENV}/bin/pip"
+  [ -x "$py" ] && [ -x "$pip" ] || return 0
+  "$py" -c 'import comfy.storage' >/dev/null 2>&1 && return 0
+  log "deps: ComfyUI runtime import FAILED — provisioning venv (pip install)"
+  local f
+  for f in requirements.txt manager_requirements.txt; do
+    [ -f "$COMFY_DIR/$f" ] || continue
+    ( cd "$COMFY_DIR" && "$pip" install -r "$f" ) >>"$HARNESS_LOG" 2>&1 || \
+      log "deps: WARN pip install -r $f returned nonzero"
+  done
+  if "$py" -c 'import comfy.storage' >/dev/null 2>&1; then
+    log "deps: venv provisioned OK — runtime import now succeeds"
+  else
+    log "deps: ERROR — import still failing after pip install; launch will likely fail"
+  fi
+}
+
 launch_comfyui() {
   local job="$1"
+  ensure_comfyui_deps
   # Adopt-or-launch: if a ComfyUI is already answering on the port (foreign
   # or adopted orphan), recording its pid makes it "ours" — never spawn a
   # second instance that would fail to bind (queue-first adoption, 2026-09-07).
@@ -328,12 +465,19 @@ launch_comfyui() {
   # systemd-run --user gives it a dedicated unit with a real ceiling.
   systemctl --user stop "$unit" >/dev/null 2>&1 || true
   systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+  # EXACT known-good launch (Tim, 2026-09-19): this is the invocation that
+  # produced images dependably for this persona. Do NOT add flags to it. Removed
+  # from the previous version: --fp32-text-enc (doubles the text-encoder RAM and
+  # VRAM — logged as "CLIP/text encoder ... dtype: float32" — a major part of the
+  # observed 69 GiB working set) and --enable-manager (registry network fetches at
+  # every startup). The venv is pre-provisioned with requirements.txt +
+  # manager_requirements.txt, so no pip step belongs in the launch path.
   log "launching ComfyUI (${COMFY_DIR}) in unit ${unit} (MemoryMax=${COMFY_MEM_MAX}) — log: ${slog}"
   systemd-run --user --unit="$unit" --collect \
     --property MemoryMax="${COMFY_MEM_MAX}" --property MemoryAccounting=yes \
     --property StandardOutput=append:"$slog" --property StandardError=append:"$slog" \
     --working-directory "$COMFY_DIR" \
-    "$COMFY_DIR/${COMFY_VENV}/bin/python" main.py --listen 0.0.0.0 --enable-manager --fp32-text-enc >/dev/null 2>&1 \
+    "$COMFY_DIR/${COMFY_VENV}/bin/python" main.py --listen 0.0.0.0 >/dev/null 2>&1 \
     || log "WARNING: systemd-run failed to start unit ${unit}"
 
   local waited=0
@@ -404,11 +548,12 @@ cmd_shutdown() {
 }
 
 case "${1:-}" in
-  status)   cmd_status ;;
-  ensure)   shift; cmd_ensure "$@" ;;
+  status)    cmd_status ;;
+  ensure)    shift; cmd_ensure "$@" ;;
   heartbeat) cmd_heartbeat ;;
-  shutdown) cmd_shutdown ;;
+  telemetry) shift; cmd_telemetry "$@" ;;
+  shutdown)  cmd_shutdown ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|shutdown}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|shutdown}" >&2
     exit 1 ;;
 esac

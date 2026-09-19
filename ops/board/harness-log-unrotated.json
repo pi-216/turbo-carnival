@@ -1,0 +1,11 @@
+{
+  "key": "harness-log-unrotated",
+  "title": "comfyui_harness.log is append-only and unrotated (1980 lines, 171 KB)",
+  "severity": "info",
+  "evidence": "needs a retention window; full detail belongs in sections, not the log",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:01-0400",
+  "last_seen": "2026-09-19T11:35:01-0400",
+  "seen_count": 1,
+  "notes": []
+}

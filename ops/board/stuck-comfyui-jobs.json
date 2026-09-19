@@ -1,0 +1,11 @@
+{
+  "key": "stuck-comfyui-jobs",
+  "title": "235 ComfyuiJob rows stuck in 'submitted'",
+  "severity": "warn",
+  "evidence": "oldest=2026-05-27 15:32:57.960309; terminal state never written (poller gap)",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:01-0400",
+  "last_seen": "2026-09-19T11:35:01-0400",
+  "seen_count": 1,
+  "notes": []
+}

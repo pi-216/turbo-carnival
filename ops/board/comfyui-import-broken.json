@@ -1,0 +1,11 @@
+{
+  "key": "comfyui-import-broken",
+  "title": "ComfyUI cannot import its own runtime modules (startup will crash)",
+  "severity": "critical",
+  "evidence": "import comfy.storage failed",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:00-0400",
+  "last_seen": "2026-09-19T11:35:00-0400",
+  "seen_count": 1,
+  "notes": []
+}

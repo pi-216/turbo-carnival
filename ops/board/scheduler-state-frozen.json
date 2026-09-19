@@ -1,0 +1,11 @@
+{
+  "key": "scheduler-state-frozen",
+  "title": "scheduler state.json not updated in 1336h",
+  "severity": "warn",
+  "evidence": "updated_at=2026-07-25T19:34:38.418340+00:00 \u2014 queue is derived from job files, but frozen state hides daemon death",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:01-0400",
+  "last_seen": "2026-09-19T11:35:01-0400",
+  "seen_count": 1,
+  "notes": []
+}

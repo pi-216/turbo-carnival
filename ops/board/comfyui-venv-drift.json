@@ -1,0 +1,11 @@
+{
+  "key": "comfyui-venv-drift",
+  "title": "ComfyUI venv does not match requirements.txt (launch will fail)",
+  "severity": "critical",
+  "evidence": "comfyui-frontend-package: pinned 1.53.6, NOT INSTALLED; comfyui-workflow-templates: pinned 0.11.62, NOT INSTALLED",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:00-0400",
+  "last_seen": "2026-09-19T11:35:00-0400",
+  "seen_count": 1,
+  "notes": []
+}

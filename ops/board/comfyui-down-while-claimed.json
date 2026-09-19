@@ -1,0 +1,11 @@
+{
+  "key": "comfyui-down-while-claimed",
+  "title": "We hold the GPU claim but ComfyUI is not answering",
+  "severity": "critical",
+  "evidence": "claim=comfyui-1789826497-1334030; port 8188 not answering /system_stats",
+  "status": "open",
+  "first_seen": "2026-09-19T11:35:00-0400",
+  "last_seen": "2026-09-19T11:35:00-0400",
+  "seen_count": 1,
+  "notes": []
+}
