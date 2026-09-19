@@ -9,7 +9,13 @@ module PostAutomation
     returns :caption, :caption_metadata
 
     def call
-      load_caption_services
+      # CaptionGeneration::* autoloads from packs/caption_generation (verified with
+      # `rails runner 'defined?(CaptionGeneration::Generator)'` -> "constant"), so
+      # the old `Dir[...].each { |f| load f }` glob was unnecessary -- and harmful:
+      # `load` re-executes every service file on EVERY caption call, redefining
+      # their singleton methods, which silently defeats stubbing in specs and hides
+      # the branch that decides whether the caption ever looks at the image.
+      load_ollama_client
 
       result = if photo.image.attached?
         CaptionGeneration::VisionGenerator.generate(
@@ -35,8 +41,9 @@ module PostAutomation
 
     private
 
-    def load_caption_services
-      Dir['packs/caption_generation/app/services/caption_generation/*.rb'].sort.each { |f| load f }
+    def load_ollama_client
+      # AI::OllamaClient does NOT autoload (lib/ai is not a clean Zeitwerk root),
+      # so it must still be loaded explicitly.
       load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
     end
   end
