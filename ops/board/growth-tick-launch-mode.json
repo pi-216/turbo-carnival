@@ -1,0 +1,17 @@
+{
+  "key": "growth-tick-launch-mode",
+  "title": "growth-brain tick still runs growth:sync_cadence in the foreground under a fixed timeout (Hermes cron config, outside the repo)",
+  "severity": "info",
+  "evidence": "Remaining half of growth-tick-kills-its-own-render (closed 2026-09-19): the repo side is fixed -- ReconcileStaleRuns bounds abandoned sync runs and Growth::RenderSalvage now recovers the renders themselves -- but the producer is still SIGKILLed by the tick's foreground budget (a ~45 min 5-render shortfall inside a 180s tool budget). tc-growth-harness-brain lives in ~/.hermes/profiles/turbo-carnival/cron/jobs.json, which is outside this repo, so it is filed rather than edited. Cheapest fix: run growth:sync_cadence detached (direct >> log 2>&1 &) and let the next tick's render_need top up what is missing -- sync_cadence counts existing posts, so a partial run is safe to resume; or split into per-slot batches; or raise the tick's tool timeout above the measured ~45 min worst case. Needs Tim's ok (cron config + spend behaviour).",
+  "status": "open",
+  "first_seen": "2026-09-19T20:20:00+0000",
+  "last_seen": "2026-09-19T20:20:00+0000",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-19T20:20:00+0000",
+      "note": "Filed by the ops-triage run that shipped Growth::RenderSalvage (commit c7d298a). Verified live against the production DB inside a rolled-back transaction: the three stranded renders (runs 457/463/471, candidates 3180/3183/3184) are selected and recoverable -- photo + post created, both gates re-run for real, zero production writes after rollback. With recovery in place the kill no longer throws GPU time away; what remains is that the tick cannot finish a full shortfall in one budget, which is a Hermes-config change, not a repo change."
+    }
+  ]
+}

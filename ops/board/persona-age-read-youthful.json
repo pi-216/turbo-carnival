@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-19T14:36:35-0400",
       "note": "Mechanism identified (2026-09-19 triage run). The live render path (pipeline 21 turbo-one-step-clean, step 40, node 79 = the NEGATIVE prompt) contains: adult, mature_face, sunken_eyes. The active workflow therefore POSITIVELY discourages adult/mature facial features, which is the mechanical cause of the youthful read; it is Pony-era negative boilerplate, not a creative choice about Sarah. Also confirmed live: node 88 no longer carries the sexualized tokens (underbooba/underboobs/submissive/obedient survive only in the deprecated pipeline-20 preset, kept under ops/backups/), and the age-adjacent tokens left are petit face tokens plus cute. Nothing in the repo states an age: personas has no age column, and SOUL.md/THESIS.md/FOUNDERS.md/packs are silent on it. Open question is one line from Tim - what age should Sarah read as. Pre-scoped fix once answered: drop adult, mature_face from node 79 negative (optionally also add an explicit adult descriptor to Growth::PillarPrompt::SAFE_BASE), then re-measure with a vision read. Re-measure needs a 4090 window and we hold no claim (prx-tg-latent-first-v34 holds it), so verification is blocked-on-slot. Left open, not guessed."
+    },
+    {
+      "ts": "2026-09-19T16:05:22-0400",
+      "note": "Ops-triage 2026-09-19 20:2x UTC: still blocked on a human decision (intended persona age) and on a 4090 window for re-measurement -- no claim held this run (prx-tg-latent-first-v34 owns the 4090), so no renders were run and no prompt/identity text was touched. Prior note stands: the mechanical cause is node 79 negative prompt (adult, mature_face, sunken_eyes) in pipeline 21 turbo-one-step-clean; node 88 no longer carries the sexualized tokens. One line from Tim unblocks the pre-scoped fix."
     }
   ]
 }

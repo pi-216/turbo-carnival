@@ -1,0 +1,17 @@
+{
+  "key": "caption-fallback-rate",
+  "title": "Posts ship with the placeholder caption 'Fresh look' when Ollama's vision caption times out at 180s",
+  "severity": "info",
+  "evidence": "6 of the last 29 scheduled posts (created within 72h, checked 2026-09-19 20:1x UTC) carry the exact fallback string 'Fresh look' (posts 333-337 plus one more), i.e. ~21% of published captions are a placeholder. Reproduced live during the ops-triage run: PostAutomation::GenerateCaption.call(photo: 346) returned success=false with 'Caption generation failed: Ollama request timed out after 180s. This may happen on first model load (30-60s). Try again.' while the watchdog simultaneously reported the caption service up (gemma3:27b loaded) -- so this is the cold-load/first-call timeout, not an outage. ContentGenerator and RenderSalvage both fall back to the placeholder on failure by design, which is why the degradation is silent: the post still goes out, so nothing looks broken.",
+  "status": "open",
+  "first_seen": "2026-09-19T20:20:00+0000",
+  "last_seen": "2026-09-19T20:20:00+0000",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-19T20:20:00+0000",
+      "note": "Pre-scoped fix, not applied: (1) retry ONCE on AI::OllamaClient::TimeoutError in CaptionGeneration::VisionGenerator -- the retry hits a warm model and is cheap; (2) or raise the vision timeout / send keep_alive so the 27B stays resident. Measure before choosing: captioning happens inside the same sync path the growth tick kills (see growth-tick-launch-mode), so a longer caption timeout widens that exposure. Also worth a counter: the fallback rate should be visible per cycle rather than inferred from post text, because 100% fallback would look exactly like a healthy pipeline."
+    }
+  ]
+}
