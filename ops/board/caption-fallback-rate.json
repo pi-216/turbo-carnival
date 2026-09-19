@@ -5,8 +5,8 @@
   "evidence": "placeholder rate 62% over 8 scheduled posts created in the last 24h. Both ContentGenerator and RenderSalvage substitute the placeholder when the caption call fails, so this is a dead caption path, not a content choice. Every recent render takes the TEXT path (CaptionGeneration::Generator); the vision path is unreachable while photos are imported without an ActiveStorage attachment. Mechanism: gemma3:27b cannot be COLD-loaded on max395 - its 16.5 GB of weights sit on the NFS model store (~40 MB/s) and exceed Ollama's ~300s llama-server start timeout - so a call against a non-resident 27B burns the full client timeout and still fails. CaptionGeneration::ModelConfig.resolve now picks the model from Ollama's /api/ps (the preferred model when it is resident, otherwise the fallback model), so a rate that persists means BOTH models are failing: grep the log for '[caption]' and read the caption metadata's model_selection.",
   "status": "open",
   "first_seen": "2026-09-19T20:20:00+0000",
-  "last_seen": "2026-09-19T17:35:39-0400",
-  "seen_count": 6,
+  "last_seen": "2026-09-19T17:39:48-0400",
+  "seen_count": 7,
   "source": "probe",
   "notes": [
     {
