@@ -11,6 +11,14 @@ module Growth
     POLL_INTERVAL = 20
     MAX_POLLS = 60 # ~20 min (renders are slow + OOM-retry can add time)
 
+    # Tags every run this service creates as SYNC-PRODUCED. This service submits
+    # its own ComfyuiJob and polls it, while JobSubmitterWorker/SelectNextJob is an
+    # INDEPENDENT async dispatcher that selects any run that looks unworked — so
+    # without the tag it queued a second, duplicate render for the same run
+    # (observed 2026-09-19: two renders per growth run, mixed flux + pony model
+    # families resident in VRAM, flux OOM at SamplerCustomAdvanced).
+    SYNC_PRODUCER_KEY = 'sync_producer'
+
     attr_reader :goal
 
     def initialize(goal:, pillar: nil)
@@ -43,19 +51,22 @@ module Growth
         name: "gen-#{Time.now.to_i}",
         prompt: build_prompt,
         target_folder: "fresh/#{@pillar&.name&.parameterize || 'gen'}",
-        status: 'pending'
+        status: 'pending',
+        variables: { SYNC_PRODUCER_KEY => self.class.name }
       )
 
       step = pipeline.pipeline_steps.order(:order).first
       payload = BuildJobPayload.call!(pipeline_step: step, pipeline_run: run)
       submit = SubmitJob.call(job_payload: payload.job_payload, pipeline_step: step, pipeline_run: run)
       unless submit.success?
+        finish_run(run, 'failed', reason: "submit failed: #{submit.full_error_message}")
         return { success: false, error: submit.full_error_message, run_id: run.id }
       end
 
       comfyjob = submit.comfyui_job
       image_path = poll_for_image(comfyjob.comfyui_job_id)
       unless image_path
+        finish_run(run, 'failed', reason: 'render timed out or produced no image')
         return { success: false, error: 'render timed out or produced no image', run_id: run.id, comfyjob_id: comfyjob.id }
       end
 
@@ -64,6 +75,7 @@ module Growth
       gate = Growth::NsfwGate.new.call(image_path: image_path)
       unless gate.safe
         log_rejection(image_path, gate)
+        finish_run(run, 'failed', reason: "nsfw_rejected (#{gate.error || "label=#{gate.label} score=#{gate.nsfw_score}"})")
         return {
           success: false,
           error: "nsfw_rejected (#{gate.error || "label=#{gate.label} score=#{gate.nsfw_score}"})",
@@ -83,6 +95,7 @@ module Growth
       run.update!(quality_metrics: metrics)
       unless realism.safe
         log_realism_rejection(image_path, realism, run)
+        finish_run(run, 'failed', reason: "realism_rejected (#{realism.error || realism.reason})")
         return {
           success: false,
           error: "realism_rejected (#{realism.error || realism.reason})",
@@ -92,7 +105,10 @@ module Growth
 
       # Import the fresh render as a content photo
       photo = import_photo(image_path, run)
-      return { success: false, error: 'photo import failed' } unless photo
+      unless photo
+        finish_run(run, 'failed', reason: 'photo import failed')
+        return { success: false, error: 'photo import failed' }
+      end
 
       # Caption it
       cap = PostAutomation::GenerateCaption.call(photo: photo, persona: persona, pillar: @pillar)
@@ -109,10 +125,26 @@ module Growth
         strategy_name: 'turbo-one-step'
       )
 
+      finish_run(run, 'completed')
+
       { success: true, post_id: sched.id, photo_id: photo.id, image_path: image_path, run_id: run.id }
     end
 
     private
+
+    # Move the run to a TERMINAL status as soon as its outcome is known. A run left
+    # 'pending' after its render finished is a lie the rest of the system believes:
+    # the async selector treated it as unworked work, and the board's stuck-run
+    # check alerts on it. Failures are recorded on the run, never silently dropped.
+    def finish_run(run, status, reason: nil)
+      return unless run
+
+      attrs = { status: status }
+      attrs[:reject_reason] = reason if reason
+      run.update!(attrs)
+    rescue StandardError => e
+      Rails.logger.warn("Growth::ContentGenerator could not mark run #{run.id} #{status}: #{e.message}")
+    end
 
     def persona
       goal.persona

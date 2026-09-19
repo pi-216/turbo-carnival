@@ -52,6 +52,8 @@ COMFY_VENV=.venv
 COMFY_PORT=8188
 STATE_FILE="$APP_DIR/log/comfyui_claim.json"
 HARNESS_LOG="$APP_DIR/log/comfyui_harness.log"
+HARNESS_LOG_MAX_LINES=1200   # rotate past this (probe flags >1500)
+HARNESS_LOG_KEEP_LINES=600   # retention window kept after rotation
 HEARTBEAT_INTERVAL=300   # 5 min
 UP_WAIT=240              # max seconds to wait for /system_stats after launch
 POLL_INTERVAL=10
@@ -83,7 +85,24 @@ cleanup_job() {
   log "cleanup: removed queued request $jid"
 }
 
-log() { echo "[$(date '+%F %T')] $*" | tee -a "$HARNESS_LOG"; }
+log() {
+  rotate_harness_log
+  echo "[$(date '+%F %T')] $*" | tee -a "$HARNESS_LOG"
+}
+
+# Retention window for the harness log: this file is append-only and nothing else
+# prunes it, so it grew unbounded (1999 lines / 172 KB by 2026-09-19) and the ops
+# board flagged it. Keep the tail (enough to reconstruct the last few launches) and
+# drop the rest, noting the rotation in-line so the truncation is never mysterious.
+rotate_harness_log() {
+  [ -f "$HARNESS_LOG" ] || return 0
+  local n
+  n=$(wc -l < "$HARNESS_LOG" 2>/dev/null || echo 0)
+  [ "${n:-0}" -gt "$HARNESS_LOG_MAX_LINES" ] || return 0
+  tail -n "$HARNESS_LOG_KEEP_LINES" "$HARNESS_LOG" > "$HARNESS_LOG.rot.tmp" 2>/dev/null || { rm -f "$HARNESS_LOG.rot.tmp"; return 0; }
+  mv -f "$HARNESS_LOG.rot.tmp" "$HARNESS_LOG" || return 0
+  echo "[$(date '+%F %T')] harness log rotated: was $n lines, kept last $HARNESS_LOG_KEEP_LINES" >> "$HARNESS_LOG"
+}
 
 comfyui_up() {
   [ "$(curl -s -m5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${COMFY_PORT}/system_stats" 2>/dev/null)" = "200" ]

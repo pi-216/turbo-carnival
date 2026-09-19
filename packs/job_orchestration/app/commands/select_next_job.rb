@@ -1,6 +1,22 @@
 class SelectNextJob < GLCommand::Callable
   returns :parent_candidate, :next_step, :mode, :pipeline_run
 
+  # Statuses that mean "this run still wants work". `failed` is TERMINAL and must
+  # never be reworked. Selecting `where.not(status: 'completed')` swept failed runs
+  # into the workable set, and on 2026-09-19 the submitter was still dispatching the
+  # deprecated sarah-carnival-v1 (pony/SDXL) and turbo-one-step runs from May/August
+  # (374 dead runs). Those pony renders landed next to the growth harness's flux
+  # render, both model families stayed cached in VRAM, and the flux job OOM'd at
+  # SamplerCustomAdvanced (out of memory) — the render_need queue then starved.
+  WORKABLE_STATUSES = %w[pending running].freeze
+
+  # A run created by a SYNCHRONOUS producer (Growth::ContentGenerator submits its
+  # own ComfyuiJob and polls it to completion) must never be dispatched a second
+  # time by this async selector: while its render is in flight the run record still
+  # looks unworked, so this command queued a DUPLICATE render for the same run.
+  # Producers tag their runs with variables['sync_producer'].
+  SYNC_PRODUCER_KEY = 'sync_producer'.freeze
+
   def call
     # Select a run that needs work (round-robin)
     selected_run = select_run_needing_work
@@ -21,7 +37,10 @@ class SelectNextJob < GLCommand::Callable
   private
 
   def select_run_needing_work
-    active_runs = PipelineRun.where.not(status: 'completed').order(:id).to_a
+    active_runs = PipelineRun.where(status: WORKABLE_STATUSES)
+                             .where("(pipeline_runs.variables ->> :key) IS NULL",
+                                    key: SYNC_PRODUCER_KEY)
+                             .order(:id).to_a
     
     return nil if active_runs.empty?
     

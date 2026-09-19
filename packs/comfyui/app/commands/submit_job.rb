@@ -4,7 +4,21 @@ class SubmitJob < GLCommand::Callable
 
   returns :comfyui_job
 
+  # INVARIANT (2026-09-19): a run in a TERMINAL status must never receive a new
+  # render. `SelectNextJob` used to treat every non-`completed` run as workable, so
+  # it kept dispatching renders for runs that had failed in May/August — deprecated
+  # pony/SDXL work landing next to the growth harness's flux render, both model
+  # families resident in VRAM, flux OOM at SamplerCustomAdvanced. Enforced here, at
+  # the dispatch boundary, so no future caller can re-introduce it.
+  TERMINAL_STATUSES = %w[completed failed].freeze
+
   def call
+    if TERMINAL_STATUSES.include?(context.pipeline_run.status)
+      raise "refusing to render: pipeline run #{context.pipeline_run.id} is " \
+            "#{context.pipeline_run.status} (terminal) — reworking dead runs starves " \
+            "the GPU and mixes model families"
+    end
+
     # Create pending job record
     job = ComfyuiJob.create!(
       pipeline_step: context.pipeline_step,

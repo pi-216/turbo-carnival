@@ -209,6 +209,28 @@ RSpec.describe SelectNextJob do
       end
     end
 
+    context "workable-run scope (regression guards)" do
+      it "never works a run in a terminal status" do
+        pipeline_run.update_column(:status, "failed")
+
+        result = described_class.call
+
+        expect(result).to be_success
+        expect(result.mode).to eq(:no_work)
+        expect(result.pipeline_run).to be_nil
+      end
+
+      it "never works a run produced by a synchronous producer" do
+        pipeline_run.update_column(:variables, { "sync_producer" => "Growth::ContentGenerator" })
+
+        result = described_class.call
+
+        expect(result).to be_success
+        expect(result.mode).to eq(:no_work)
+        expect(result.pipeline_run).to be_nil
+      end
+    end
+
     context "edge cases" do
       # Clear the eager-loaded steps for these edge case tests
       before do

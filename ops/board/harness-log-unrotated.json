@@ -1,12 +1,21 @@
 {
   "key": "harness-log-unrotated",
-  "title": "comfyui_harness.log is append-only and unrotated (1992 lines, 172 KB)",
+  "title": "comfyui_harness.log is append-only and unrotated (1999 lines, 172 KB)",
   "severity": "info",
   "evidence": "needs a retention window; full detail belongs in sections, not the log",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T11:35:01-0400",
-  "last_seen": "2026-09-19T11:53:08-0400",
-  "seen_count": 6,
-  "notes": [],
+  "last_seen": "2026-09-19T12:30:06-0400",
+  "seen_count": 10,
+  "notes": [
+    {
+      "ts": "2026-09-19T12:41:52-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T12:50:47-0400",
+      "note": "FIXED: bin/comfyui_harness.sh log() now calls rotate_harness_log(), keeping HARNESS_LOG_KEEP_LINES=600 once the file passes 1200 lines, and writes a 'harness log rotated' line so the truncation is self-documenting. Applied to the live log (2001 -> 601 lines) using the real function; verified it rotates once and is a no-op under threshold."
+    }
+  ],
   "source": "probe"
 }

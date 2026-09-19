@@ -21,6 +21,7 @@ Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts.
 from __future__ import annotations
 
 import json
+import calendar
 import os
 import re
 import subprocess
@@ -308,22 +309,88 @@ def check_queue_growth():
 
 
 def check_scheduler_dispatcher():
-    """A frozen state.json means the dispatch daemon is absent (wedge family)."""
+    """Scheduler liveness, read off the fields that ACTUALLY move.
+
+    There is no scheduler daemon: state.json['updated_at'] was written once by
+    `init` (2026-07-25) and is NOT touched by claim/activate/heartbeat/release.
+    The fields that do move on every write are the global `version` counter and
+    each GPU's entry, so keying this check on `updated_at` reported "frozen for
+    1337h" on every probe while the 4090 was actively claimed and heartbeating
+    (verified 2026-09-19). The condition worth alerting on is a claim being HELD
+    while its heartbeat stopped — a box that died owning the slot.
+    """
     st = sched_state()
-    upd = st.get("updated_at")
-    if not upd:
+    if not st or not st.get("gpus"):
+        return (
+            "scheduler-state-unreadable",
+            "scheduler state.json is missing or has no GPU entries",
+            "critical",
+            f"path={SCHED_DIR / 'state.json'}",
+        )
+    stale = []
+    now = time.time()
+    for name, g in (st.get("gpus") or {}).items():
+        if g.get("status") not in ("busy", "claimed"):
+            continue
+        hb = g.get("last_heartbeat") or g.get("current_since")
+        if not hb:
+            stale.append(f"{name}: {g.get('status')} job={g.get('current_job')} with NO heartbeat")
+            continue
+        try:
+            # timestamps are UTC ("...Z"); mktime would read them as local and
+            # produce a negative age east of UTC.
+            t = calendar.timegm(time.strptime(hb[:19], "%Y-%m-%dT%H:%M:%S"))
+        except Exception:
+            continue
+        age_min = (now - t) / 60.0
+        if age_min > 45:  # scheduler stale deadline is 30 min; allow a missed tick
+            stale.append(f"{name}: heartbeat {age_min:.0f}m stale (job={g.get('current_job')})")
+    if stale:
+        return (
+            "scheduler-claim-heartbeat-stale",
+            "a GPU claim is held with a heartbeat that went stale",
+            "warn",
+            "; ".join(stale),
+        )
+    return None
+
+
+def check_render_for_terminal_run():
+    """A render dispatched AFTER its run was already terminal = reworking dead work.
+
+    `SelectNextJob` used to select every run that was not `completed`, so `failed`
+    runs stayed workable forever. On 2026-09-19 that had the async submitter
+    re-rendering deprecated sarah-carnival-v1 (pony/SDXL) and turbo-one-step runs
+    from May/August alongside the growth harness's flux render — both model families
+    stayed resident in VRAM and the flux job OOM'd at SamplerCustomAdvanced. The
+    selector fix is guarded by a dispatch-boundary check in `SubmitJob`; this is the
+    after-the-fact detector: a job created after its run's last write while that run
+    is terminal. (Jobs created BEFORE the run was marked terminal are excluded — those
+    are the mass-reconciled bookkeeping of runs abandoned while ComfyUI was down.)
+    """
+    n = psql("select count(*) from comfyui_jobs j "
+             "join pipeline_runs r on r.id = j.pipeline_run_id "
+             "where j.created_at > now() - interval '24 hours' "
+             "and r.status in ('failed','completed') "
+             "and j.created_at > r.updated_at")
+    if n is None:
         return None
     try:
-        t = time.mktime(time.strptime(upd[:19], "%Y-%m-%dT%H:%M:%S"))
-        age_h = (time.time() - t) / 3600.0
-    except Exception:
+        n = int(n)
+    except ValueError:
         return None
-    if age_h > 72:
+    if n > 0:
+        detail = psql("select p.name || ':run' || r.id || ' ' || r.status || ' #job' || j.id "
+                      "from comfyui_jobs j join pipeline_runs r on r.id = j.pipeline_run_id "
+                      "join pipelines p on p.id = r.pipeline_id "
+                      "where j.created_at > now() - interval '24 hours' "
+                      "and r.status in ('failed','completed') "
+                      "and j.created_at > r.updated_at order by j.id desc limit 5")
         return (
-            "scheduler-state-frozen",
-            f"scheduler state.json not updated in {age_h:.0f}h",
+            "render-dispatched-for-terminal-run",
+            f"{n} render(s) dispatched in the last 24h for runs already in a terminal status",
             "warn",
-            f"updated_at={upd} — queue is derived from job files, but frozen state hides daemon death",
+            f"dead-run rework or sync/async double-dispatch regressed; examples={detail}",
         )
     return None
 
@@ -371,14 +438,44 @@ def check_backlog_backpressure():
     return None
 
 
+def check_stranded_pending_jobs():
+    """pending ComfyuiJob rows that nothing will ever submit.
+
+    enqueue_oom_retry used to create a bare `pending` ComfyuiJob, but
+    JobSubmitterWorker builds NEW jobs via SelectNextJob -> SubmitJob and never
+    sweeps pending rows, so the OOM retry was a silent no-op that stranded the
+    row forever (job 7542 sat pending 56 min with no comfyui_job_id while its
+    run stayed OOM-failed). Fixed in PollJobStatus; this check keeps it fixed.
+    """
+    n = psql("select count(*) from comfyui_jobs where status='pending' "
+             "and comfyui_job_id is null and created_at < now() - interval '30 minutes'")
+    if n is None:
+        return None
+    try:
+        n = int(n)
+    except ValueError:
+        return None
+    if n > 0:
+        return (
+            "stranded-pending-jobs",
+            f"{n} ComfyuiJob rows pending with no comfyui_job_id — nothing submits them",
+            "warn",
+            "created by an OOM retry path that did not actually submit; "
+            "verify PollJobStatus#enqueue_oom_retry calls SubmitJob",
+        )
+    return None
+
+
 CHECKS = [
     check_worker_running,
     check_backlog_backpressure,
+    check_stranded_pending_jobs,
     check_venv_drift,
     check_launch_deps_importable,
     check_slot,
     check_stuck_comfyui_jobs,
     check_stuck_pipeline_runs,
+    check_render_for_terminal_run,
     check_render_acceptance,
     check_telemetry_oom,
     check_harness_log_growth,

@@ -38,7 +38,7 @@ RSpec.describe ProcessJobResult do
     it "sets image_path on ImageCandidate to the ComfyUI output path" do
       result = described_class.call(comfyui_job: comfyui_job)
 
-      expected_path = "/mnt/essdee/ComfyUI/output/test_subfolder/output_123.png"
+      expected_path = "/mnt/fscache/essdee/ComfyUI/output/test_subfolder/output_123.png"
       expect(result.image_candidate.image_path).to eq(expected_path)
     end
 

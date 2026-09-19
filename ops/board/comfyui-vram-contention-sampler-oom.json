@@ -3,7 +3,7 @@
   "title": "Flux render OOMs at SamplerCustomAdvanced when a second pipeline's model is cached in VRAM",
   "severity": "critical",
   "evidence": "torch.OutOfMemoryError: Allocation on device 0 would exceed allowed memory (out of memory) at node 84 SamplerCustomAdvanced; ComfyUI logs '[ERROR] Got an OOM, unloading all loaded models'. Host RAM was NOT the constraint this time (MemoryMax=infinity, 86 GiB free, telemetry oom_kill_events=0, mem_peak 71.7 GiB). VRAM was 22.8/24 GiB. The same workflow SUCCEEDED at 96GiB-capped config when no second model family was resident (gen-1789830366 -> photos#339 -> scheduling_posts#333). Correlated with the unblocked JobSubmitterWorker submitting a sarah-carnival-v1 (pony/SDXL CRPv18_PM40) job concurrently with turbo-one-step-clean (flux) work; the comfy log shows SDXLClipModel and FluxClipModel both being loaded in the same window.",
-  "status": "open",
+  "status": "closed",
   "source": "manual",
   "first_seen": "2026-09-19T11:45:00-0400",
   "last_seen": "2026-09-19T11:45:00-0400",
@@ -16,6 +16,11 @@
     {
       "ts": "2026-09-19T11:42:45-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T12:50:47-0400",
+      "note": "ROOT CAUSE FIXED in repo (2026-09-19). (1) SelectNextJob picked every run that was not 'completed' (where.not(status: 'completed')), so 374 FAILED runs from the deprecated pipelines (sarah-carnival-v1 pony/SDXL, turbo-one-step) stayed workable forever and JobSubmitterWorker re-rendered them: jobs 7543/7544 (pipe19 pony) and 7545/7547 (pipe20) were dispatched 15:40-15:57Z today while the growth harness rendered flux; the ComfyUI log shows SDXLClipModel and FluxClipModel_ staging in alternating windows and job 7541 OOM'd at SamplerCustomAdvanced. Verified: old workable set = 384 runs (374 failed + 110 deprecated-pipeline), new = 0. Fix: work only status pending/running, and skip runs tagged variables['sync_producer']. (2) Growth::ContentGenerator creates a run 'pending' and submits its own job synchronously, so the async submitter queued a DUPLICATE render for the same run (run457/461 had 2 jobs each) - it now tags the run sync_producer and writes a terminal status on every exit path. (3) SubmitJob now refuses to dispatch for a terminal run (dispatch-boundary invariant, spec-covered). (4) New probe guard render-dispatched-for-terminal-run verified to fire on a synthetic regression (count 1) and 0 on live data. (5) Reconciled the 10 orphaned pending runs to completed/failed. Evidence: SelectNextJob on live data -> mode=no_work; SubmitJob on a failed run -> success=false, 0 ComfyuiJob rows created; 174 rspec examples in packs/{comfyui,job_orchestration,pipeline} pass."
     }
-  ]
+  ],
+  "closed_at": "2026-09-19T12:50:47-0400"
 }
