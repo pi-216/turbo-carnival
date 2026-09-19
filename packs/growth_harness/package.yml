@@ -5,5 +5,6 @@ dependencies:
   - packs/scheduling
   - packs/content_pillars
   - packs/content_strategy
+  - packs/caption_generation
 metadata:
   owner: growth

@@ -282,6 +282,31 @@ def check_stuck_pipeline_runs():
     return None
 
 
+def caption_provenance(hours=24):
+    """How the window's captions were produced, from the posts' own metadata.
+
+    scheduling_posts.caption_metadata now records the model that answered, why it
+    was chosen (preferred_resident / preferred_not_resident(<model>)) and the
+    failure reason when the caller shipped the placeholder. Without this the rate
+    alone cannot say whether the caption path is dead, degraded to the fallback
+    model, or merely blipping -- and the log line is gone by the next day.
+    """
+    sql = ("select coalesce(caption_metadata->>'model_selection', 'unrecorded'), "
+           "count(*) from scheduling_posts "
+           f"where created_at > now() - interval '{hours} hours' group by 1 "
+           "order by 2 desc")
+    out, rc = run(["psql", "-At", "-d", DB, "-c", sql])
+    if rc != 0 or not out:
+        return None
+    parts = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        name, _, count = line.rpartition("|")
+        parts.append(f"{name} x{count}")
+    return ", ".join(parts) or None
+
+
 def check_caption_fallback():
     """Placeholder-caption rate over the last 24h of scheduled posts.
 
@@ -306,6 +331,7 @@ def check_caption_fallback():
     ratio = fb / total
     if ratio < CAPTION_ALERT_RATIO:
         return None
+    provenance = caption_provenance()
     return (
         "caption-fallback-rate",
         f"{fb} of {total} posts in 24h ship the placeholder caption 'Fresh look'",
@@ -322,8 +348,10 @@ def check_caption_fallback():
         f"client timeout and still fails. CaptionGeneration::ModelConfig.resolve "
         f"now picks the model from Ollama's /api/ps (the preferred model when it "
         f"is resident, otherwise the fallback model), so a rate that persists "
-        f"means BOTH models are failing: grep the log for '[caption]' and read "
-        f"the caption metadata's model_selection.",
+        f"means BOTH models are failing. Provenance of this window's captions "
+        f"(scheduling_posts.caption_metadata, recorded since 2026-09-19): "
+        f"{provenance or 'unavailable'}. 'unrecorded' = a post created before the "
+        f"metadata was persisted; grep the log for '[caption]' for those.",
     )
 
 

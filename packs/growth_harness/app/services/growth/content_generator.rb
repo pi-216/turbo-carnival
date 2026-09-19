@@ -112,7 +112,8 @@ module Growth
 
       # Caption it
       cap = PostAutomation::GenerateCaption.call(photo: photo, persona: persona, pillar: @pillar)
-      caption = cap.success? ? cap.caption : "Fresh look ✨"
+      captioned = CaptionGeneration::CaptionMetadata.success?(cap)
+      caption = captioned ? cap.caption : "Fresh look ✨"
 
       # Schedule it
       # Hashtags: scheduling_posts has always had a hashtags column and
@@ -124,6 +125,7 @@ module Growth
         photo: photo,
         caption: caption,
         hashtags: hashtags_for(photo),
+        caption_metadata: CaptionGeneration::CaptionMetadata.for_result(cap, placeholder: !captioned),
         status: 'scheduled',
         scheduled_at: Time.current + offset_days.days,
         optimal_time_calculated: Time.current + offset_days.days,

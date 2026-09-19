@@ -180,12 +180,15 @@ module Growth
     def schedule_post(run, photo, nsfw, realism)
       pillar = run.content_pillar || fallback_pillar
       offset = offset_days
+      cap = caption_result_for(photo, pillar)
+      captioned = CaptionGeneration::CaptionMetadata.success?(cap)
       Scheduling::Post.create!(
         persona: goal.persona,
         photo: photo,
         pipeline_run: run,
-        caption: caption_for(photo, pillar),
+        caption: captioned ? cap.caption : 'Fresh look ✨',
         hashtags: hashtags_for(photo, pillar),
+        caption_metadata: CaptionGeneration::CaptionMetadata.for_result(cap, placeholder: !captioned),
         status: 'scheduled',
         scheduled_at: Time.current + offset.days,
         optimal_time_calculated: Time.current + offset.days,
@@ -201,12 +204,14 @@ module Growth
       1 + Scheduling::Post.where(strategy_name: STRATEGY_NAME).count
     end
 
-    def caption_for(photo, pillar)
-      result = captioner.call(photo: photo, persona: goal.persona, pillar: pillar)
-      result.success? ? result.caption : 'Fresh look ✨'
+    # The caption result is kept (not just its text) so the model that answered
+    # and the failure reason can be persisted on the post -- a recovered post that
+    # shipped 'Fresh look ✨' must be countable afterwards, not just logged once.
+    def caption_result_for(photo, pillar)
+      captioner.call(photo: photo, persona: goal.persona, pillar: pillar)
     rescue StandardError => e
       @logger.warn("Growth::RenderSalvage caption failed: #{e.class} - #{e.message}")
-      'Fresh look ✨'
+      nil
     end
 
     def captioner

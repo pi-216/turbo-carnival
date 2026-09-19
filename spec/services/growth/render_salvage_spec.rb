@@ -123,5 +123,43 @@ RSpec.describe Growth::RenderSalvage do
 
       expect(result.examined).to eq(0)
     end
+
+    # A recovered post that shipped the placeholder must stay countable: the log
+    # line ages out, so the reason has to live on the post.
+    it 'persists the caption metadata on the recovered post' do
+      allow(captioner).to receive(:call).and_return(
+        double('caption result', success?: true, caption: 'Recovered caption',
+               caption_metadata: { model: 'gemma3:4b', model_selection: 'preferred_not_resident(gemma3:27b)' },
+               errors: double(full_messages: []))
+      )
+
+      post = Scheduling::Post.find(salvage.call(limit: 3).post_ids.first)
+
+      expect(post.caption_metadata['model']).to eq('gemma3:4b')
+      expect(post.caption_metadata['model_selection']).to eq('preferred_not_resident(gemma3:27b)')
+      expect(post.caption_metadata).not_to have_key('placeholder')
+    end
+
+    it 'records a placeholder caption on the post when the captioner fails' do
+      allow(captioner).to receive(:call).and_return(
+        double('caption result', success?: false, caption: nil, caption_metadata: nil,
+               errors: double(full_messages: ['Caption generation failed: timeout']))
+      )
+
+      post = Scheduling::Post.find(salvage.call(limit: 3).post_ids.first)
+
+      expect(post.caption).to eq('Fresh look ✨')
+      expect(post.caption_metadata['placeholder']).to be(true)
+      expect(post.caption_metadata['error']).to eq('Caption generation failed: timeout')
+    end
+
+    it 'still schedules the post when the captioner raises' do
+      allow(captioner).to receive(:call).and_raise(StandardError, 'ollama exploded')
+
+      post = Scheduling::Post.find(salvage.call(limit: 3).post_ids.first)
+
+      expect(post.caption).to eq('Fresh look ✨')
+      expect(post.caption_metadata['error']).to eq('captioner raised before returning a result')
+    end
   end
 end
