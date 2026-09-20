@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-20T09:33:52-0400",
-      "note": "2026-09-20 13:3xZ ops-triage: unchanged, blocked on Tim's intended age (nothing in the repo states it, and guessing changes who Sarah is). Note the render window is now CLOSED by design, not by a defect: the 4090 shows 22924 MiB used / 1157 MiB free across 5 samples with no scheduler claim -- an interactive foreign ComfyUI (pid 24411) is rendering on the shared install, so no render could run anyway and none was attempted. Pre-scoped direction unchanged: the pipeline is actively suppressing adult features (node-79 negative ends '..., adult, mature_face, sunken_eyes'). No claim taken, no identity text touched."
-    },
-    {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged, blocked on Tim's intended age. The render window is CLOSED and not by any defect: 5 samples over 10s read 19041 MiB used / 5040 MiB free at 0% util with ONE compute app, pid 24411 (18482 MiB) -- the foreign interactive ComfyUI in a tmux scope (started 08:57 EDT), claim=idle with an empty native queue, but its last prompt was 289s ago, i.e. INSIDE the 30-min live window, so it is live co-tenant work and correctly NOT filed as unclaimed residue. No claim taken, no renders run, no identity text touched. Pre-scoped direction unchanged: the node-79 negative ends '..., adult, mature_face, sunken_eyes', so the pipeline is actively suppressing adult features."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T14:37:47-0400",
       "note": "2026-09-20 18:3xZ ops-triage: unchanged, blocked on Tim's intended age. Render window CLOSED this run by another project, not by a defect of ours: scheduler 4090 status=busy current_job=prx-tg-pixel-posttrain-v2 (prx-tg-pixel-posttrain, 16.0GB, 6.5h, requested 18:13:02Z) and harness status claim=busy ours=no comfyui=down. No claim taken, no renders run, no identity text touched. Pre-scoped direction unchanged once answered: drop 'adult, mature_face, sunken_eyes' from the live step-40 negative prompt (the token list lives in the DB-stored workflow payload, not in any repo file) plus a vision re-read."
+    },
+    {
+      "ts": "2026-09-20T15:39:18-0400",
+      "note": "2026-09-20 20:0xZ ops-triage: unchanged as a DECISION item (no age stated anywhere; guessing changes who Sarah is), but this run pinned the deterministic driver in LIVE production data and filed it separately as persona-preset-suppresses-adult-features. Production renders use pipeline 'turbo-one-step-clean' (id 21, 280 runs, newest 2026-09-19) whose step id 40 has node 79 as the NEGATIVE prompt wired to the sampler (node 96 KSampler negative=[79,0]): '..., long neck, adult, mature_face, sunken_eyes'. The pipeline therefore conditions against adult features on every render -- that, plus node 88's 'petite face, small nose', is why the vision reads come back late-teens regardless of checkpoint. The juvenile-adjacent tokens previously cited from the reference workflow (petite/underboob/young teenager) are NOT in the live production step: 'underbooba, underboobs' sits in pipeline 20 (fallback, last ran 2026-08-24) and 'young teenager' in pipeline 17 (legacy, last ran 2026-05-26)."
     }
   ]
 }

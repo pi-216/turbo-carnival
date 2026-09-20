@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T14:39:56-0400",
-  "seen_count": 43,
+  "last_seen": "2026-09-20T15:26:37-0400",
+  "seen_count": 45,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-20T09:33:52-0400",
-      "note": "2026-09-20 13:3xZ ops-triage: re-verified unchanged in the profile job store (jobs.json) -- tc-growth-harness-brain (last run 09:05, delivery_failed), tc-weekly-persona-review (09-14, delivery_failed) and tc-ops-triage (08:37, delivery_failed) are deliver=origin with origin.platform='webui'; only tc-overnight-watchdog (deliver=local) reports ok. Prior run proved the target is IMPOSSIBLE in this install (gateway/config.py Platform enum has no 'webui' member and no plugin supplies one) and that no chat platform is configured for this profile, so there is no valid target to point at. Nothing in this repo can fix it and silently downgrading to local would hide the failure: needs Tim to configure a chat platform or accept deliver=local. This record is probe-owned (check_cron_delivery) and closes itself the moment a working target is set."
-    },
     {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged; re-read the profile job store live -- tc-growth-harness-brain (last run 10:02), tc-weekly-persona-review (09-14) and tc-ops-triage itself (09:39) are deliver=origin with origin.platform='webui' and last_status=delivery_failed; only tc-overnight-watchdog (deliver=local) reports ok. Re-verified the impossibility claim first-hand this run: gateway/config.py's Platform enum lists 24 members and none is 'webui', and cron/scheduler_delivery.py:1776 is the line that files 'unknown platform'. This profile has no chat platform configured, so there is no target to point at. Outside this repo by the loop's scope rule; needs Tim to configure a chat platform (then `hermes cron edit <id> --deliver <platform>:<chat_id>`) or accept deliver=local, which works but reaches nobody. Probe-owned (check_cron_delivery) so it self-closes when a working target is set."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T14:37:47-0400",
       "note": "2026-09-20 18:3xZ ops-triage: unchanged, re-read live in cron/jobs.json. tc-growth-harness-brain (last run 14:05), tc-weekly-persona-review (09-14) and tc-ops-triage are deliver=origin with origin.platform='webui' and last_status=delivery_failed (last_delivery_error \"unknown platform 'webui'\"); tc-overnight-watchdog (deliver=local) is ok. Re-confirmed the profile's config.yaml configures NO chat platform (the slack/discord/telegram blocks are the empty defaults, allowed_channels/allowed_chats ''), and channel_directory.json lists only homeassistant and email, both empty -- so there is no reachable target to point deliver at. Needs Tim: configure a chat platform for this profile, or accept deliver=local (output stays on disk under cron/output/, where this loop reads it)."
+    },
+    {
+      "ts": "2026-09-20T15:36:34-0400",
+      "note": "2026-09-20 19:5xZ ops-triage: re-verified, and this run pinned WHY it is unfixable from the repo. The three jobs (tc-growth-harness-brain, tc-weekly-persona-review, tc-ops-triage) are deliver=origin with origin.platform='webui'; hermes-agent's Platform enum (gateway/config.py) has no webui member and Platform._missing_ only admits bundled/runtime-registered PLUGIN platforms, so Platform('webui') raises ValueError and the send is skipped before any transport is chosen -- the target can never work. Delivery also has no fallback: the profile's gateway runs exactly one adapter (Signal, per logs/gateway.log) and it is DOWN (cannot reach signal-cli at 127.0.0.1:8080, every 5 min), and no TELEGRAM/DISCORD token exists in master.env. So in this install there is currently NO reachable delivery platform for this profile. Tim's decision: bring signal-cli up and set --deliver signal, or set --deliver local and accept that cron results stay on disk. Deliberately NOT set to deliver=local by this loop: that would flip last_status to ok and paint the board green while delivering nothing (the Acknowledgment!=Resolution anti-pattern)."
     }
   ]
 }
