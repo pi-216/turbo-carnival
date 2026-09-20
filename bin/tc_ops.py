@@ -117,6 +117,17 @@ NOTE_KEEP = 6
 # An up ComfyUI with no claim only matters for the VRAM it pins: an empty server
 # is ~0.4 GB, a resident render pipeline is 12-24 GB.
 UNCLAIMED_COMFYUI_VRAM_MIB = 8192
+# ...but only when that instance is IDLE. The shared install at /mnt/fscache/essdee
+# /ComfyUI is used interactively (and by other projects) from a tmux shell with no
+# scheduler claim, which is the normal state while a human or another agent is
+# mid-render -- and a board warning that reads "ComfyUI up, no claim, 23 GB" is
+# what an agent acts on. Measured 2026-09-20 09:25 EDT: this check fired while an
+# interactive session was actively rendering (5 prompts 09:00->09:26, the newest a
+# 57 s render that finished 4 min before the probe), and the growth brain's own
+# tick independently mislabelled the same instance an "orphan/leak". A ComfyUI
+# that has rendered within this window, or whose native queue is non-empty, is
+# live work: leave it alone.
+COMFYUI_LIVE_WINDOW_S = 1800
 # The ops loop's LAST MILE: Hermes writes a cron result to disk and then delivers
 # it; when the delivery target resolves to a platform with no adapter the run
 # still "succeeds", the output file still exists, and nobody receives anything.
@@ -1159,15 +1170,107 @@ def gpu_vram_used_mib():
         return None
 
 
+def comfyui_queue_depth():
+    """(running + pending) renders in the live instance's native queue, or None.
+
+    None means "cannot tell" and must never be read as "idle": the point of the
+    liveness gate is that a probe which cannot see must not accuse.
+    """
+    out, rc = run(["curl", "-s", "-m", "5", "http://127.0.0.1:8188/queue"])
+    if rc != 0 or not out:
+        return None
+    try:
+        d = json.loads(out)
+        return len(d.get("queue_running") or []) + len(d.get("queue_pending") or [])
+    except Exception:
+        return None
+
+
+def comfyui_last_prompt_age_s(now=None):
+    """Seconds since the newest prompt this instance executed, or None.
+
+    /history records each prompt's status messages with ms timestamps; the newest
+    of those is the last time the instance did real work. None = never rendered
+    (empty history) or unreadable -- both treated as not-live evidence only by the
+    caller's policy, never as "idle" on their own.
+    """
+    out, rc = run(["curl", "-s", "-m", "5", "http://127.0.0.1:8188/history"])
+    if rc != 0 or not out:
+        return None
+    try:
+        d = json.loads(out)
+    except Exception:
+        return None
+    stamps = []
+    for rec in (d.values() if isinstance(d, dict) else []):
+        msgs = ((rec or {}).get("status") or {}).get("messages") or []
+        for m in msgs:
+            if isinstance(m, list) and len(m) > 1 and isinstance(m[1], dict):
+                ts = m[1].get("timestamp")
+                if isinstance(ts, (int, float)):
+                    stamps.append(ts / 1000.0)
+    if not stamps:
+        return None
+    return max(0.0, (now if now is not None else time.time()) - max(stamps))
+
+
+def comfyui_holder_verdict(queue_depth, last_prompt_age_s):
+    """Unclaimed ComfyUI: LIVE work, idle residue, or unknown? -> live|idle|unknown.
+
+    An unclaimed instance is only a problem for the VRAM it pins when nobody is
+    using it (that residue is what makes the next claimant OOM or get refused).
+    While it is rendering -- queue non-empty, or a prompt inside
+    COMFYUI_LIVE_WINDOW_S -- it is a co-tenant doing live work on a shared install
+    that our ownership rule forbids interfering with, so there is nothing to file.
+    """
+    if queue_depth is None:
+        return "unknown"
+    if queue_depth > 0:
+        return "live"
+    if last_prompt_age_s is not None and last_prompt_age_s < COMFYUI_LIVE_WINDOW_S:
+        return "live"
+    return "idle"
+
+
+def comfyui_attribution():
+    """'owner=ours|foreign pid=… cgroup=… started=…' for the process serving 8188.
+
+    Mirrors bin/comfyui_harness.sh's attribution so a filed issue names WHO holds
+    the card: the harness records this only in its own log, and the board is what
+    a human (or the next agent) actually reads. Ownership = the pid recorded as
+    comfy_pid in our claim state; anything else is foreign and never ours to kill.
+    """
+    out, rc = run(["pgrep", "-f", r"main\.py --listen"])
+    pid = (out.splitlines() or [""])[0].strip() if rc == 0 else ""
+    if not pid:
+        return "owner=unknown"
+    who = "foreign"
+    try:
+        with open(CLAIM_FILE) as fh:
+            if str(json.load(fh).get("comfy_pid") or "") == pid:
+                who = "ours"
+    except Exception:
+        pass
+    cg = "?"
+    try:
+        cg = Path(f"/proc/{pid}/cgroup").read_text().strip().split("::")[-1] or "?"
+    except Exception:
+        pass
+    started = run(["ps", "-o", "lstart=", "-p", pid])[0].strip().replace(" ", "_") or "?"
+    return f"owner={who} pid={pid} cgroup={cg} started={started}"
+
+
 def check_comfyui_vram_unclaimed():
-    """ComfyUI is up while NOBODY holds the GPU, pinning VRAM.
+    """ComfyUI is up while NOBODY holds the GPU, pinning VRAM, and is IDLE.
 
     The harm of an orphaned instance is the memory it holds on a shared card, not
     the open port -- a warm instance with no claim is what the next claimant OOMs
     against. Deliberately NOT fired when a claim exists (another project holding
     the slot and running the shared install is normal sharing, and the harness
     adopts foreign instances rather than killing them, so there is nothing to
-    action). Sampled from hardware, not inferred from the port being open.
+    action), and NOT fired while the instance is live (see
+    comfyui_holder_verdict). Sampled from hardware, not inferred from the port
+    being open.
     """
     if not comfyui_up():
         return None
@@ -1177,13 +1280,21 @@ def check_comfyui_vram_unclaimed():
     used = gpu_vram_used_mib()
     if used is None or used < UNCLAIMED_COMFYUI_VRAM_MIB:
         return None
+    depth = comfyui_queue_depth()
+    age = comfyui_last_prompt_age_s()
+    if comfyui_holder_verdict(depth, age) != "idle":
+        return None
+    last = "never" if age is None else f"{age / 60:.0f} min ago"
     return (
         "comfyui-vram-unclaimed",
         f"ComfyUI is up with no claim on the {GPU} while holding {used / 1024:.1f} GB",
         "warn",
         f"port 8188 answering, state={g.get('status')}, vram_used={used}MiB "
-        f"(threshold {UNCLAIMED_COMFYUI_VRAM_MIB}MiB); the next claimant renders "
-        "against this residue",
+        f"(threshold {UNCLAIMED_COMFYUI_VRAM_MIB}MiB); the instance is IDLE -- native "
+        f"queue empty and last prompt {last} (live window {COMFYUI_LIVE_WINDOW_S // 60} "
+        f"min) -- so this VRAM is residue the next claimant renders against. "
+        f"{comfyui_attribution()}. A foreign instance is not ours to kill (harness "
+        "ownership rule): shut it down from its own session, or accept the hold.",
     )
 
 
@@ -2408,9 +2519,29 @@ def cmd_selftest(_argv):
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
 
+    # comfyui_holder_verdict: an unclaimed ComfyUI is only a board issue while it is
+    # IDLE. Live = queue non-empty, or a prompt inside the live window (2026-09-20:
+    # the check fired on an interactive session that had rendered 4 min earlier, and
+    # the growth tick called the same instance an "orphan"); unreadable = unknown,
+    # which must never degrade to "idle" and accuse a live instance.
+    holder_cases = [
+        ("queue-running", 1, 99999.0, "live"),
+        ("queue-pending", 3, None, "live"),
+        ("rendered-just-now", 0, 60.0, "live"),
+        ("rendered-inside-window", 0, COMFYUI_LIVE_WINDOW_S - 1.0, "live"),
+        ("rendered-at-window-edge", 0, float(COMFYUI_LIVE_WINDOW_S), "idle"),
+        ("abandoned-warm", 0, 7200.0, "idle"),
+        ("never-rendered", 0, None, "idle"),
+        ("queue-unreadable", None, 7200.0, "unknown"),
+        ("all-unreadable", None, None, "unknown"),
+    ]
+    for name, depth, age, want in holder_cases:
+        expect(f"comfyui_holder_verdict[{name}]",
+               comfyui_holder_verdict(depth, age), want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
