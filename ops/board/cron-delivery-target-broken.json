@@ -10,10 +10,6 @@
   "evidence": "cron/jobs.json: tc-growth-harness-brain (43b0d5c4446d, hourly) and tc-weekly-persona-review (8d3ac21799d5, Mon 09:00) both report last_status=delivery_failed. The overnight watchdog logged the same thing twice: \"result not delivered \u2014 unknown platform 'webui'\". Every hourly growth report and the weekly persona review are therefore written to disk and thrown away.",
   "notes": [
     {
-      "ts": "2026-09-19T14:36:43-0400",
-      "note": "Refreshed 2026-09-19 14:4x EDT. The blast radius grew: tc-ops-triage itself now reports last_status=delivery_failed with last_delivery_error unknown platform webui, so this fix loop own reports are among those thrown away (growth-brain 14:02 and weekly-persona-review are unchanged failures). Root cause pinned mechanically: deliver=origin with origin.platform=webui, and gateway/config.py Platform has no webui member and no bundled plugin platform of that name, so _prepare_target_delivery returns None before any send. Run output is still written to cron/output/<job-id>/*.md, which is why continuity and the next tick can still read it. This profile has NO messaging platform configured at all (no platforms: block in config.yaml; channel_directory.json lists homeassistant and email with empty lists), so the only valid targets are local and bot-chat. local would flip last_status to ok while still delivering nothing to Tim - that hides the failure rather than fixing it, so it is rejected. bot-chat is the designed destination for a webui-originated job, but it injects the report as a message the bot answers: a full agent turn per delivery, hourly for the growth brain, which is a spend change needing Tim explicit ok. Blocked on Tim naming a destination; the fix is one command per job, e.g. hermes cron edit 43b0d5c4446d --deliver bot-chat."
-    },
-    {
       "ts": "2026-09-19T16:05:22-0400",
       "note": "Ops-triage 2026-09-19 20:2x UTC: unchanged, blocked on Tim naming a delivery destination. Confirmed again this run -- this job's own report is in the same boat (last_status=delivery_failed, unknown platform webui). Run output still lands in cron/output/<job-id>/*.md, so continuity is intact; local would only mask the failure and bot-chat changes spend. No action taken (Hermes config, outside this repo)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-19T21:37:39-0400",
       "note": "Re-verified 2026-09-20 01:30Z from ~/.hermes/profiles/turbo-carnival/cron/jobs.json: tc-growth-harness-brain, tc-weekly-persona-review AND tc-ops-triage all carry last_status=delivery_failed (deliver=origin -> platform 'webui' unknown), while tc-overnight-watchdog is last_status=ok with deliver=local. This is now the TOP blocker of the whole ops loop: the triage run's own findings -- including every item in this file -- are written to cron/output/<id>/*.md and never delivered, so the only durable channel is this board plus the repo commits. One-line fix per job (set deliver=local, or repair the webui target), but the destination is Tim's call, so it stays open."
+    },
+    {
+      "ts": "2026-09-19T23:55:47-0400",
+      "note": "2026-09-20 03:5xZ: re-verified from ~/.hermes/profiles/turbo-carnival/cron/jobs.json - tc-growth-harness-brain (last run 09-19 23:05 EDT), tc-weekly-persona-review and tc-ops-triage (23:01 EDT, this job) all deliver=origin with last_status=delivery_failed; only tc-overnight-watchdog is deliver=local / last_status=ok. So this triage run report reaches nobody through cron: the board files and the git commits are the only durable channel. Tim: set deliver=local (or name a real target) for those three jobs."
     }
   ]
 }

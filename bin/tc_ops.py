@@ -59,6 +59,16 @@ CAPTION_ALERT_RATIO = 0.3
 # its worst case delay is one tick, so 3h absorbs a single missed run.
 PUBLISH_GRACE_H = 3
 PUBLISH_CRITICAL_H = 12
+# EXPECTED-EVENT ABSENCE: the account posts ~3/day while the queue is healthy
+# (measured inter-post gaps <= ~22h), so a multi-day silence is a failure -- and
+# one no other check can see. check_publish_liveness counts rows that were DUE;
+# a drained queue has none, so it reads green through a total outage (measured
+# 2026-09-10 -> 09-17: eight silent days with every report green).
+PUBLISH_GAP_WARN_H = 36
+PUBLISH_GAP_CRITICAL_H = 96
+# The caption model server. /api/ps is the only cheap, NON-LOADING answer to
+# "can the caption path work right now" -- see check_caption_path_cold.
+CAPTION_ENDPOINT = "http://192.168.86.137:11434"
 # Board notes are a rolling window: keep the newest N per issue, archive the rest.
 NOTE_KEEP = 6
 # An up ComfyUI with no claim only matters for the VRAM it pins: an empty server
@@ -117,6 +127,32 @@ def comfyui_up():
     out, rc = run(["curl", "-s", "-m", "5", "-o", "/dev/null",
                    "-w", "%{http_code}", "http://127.0.0.1:8188/system_stats"])
     return out == "200"
+
+
+def caption_resident_models():
+    """Model names Ollama holds in memory on max395, or None when the probe failed.
+
+    Non-loading: /api/ps answers "is a caption model warm" without paying a cold
+    load. None means "cannot tell" and must never be reported as "cold".
+    """
+    out, rc = run(["curl", "-s", "-m", "5", f"{CAPTION_ENDPOINT}/api/ps"])
+    if rc != 0 or not out:
+        return None
+    try:
+        return [m.get("name") or m.get("model") for m in json.loads(out).get("models", [])]
+    except Exception:
+        return None
+
+
+def caption_state_note():
+    """One clause describing whether a caption call can run right now."""
+    resident = caption_resident_models()
+    if resident is None:
+        return "ollama on max395 is unreachable (/api/ps probe failed)"
+    if resident:
+        return f"models resident on max395: {', '.join(resident)} (a caption call can run)"
+    return ("no model is resident on max395 and a cold load cannot complete there "
+            "(see caption-path-cold), so the next caption call ships the placeholder")
 
 
 def queue(job_id):
@@ -431,7 +467,8 @@ def check_caption_fallback():
         f"means BOTH models are failing. Provenance of this window's captions "
         f"(scheduling_posts.caption_metadata, recorded since 2026-09-19): "
         f"{provenance or 'unavailable'}. 'unrecorded' = a post created before the "
-        f"metadata was persisted; grep the log for '[caption]' for those.",
+        f"metadata was persisted; grep the log for '[caption]' for those. "
+        f"Caption path now: {caption_state_note()}.",
     )
 
 
@@ -544,6 +581,89 @@ def check_publish_liveness():
         f"oldest overdue {oldest_h:.1f}h (grace {PUBLISH_GRACE_H}h, critical at "
         f"{PUBLISH_CRITICAL_H}h); newest published={last}; "
         "publisher=bin/scheduled_posting.sh (user crontab, hourly)",
+    )
+
+
+def publish_gap_verdict(age_h):
+    """Pure: hours since the newest published post -> severity (None when fresh)."""
+    if age_h is None:
+        return None
+    if age_h >= PUBLISH_GAP_CRITICAL_H:
+        return "critical"
+    if age_h >= PUBLISH_GAP_WARN_H:
+        return "warn"
+    return None
+
+
+def check_publish_gap():
+    """EXPECTED-EVENT ABSENCE: the account stopped posting and nothing was due.
+
+    check_publish_liveness measures rows that were DUE and never went out, so it
+    is silent in exactly the failure that happened: the queue drained to zero and
+    the account simply stopped -- no overdue row, no error, no log line. Measured
+    2026-09-10 -> 09-17: eight days with no post and no scheduled_at row in the
+    window, discovered afterwards only by counting posted_at by hand. Silence is
+    a datum: the age of the newest posted post is the signal.
+    """
+    row = psql(
+        "select coalesce(round(extract(epoch from (now() at time zone 'UTC') "
+        "- max(posted_at)) / 3600.0, 1)::text, 'na') from scheduling_posts "
+        "where status = 'posted' and posted_at is not null"
+    )
+    if row is None:
+        return None
+    try:
+        age = float(row)
+    except ValueError:
+        return None
+    sev = publish_gap_verdict(age)
+    if not sev:
+        return None
+    n24 = psql("select count(*) from scheduling_posts where status = 'posted' "
+               "and posted_at > (now() at time zone 'UTC') - interval '24 hours'")
+    queued = psql("select count(*) from scheduling_posts where status in ('draft','scheduled') "
+                  "and coalesce(scheduled_at, optimal_time_calculated) > (now() at time zone 'UTC')")
+    return (
+        "publish-gap",
+        f"nothing published for {age:.0f}h (warn {PUBLISH_GAP_WARN_H}h, "
+        f"critical {PUBLISH_GAP_CRITICAL_H}h)",
+        sev,
+        f"newest posted_at is {age:.1f}h old; posted in last 24h={n24}; future "
+        f"queue={queued}. check_publish_liveness only counts rows that were DUE, so "
+        "a drained queue is invisible to it -- this is the expected-event absence "
+        "it cannot see (2026-09-10 -> 09-17: eight silent days).",
+    )
+
+
+def check_future_queue_empty():
+    """The producer stopped: nothing at all is queued to publish.
+
+    The harness refills to a target of ~21 scheduled posts, so an empty future
+    queue is not a lull -- it is days of failed production (the queue drains one
+    post per slot, ~3/day). It is also the EARLIEST signal of the 2026-09-10 ->
+    09-17 silence: available days before check_publish_gap's threshold trips,
+    because the last queued post has to publish before the account goes quiet.
+    """
+    n = psql("select count(*) from scheduling_posts where status in ('draft','scheduled') "
+             "and coalesce(scheduled_at, optimal_time_calculated) > (now() at time zone 'UTC')")
+    if n is None:
+        return None
+    try:
+        n = int(n)
+    except ValueError:
+        return None
+    if n > 0:
+        return None
+    last = psql("select coalesce(max(posted_at)::text, 'never') from scheduling_posts "
+                "where status = 'posted'")
+    return (
+        "future-queue-empty",
+        "no post is queued to publish: the producer has stopped",
+        "warn",
+        f"future draft/scheduled rows = 0 (target ~21); newest published={last}. "
+        "Nothing is due yet, so check_publish_liveness stays green while the account "
+        "counts down to silence -- the 2026-09-10 -> 09-17 outage looked exactly like "
+        "this for days before the gap itself was measurable.",
     )
 
 
@@ -705,10 +825,43 @@ def check_placeholder_caption_queued():
         f"{n} unpublished post(s) still carry the placeholder caption and will publish with it",
         "warn",
         "queued placeholders: " + ", ".join((rows or [])[:6])
-        + "; these are artifacts of the caption outage that wrote them (the path "
-        "itself has recovered); repair = bundle exec rails "
-        "captions:refresh_placeholders (dry-run), APPLY=1 to write -- a "
-        "live-publishing edit, so Tim's call",
+        + "; these are artifacts of the caption outage that wrote them; caption "
+        "path now: " + caption_state_note()
+        + "; repair = bundle exec rails captions:refresh_placeholders (dry-run), "
+        "APPLY=1 to write -- a live-publishing edit, so Tim's call",
+    )
+
+
+def check_caption_path_cold():
+    """The caption path is COLD and cannot warm itself -> the next post ships the placeholder.
+
+    Every caption check so far measures an OUTCOME (a placeholder rate over the
+    producer window, a placeholder already sitting in the queue), so a broken
+    caption path reads green until a post is created. This measures the
+    CAPABILITY: Ollama on max395 holds no model, and a cold load there cannot
+    complete. Measured 2026-09-20, three attempts inside 16 minutes: gemma3:4b
+    (3.3 GB, the configured fallback) failed at Ollama's 300s "timed out waiting
+    for llama-server to start" twice (03:34Z, 03:40Z) and a third attempt was
+    still loading when the client gave up at 4m42s (03:45Z); the preferred 27B
+    needs ~16.5 GB off the same NFS store. So a cold caption call fails and both
+    producers substitute 'Fresh look'. Fix is on max395, not in this repo.
+    """
+    resident = caption_resident_models()
+    if resident is None or resident:
+        return None
+    return (
+        "caption-path-cold",
+        "no caption model is resident on max395 and a cold load cannot complete: "
+        "the next post ships the placeholder",
+        "warn",
+        "ollama /api/ps on 192.168.86.137 lists no model. Cold loads there do not "
+        "finish inside Ollama's 300s llama-server start timeout (measured 2026-09-20: "
+        "gemma3:4b 3.3GB failed twice and a third attempt was still loading at 4m42s; "
+        "the 27B needs ~16.5GB off the same NFS store), so "
+        "CaptionGeneration::ModelConfig walks its ladder to the fallback and then to "
+        "the placeholder. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in "
+        "/etc/systemd/system/ollama.service.d/override.conf, or preload the fallback "
+        "model and pin it resident (keep_alive=-1).",
     )
 
 
@@ -1061,10 +1214,13 @@ CHECKS = [
     check_stuck_pipeline_runs,
     check_render_for_terminal_run,
     check_caption_fallback,
+    check_caption_path_cold,
     check_placeholder_caption_queued,
     check_render_acceptance,
     check_render_starved,
     check_publish_liveness,
+    check_publish_gap,
+    check_future_queue_empty,
     check_post_slot_bursts,
     check_post_schedule_shape,
     check_comfyui_vram_unclaimed,
@@ -1304,6 +1460,20 @@ def cmd_selftest(_argv):
     for name, due, oldest, want in publish_cases:
         expect(f"publish_verdict[{name}]", publish_verdict(due, oldest), want)
 
+    # publish_gap_verdict: hours since the newest published post -> severity.
+    # The 2026-09-10 -> 09-17 outage is the case this exists for (8 days silent).
+    gap_cases = [
+        ("fresh", 0.5, None),
+        ("normal-inter-post-gap", 22.3, None),
+        ("just-under-warn", PUBLISH_GAP_WARN_H - 0.1, None),
+        ("at-warn", float(PUBLISH_GAP_WARN_H), "warn"),
+        ("silent-day", 50.0, "warn"),
+        ("eight-silent-days", 192.0, "critical"),
+        ("unknown", None, None),
+    ]
+    for name, age, want in gap_cases:
+        expect(f"publish_gap_verdict[{name}]", publish_gap_verdict(age), want)
+
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [
         ("empty", [], 0),
@@ -1375,7 +1545,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

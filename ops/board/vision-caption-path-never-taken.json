@@ -24,6 +24,10 @@
     {
       "ts": "2026-09-19T20:49:31-0400",
       "note": "2026-09-20 00:5xZ: unchanged product decision for Tim. Mechanical fix is still one line (route GenerateCaption on servable_file_path instead of photo.image.attached?; VisionGenerator already reads path-only photos first). No photo since 2026-05-28 has an ActiveStorage attachment, so the vision path stays dead until that call is made."
+    },
+    {
+      "ts": "2026-09-19T23:55:47-0400",
+      "note": "2026-09-20 03:5xZ: unchanged product decision, nothing in-repo moved. Interaction worth knowing before deciding: the multimodal fallback (gemma3:4b) cannot be cold-loaded on max395 right now either (see caption-path-cold), so switching GenerateCaption to the vision path would not by itself restore captions until max395 can load any model."
     }
   ]
 }

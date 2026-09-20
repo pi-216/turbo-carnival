@@ -5,8 +5,17 @@
   "evidence": "2 day(s) over the 3/day cap: 09-20=6, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17; 21 future post(s) queued. Producers now allocate through Growth::PostSlotPlanner, so this is residue from rows created before that fix and it drains as the queue publishes; re-spacing already-scheduled rows is a live-publishing edit (Tim's call).",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-19T22:39:28-0400",
-  "seen_count": 2,
+  "last_seen": "2026-09-19T23:52:46-0400",
+  "seen_count": 5,
   "source": "probe",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-19T22:48:55-0400",
+      "note": "Filed by the probe this run (new check). Pre-fix residue, not a new failure: producers now allocate through Growth::PostSlotPlanner (re-verified live this run -- next_slot on live data = 2026-09-25 09:00Z, the earliest under-cap day, a window slot >= 90 min clear of every taken slot), so no post created after 511afaf collides -- and none has been created, because the queue is at target (21/21), so the fix is still unexercised in production. What this check measures is what will actually be RELEASED: the 21 pre-fix rows still queued put 6 posts on 09-20 (cap 3) and 4 on 09-21, with 9 consecutive pairs inside 60 min (the publisher runs hourly and releases every due post in one tick). It clears itself as the queue publishes -- 09-20 drops out tomorrow. Re-spacing already-scheduled rows is a live-publishing edit, so it stays Tim's call, exactly like the caption residue."
+    },
+    {
+      "ts": "2026-09-19T23:55:21-0400",
+      "note": "2026-09-20 03:5xZ: unchanged; 09-20=6 and 09-21=4 over the 3/day cap, 9 pairs inside 60 min, all pre-fix rows. Self-clears as the queue publishes (09-20 drops out tomorrow). Same pacing proposal as post-slots-collide. No row edits: re-spacing is a live-publishing edit = Tim."
+    }
+  ]
 }

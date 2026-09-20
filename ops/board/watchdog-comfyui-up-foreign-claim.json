@@ -16,6 +16,14 @@
     {
       "ts": "2026-09-19T21:37:44-0400",
       "note": "Re-confirmed LIVE 2026-09-20 01:45Z, i.e. the false positive is reproducing right now: bin/comfyui_harness.sh status -> claim=busy job=prx-tg-latent-first-v34 ours=no comfyui=up owner=foreign pid=2585253 cgroup=/user.slice/.../tmux-spawn-b351cc73-*.scope started=Sat_Sep_19_20:15:05_2026. Under the watchdog prompt's current rule ('comfyui=up while claim=idle or (claim=other + ours=no) -> ORPHANED GPU LEAK ... LOUDEST finding ... the scheduler thinks the GPU is idle') the next 4-hourly watchdog run reports a loud wrong CRITICAL, while gpu_scheduler status correctly shows 4090 busy/current_job=prx-tg-latent-first-v34 -- the scheduler does NOT think it is idle, and the instance is that project's own. Repo side is already correct and attributable (owner=foreign is printed; comfyui_ours() never kills what we did not spawn), so the only fix left is in the Hermes cron prompt, which lives outside this repo. Needs Tim: narrow the rule to 'comfyui=up AND claim=idle' (a real orphan) or gate it on owner=ours."
+    },
+    {
+      "ts": "2026-09-19T22:48:55-0400",
+      "note": "2026-09-20 02:5xZ: NOT reproducing right now, so the previous note's 'live right now' no longer holds -- bin/comfyui_harness.sh status = claim=busy job=prx-tg-latent-first-v34 ours=no comfyui=down, i.e. the co-tenant's ComfyUI has stopped and only the claim remains, so the 'comfyui=up + ours=no' branch has no input this hour. The prompt defect itself is unchanged (Hermes cron config, outside this repo) and fires again the next time a co-tenant runs the shared ComfyUI install while holding the claim."
+    },
+    {
+      "ts": "2026-09-19T23:55:21-0400",
+      "note": "2026-09-20 03:5xZ: not reproducing now - bin/comfyui_harness.sh status = claim=claimed job=prx-tg-topup-val-v1 ours=no comfyui=down, so the \"comfyui=up + ours=no\" branch has no input this hour. The prompt defect itself is unchanged and lives in the Hermes cron config (outside this repo) -> Tim: narrow the rule to \"comfyui=up AND claim=idle\", or gate it on owner=ours."
     }
   ]
 }

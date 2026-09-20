@@ -1,0 +1,17 @@
+{
+  "key": "caption-path-cold",
+  "title": "no caption model is resident on max395 and a cold load cannot complete: the next post ships the placeholder",
+  "severity": "warn",
+  "evidence": "ollama /api/ps on 192.168.86.137 lists no model. Cold loads there do not finish inside Ollama's 300s llama-server start timeout (measured 2026-09-20: gemma3:4b 3.3GB failed twice and a third attempt was still loading at 4m42s; the 27B needs ~16.5GB off the same NFS store), so CaptionGeneration::ModelConfig walks its ladder to the fallback and then to the placeholder. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf, or preload the fallback model and pin it resident (keep_alive=-1).",
+  "status": "open",
+  "first_seen": "2026-09-19T23:52:45-0400",
+  "last_seen": "2026-09-19T23:52:45-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-19T23:55:20-0400",
+      "note": "Filed by the new probe check added this run (bin/tc_ops.py): it measures CAPABILITY, not outcome. Live 2026-09-20 03:5xZ /api/ps on max395 = [] (nothing resident). Three cold-load attempts inside 16 min all failed: gemma3:4b (3.3 GB, the configured fallback) answered \"timed out waiting for llama-server to start\" at 301.4s (03:34Z) and again at 03:40Z, and a third was still loading when the client gave up at 4m42s (03:45Z). NFS read measured 51.5 MB/s on max395 (112 MB/s from this box), so the ~3.3 GB read is ~65s - the bulk of the 300s is llama-server init. Consequence: whenever no model is resident, ANY caption call fails and both producers substitute \"Fresh look\". Fix is max395-side, not in this repo: raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf, or preload gemma3:4b and pin it (keep_alive=-1). Auto-closes when any model is resident."
+    }
+  ]
+}

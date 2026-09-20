@@ -2,11 +2,20 @@
   "key": "caption-placeholder-queued",
   "title": "5 unpublished post(s) still carry the placeholder caption and will publish with it",
   "severity": "warn",
-  "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them (the path itself has recovered); repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
+  "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them; caption path now: no model is resident on max395 and a cold load cannot complete there (see caption-path-cold), so the next caption call ships the placeholder; repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
   "status": "open",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-09-19T22:39:28-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-19T23:52:45-0400",
+  "seen_count": 4,
   "source": "probe",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-19T22:48:55-0400",
+      "note": "Filed by the probe this run (new check) and repaired in the same run. The caption ladder fixed WHY the caption call fails, but the artifact the outage had already written stayed in the queue: 5 unpublished posts still carried 'Fresh look' (333 due 09-20 15:15, 334 16:01, 335 16:25, 336 17:10, 337 09-21 17:15) while every caption probe read green -- check_caption_fallback measures the PRODUCER window and goes silent as soon as the newest post has a real caption. Shipped (7681a3b): check_placeholder_caption_queued (warn; self-clears as they publish), CaptionGeneration::PlaceholderRefresh, and 'rails captions:refresh_placeholders', DRY-RUN BY DEFAULT because replacing a queued caption changes what the public account will say. Verified: selftest 35 assertions 0 failures; packwerk check packs/caption_generation 0 offenses; rake dry-run lists exactly these 5; the WRITE path exercised against all 5 inside a rolled-back transaction (caption + caption_metadata written in-tx, unchanged=true after rollback). NOT APPLIED to production -- the 4 posts due today publish the placeholder unless Tim runs APPLY=1. That call is his: same live-publishing-edit line as the slot residue."
+    },
+    {
+      "ts": "2026-09-19T23:55:20-0400",
+      "note": "Re-measured 2026-09-20 03:5xZ: still 5 queued placeholders (333/334/335/336 due today 15:15/16:01/16:25/17:10Z, 337 due 09-21 17:15Z). The check evidence used to claim \"the path itself has recovered\" - that was FALSE and is now replaced by the live caption state (repo commit this run). The suggested repair cannot even run while nothing is resident on max395, so APPLY=1 is blocked behind the same model-load problem. Tim has two decisions: warm a caption model on max395, then APPLY=1."
+    }
+  ]
 }

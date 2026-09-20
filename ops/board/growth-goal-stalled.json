@@ -16,6 +16,10 @@
     {
       "ts": "2026-09-19T21:37:39-0400",
       "note": "Re-checked 2026-09-20 01:30Z: the stall is NOT a publishing defect. Publisher bin/scheduled_posting.sh runs hourly and logs 'Completed successfully' (last 21:00 EDT); posts went out 4/day on 09-18 and 09-19; no post has entered status=failed since 2026-08-24; next due 2026-09-20 04:20Z; queue 21 future posts. goal 1: posts_per_day=3, max_posts_per_day=3, hashtag_count=15, review_interval_days=7, last_reviewed_at=2026-09-16T16:11Z. Because posts_per_day is ALREADY at max, the 09-23 review's escalate branch can only raise hashtags (15 -> 20, cap 30) -- volume is exhausted as a lever, which is exactly the 'strategy_exhausted' signal the brain is designed to record. Decision still Tim's: whether 3 posts/day is the intended ceiling for a 2.5 followers/day target (3/day has produced ~0.2/day), or whether the lever is content/format/audience rather than volume."
+    },
+    {
+      "ts": "2026-09-19T23:55:21-0400",
+      "note": "2026-09-20 03:5xZ: the one repo-side residue of this entry is now CLOSED by two new probe checks (commit this run): publish-gap (age of newest posted_at; warn 36h, critical 96h) and future-queue-empty. Verified live: newest post 21.9h old, 4 posted in 24h, 21 queued, so neither fires now; both were exercised firing (forced threshold 10h -> warn; patched 0 queued rows -> warn) and both return None on an unreadable DB. The 2026-09-10..17 eight-day silence would have surfaced on day 2 instead of never. What remains is Tims strategy call: 3/day is already the configured cap and has produced ~0.2 followers/day, so the lever is content/format, not volume."
     }
   ]
 }
