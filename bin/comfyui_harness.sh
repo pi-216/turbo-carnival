@@ -265,6 +265,20 @@ gpu_idle() {
 
 vram_mib() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
 
+vram_free_mib() { nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
+
+# WHO is holding the card when our request is refused. A bare `vram_insufficient`
+# forces every consumer of the log -- the growth brain's report, the ops probe, a
+# human -- to re-derive the cause from scratch (measured 2026-09-20: the refusal
+# was a co-tenant's BreastTissue-Net process holding 4.6 GiB outside the
+# scheduler, diagnosed by hand twice). Name the holder once, where it happens.
+vram_holders() {
+  local out
+  out="$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null \
+        | paste -sd'; ' -)"
+  if [ -n "$out" ]; then echo "$out"; else echo "no compute process"; fi
+}
+
 read_state() {
   # echo job_id, heartbeat_pid, comfy_pid from state file (empty strings if absent)
   python3 - "$STATE_FILE" <<'PY'
@@ -432,6 +446,10 @@ cmd_ensure() {
   done
 
   log "ensure: NOT claimed within ${wait_s}s (last result: ${result:-unknown}) — GPU unavailable, skipping this tick"
+  if [ "${result:-}" = "vram_insufficient" ]; then
+    log "ensure: why — free=$(vram_free_mib)MiB vs requested ${VRAM}GiB; holders: $(vram_holders)"
+    log "ensure: note — the ${VRAM}GiB reservation is MEASURED (ComfyUI peaks ~23.2GiB on this card), so a co-tenant holding >3GiB outside the scheduler starves renders; do not lower it to fit"
+  fi
   cleanup_job "$job"
   return 2
 }

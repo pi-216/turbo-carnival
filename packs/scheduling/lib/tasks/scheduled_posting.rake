@@ -68,7 +68,19 @@ namespace :scheduling do
     puts "Found #{all_posts.count} post(s) ready to publish:"
     puts ""
 
-    all_posts.each do |post|
+    plan = Scheduling::PostReleasePlan.call(all_posts)
+
+    if plan.deferred.any?
+      puts "Pacing: holding #{plan.deferred.size} further due post(s) for the next run:"
+      plan.deferred.each do |post|
+        slot = post.optimal_time_calculated || post.scheduled_at
+        puts "   ⏸ Post ID: #{post.id} (slot #{slot.strftime('%Y-%m-%d %H:%M %Z')}) " \
+             '— still due, releases on the next tick'
+      end
+      puts ""
+    end
+
+    plan.released.each do |post|
       scheduled_time = post.optimal_time_calculated || post.scheduled_at
       puts "📸 Post ID: #{post.id}"
       puts "   Photo ID: #{post.photo_id}"

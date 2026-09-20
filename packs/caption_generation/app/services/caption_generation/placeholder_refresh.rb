@@ -28,8 +28,8 @@ module CaptionGeneration
 
     Result = Struct.new(:post_id, :outcome, :caption, :error, keyword_init: true)
 
-    def self.call(dry_run: true, persona: nil, now: Time.current)
-      new(persona: persona, now: now).call(dry_run: dry_run)
+    def self.call(dry_run: true, persona: nil, now: Time.current, include_due: false)
+      new(persona: persona, now: now).call(dry_run: dry_run, include_due: include_due)
     end
 
     def initialize(persona: nil, now: Time.current)
@@ -41,16 +41,24 @@ module CaptionGeneration
     # publish order. `optimal_time_calculated` is the publisher's other clock for
     # draft rows, so both are used -- the same predicate
     # scheduling:post_scheduled selects on.
-    def candidates
+    #
+    # `include_due` widens this to a placeholder that is ALREADY past its slot.
+    # The default (future-only) is right for a standalone repair run: a due post
+    # is the publisher's problem, and the publisher fixes it (bin/scheduled_posting.sh
+    # runs this ahead of scheduling:post_scheduled with INCLUDE_DUE=1). Without
+    # that widening the guard has a hole exactly where it is needed: a tick that
+    # is late, or a slot that passes between two ticks, publishes the placeholder
+    # because the pre-publish repair skipped the row as "already due".
+    def candidates(include_due: false)
       scope = Scheduling::Post.where(status: UNPUBLISHED_STATUSES)
       scope = scope.where(persona: @persona) if @persona
-      scope.where('scheduled_at > ? OR optimal_time_calculated > ?', @now, @now)
-           .where('caption LIKE ?', "#{PLACEHOLDER_PREFIX}%")
+      scope = scope.where('scheduled_at > ? OR optimal_time_calculated > ?', @now, @now) unless include_due
+      scope.where('caption LIKE ?', "#{PLACEHOLDER_PREFIX}%")
            .order(:scheduled_at)
     end
 
-    def call(dry_run: true)
-      candidates.map { |post| refresh(post, dry_run: dry_run) }
+    def call(dry_run: true, include_due: false)
+      candidates(include_due: include_due).map { |post| refresh(post, dry_run: dry_run) }
     end
 
     private

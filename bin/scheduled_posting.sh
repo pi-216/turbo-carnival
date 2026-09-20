@@ -37,6 +37,23 @@ RUBY_VERSION=$(ruby -v)
 log "Using Ruby: $RUBY_VERSION"
 
 log "Running scheduled post task..."
+# Repair placeholder captions BEFORE publishing (2026-09-20). Both growth
+# producers write the literal 'Fresh look ✨' when the captioner fails, and the
+# post is then queued like any other -- so a caption outage publishes its own
+# failure artifact. Nothing re-tried it, and the repair
+# (captions:refresh_placeholders) was opt-in, so the placeholder stayed in the
+# queue until a human ran APPLY=1. The publisher is the right place to fix it: it
+# is the only path that knows the post is about to become public.
+# Deliberately NON-FATAL -- if the captioner is down the placeholder publishes
+# exactly as before, and the ops board keeps the condition open
+# (check_placeholder_caption_queued), so a repair failure cannot stall publishing.
+log "Repairing queued placeholder captions (if any)..."
+APPLY=1 INCLUDE_DUE=1 bundle exec rails captions:refresh_placeholders 2>&1 | tee -a "$LOG_FILE"
+REPAIR_CODE=${PIPESTATUS[0]}
+if [ "$REPAIR_CODE" -ne 0 ]; then
+    log "WARN: placeholder caption repair exited $REPAIR_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

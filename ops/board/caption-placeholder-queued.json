@@ -3,10 +3,10 @@
   "title": "5 unpublished post(s) still carry the placeholder caption and will publish with it",
   "severity": "warn",
   "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them; caption path now: models resident on max395: gemma3:4b (a caption call can run); repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-09-20T00:40:30-0400",
-  "seen_count": 7,
+  "last_seen": "2026-09-20T01:25:10-0400",
+  "seen_count": 8,
   "source": "probe",
   "notes": [
     {
@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-20T00:40:09-0400",
       "note": "2026-09-20 04:4xZ ops-triage: now UNBLOCKED except for Tim's go-ahead, and the evidence for the decision is attached. (1) The caption path is warm: gemma3:4b cold-loaded in 29.2s and is pinned resident (keep_alive=21600s), and the app now sends keep_alive itself, so a successful caption call keeps its model. (2) READ-ONLY rehearsal (no write) of what the refresh would produce, PostAutomation::GenerateCaption per candidate with the DB re-read after each: all 5 returned success with real captions and post.caption was byte-identical afterwards -- #333 cobblestone-streets travel, #334 pine/outdoors, #335 pasta/food, #336 yoga, #337 vintage-shop/silk-scarf (model_selection=preferred_not_resident(gemma3:27b), i.e. the 4b fallback, which is the healthy path). (3) 'rails captions:refresh_placeholders' dry-run confirms the 5 candidates (333/334/335/336/337) and writes nothing. Apply with: APPLY=1 bundle exec rails captions:refresh_placeholders. Not applied here: replacing a queued caption changes what the public account will say, which the tool deliberately keeps opt-in. Timing: #333 is due 2026-09-20 15:15Z, so there are ~10h to decide; #337 not until 09-21 17:15Z."
+    },
+    {
+      "ts": "2026-09-20T01:37:42-0400",
+      "note": "condition no longer reproduces"
     }
   ]
 }

@@ -782,8 +782,11 @@ def check_post_slot_bursts():
         f"{BURST_WINDOW_MINUTES} min of each other",
         "warn",
         "colliding: " + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4])
-        + "; the hourly publisher releases every due post in one tick "
-        "(measured 2026-09-19: 3 posts inside 24 s)",
+        + "; the publisher now releases at most ONE post per tick "
+        "(Scheduling::PostReleasePlan, 2026-09-20), so bunched slots no longer "
+        "leave the account as a burst -- what remains here is a PRODUCER-shape "
+        "smell (the slots are still too close; measured 2026-09-19: 3 posts inside "
+        "24 s, before the pacing fix)",
     )
 
 
@@ -836,9 +839,12 @@ def check_post_schedule_shape():
         f"future queue still carries pre-fix slots: {'; '.join(parts)}",
         "warn" if over else "info",
         f"{'; '.join(parts)}; {len(times)} future post(s) queued. Producers now "
-        "allocate through Growth::PostSlotPlanner, so this is residue from rows "
-        "created before that fix and it drains as the queue publishes; re-spacing "
-        "already-scheduled rows is a live-publishing edit (Tim's call).",
+        "allocate through Growth::PostSlotPlanner AND the publisher releases at "
+        "most ONE post per tick (Scheduling::PostReleasePlan), so these pre-fix "
+        "rows no longer leave as a burst: the pair signal is the slot shape only, "
+        "and the rows drain as the queue publishes (last bunched pair 09-25). No "
+        "row edits needed -- the fix belongs in the releaser, which is where the "
+        "burst actually happened.",
     )
 
 
@@ -878,8 +884,10 @@ def check_placeholder_caption_queued():
         "queued placeholders: " + ", ".join((rows or [])[:6])
         + "; these are artifacts of the caption outage that wrote them; caption "
         "path now: " + caption_state_note()
-        + "; repair = bundle exec rails captions:refresh_placeholders (dry-run), "
-        "APPLY=1 to write -- a live-publishing edit, so Tim's call",
+        + "; the publisher repairs them before it sends (bin/scheduled_posting.sh "
+        "runs captions:refresh_placeholders APPLY=1 ahead of "
+        "scheduling:post_scheduled), so this clears at the next publishing tick -- "
+        "a row that survives a tick means the captioner itself is down",
     )
 
 

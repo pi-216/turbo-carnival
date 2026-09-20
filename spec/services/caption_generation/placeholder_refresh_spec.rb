@@ -40,6 +40,17 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
 
       expect(described_class.new(now: now).candidates.map(&:id)).to eq([placeholder.id])
     end
+
+    it 'includes an already-due placeholder when asked -- the publisher runs this ' \
+       'immediately before sending, so a late tick must not publish the artifact' do
+      future = post_at(caption: 'Fresh look ✨', at: now + 1.hour)
+      due = post_at(caption: 'Fresh look ✨', at: now - 1.hour)
+      post_at(caption: 'Fresh look ✨', at: now + 3.hours, status: 'posted')
+
+      ids = described_class.new(now: now).candidates(include_due: true).map(&:id)
+
+      expect(ids).to contain_exactly(future.id, due.id)
+    end
   end
 
   describe '.call' do

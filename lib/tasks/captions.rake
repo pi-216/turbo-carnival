@@ -2,10 +2,12 @@
 
 namespace :captions do
   desc 'Re-generate captions for queued posts still carrying the placeholder ' \
-       '(dry-run; APPLY=1 to write)'
+       '(dry-run; APPLY=1 to write, INCLUDE_DUE=1 to include already-due posts)'
   task refresh_placeholders: :environment do
     dry_run = ENV['APPLY'] != '1'
-    results = CaptionGeneration::PlaceholderRefresh.call(dry_run: dry_run)
+    include_due = ENV['INCLUDE_DUE'] == '1'
+    results = CaptionGeneration::PlaceholderRefresh.call(dry_run: dry_run,
+                                                         include_due: include_due)
 
     if results.empty?
       puts 'No unpublished post is carrying the placeholder caption.'
