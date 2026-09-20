@@ -10,10 +10,6 @@
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
     {
-      "ts": "2026-09-20T05:45:08-0400",
-      "note": "2026-09-20 09:4xZ ops-triage: this record is now PROBE-OWNED rather than a manual filing. bin/tc_ops.py gained check_cron_delivery (this run): it reads the profile cron jobs.json and files/refreshes this key whenever any job last_status says the delivery failed, so the record auto-closes the moment a working target is set instead of sitting open forever. Verified both ways: against a store whose jobs are ok/local the check returns None (probe: 0 critical, 0 warn, 1 info) and against the live store it fires (probe: 0 critical, 1 warn) naming all three jobs with error=unknown platform webui. Unchanged otherwise: still a Hermes cron config edit outside this repo."
-    },
-    {
       "ts": "2026-09-20T06:40:41-0400",
       "note": "2026-09-20 10:4xZ ops-triage: re-verified from the profile job store -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage are all deliver=origin with origin.platform='webui' and last_status=delivery_failed ('unknown platform webui'); tc-overnight-watchdog is deliver=local and last_status=ok. Hermes cron config, outside this repo: no in-repo fix exists, and a working target needs a platform decision (deliver=local matches the watchdog and is the only target that works with no chat platform configured)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged; re-read the profile job store live -- tc-growth-harness-brain (last run 10:02), tc-weekly-persona-review (09-14) and tc-ops-triage itself (09:39) are deliver=origin with origin.platform='webui' and last_status=delivery_failed; only tc-overnight-watchdog (deliver=local) reports ok. Re-verified the impossibility claim first-hand this run: gateway/config.py's Platform enum lists 24 members and none is 'webui', and cron/scheduler_delivery.py:1776 is the line that files 'unknown platform'. This profile has no chat platform configured, so there is no target to point at. Outside this repo by the loop's scope rule; needs Tim to configure a chat platform (then `hermes cron edit <id> --deliver <platform>:<chat_id>`) or accept deliver=local, which works but reaches nobody. Probe-owned (check_cron_delivery) so it self-closes when a working target is set."
+    },
+    {
+      "ts": "2026-09-20T11:37:37-0400",
+      "note": "2026-09-20 15:5xZ ops-triage: unchanged, re-read live. 3 jobs delivery_failed with deliver=origin origin.platform=webui: tc-growth-harness-brain (last run 11:02), tc-weekly-persona-review (09-14), tc-ops-triage itself (10:44); tc-overnight-watchdog (deliver=local) reports ok. Needs Tim: configure a chat platform for this profile or accept deliver=local."
     }
   ]
 }

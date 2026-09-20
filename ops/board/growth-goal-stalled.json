@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T04:49:23-0400",
-      "note": "2026-09-20 08:5xZ ops-triage: unchanged, and still not a technical defect -- every sub-system is green this run (queue 21/21 through 09-26 at the configured 3/day cap, publisher pacing one post per tick, media 200, captions real, and the engagement feedback path now draining: 100 of 134 provider-posts carry insights vs 25 when it was fixed yesterday, 25/hour). The lever is the configured cadence cap and the review brain's own interval (next review 2026-09-23), so nothing here is actionable from this repo: raising posts_per_day or changing content direction is Tim's call. Kept open because the terminal metric is genuinely behind (0.08x trajectory), not because work is pending."
-    },
-    {
       "ts": "2026-09-20T05:45:08-0400",
       "note": "2026-09-20 09:4xZ ops-triage: unchanged, still not a technical defect. Live this run: 21 scheduled (next due 2026-09-20 15:15Z), publisher ran 05:00 EDT Completed successfully with salvage skipped (queue at target) and insights refreshed 25 of 25 candidates; zero PipelineRun or ComfyuiJob failures since 16:40Z 09-19 (about 17h clean); growth_snapshots fresh (912 rows, newest 09:00Z). Volume lever is already at the configured cap and follower rate is a market outcome, so nothing here is actionable from this repo. The hourly report that names this anomaly is now auto-monitored by the new check_cron_delivery."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged, and still not a repo defect. Live: 21 scheduled / 0 draft (next due 15:15Z), publisher ran 10:00 EDT 'Completed successfully' with salvage skipped (queue at target), 0 post failures and 0 stuck PipelineRuns/ComfyuiJobs, growth_snapshots fresh, insights 121/134 with the newest write 14:00:16Z. Volume is already at the configured 3/day cap and the review brain is interval-gated to 09-23, so the follower rate remains a market outcome. Per-post reach is the signal the 09-23 review now has (09-18/19 posts reach 1-4, 0 likes). Kept open because the terminal metric is genuinely behind, not because work is pending."
+    },
+    {
+      "ts": "2026-09-20T11:37:37-0400",
+      "note": "2026-09-20 15:5xZ ops-triage: unchanged, not a repo defect. Live: followers 157 flat across the last 3 snapshots (13:01, 14:00, 15:01Z), 21 scheduled / 0 draft, next due 15:15Z, volume already at the configured 3/day cap (posts_per_day=max=3), review interval gated to 2026-09-23."
     }
   ]
 }

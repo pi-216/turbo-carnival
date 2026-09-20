@@ -10,10 +10,6 @@
   "source": "probe",
   "notes": [
     {
-      "ts": "2026-09-20T03:52:04-0400",
-      "note": "2026-09-20 07:5xZ ops-triage: unchanged, pre-fix residue only. Live queue: 21 queued, 2 over-cap days left (09-20=4, 09-21=4); from 09-22 the shape is 3/day with >=90min spacing (PostSlotPlanner output). Release pacing still holds on real traffic (09-20: 314 @05:00Z, 327 @06:00Z -- one per hourly tick). No row edits: re-spacing already-scheduled posts is a live-publishing edit, and the cap is enforced at CREATION, not at release."
-    },
-    {
       "ts": "2026-09-20T04:49:23-0400",
       "note": "2026-09-20 08:5xZ ops-triage: reframed, not repaired -- this is RESIDUE and it is now reported at info. Root cause of the burst was two independent defects (producers stamped Time.current+offset_days; the publisher released EVERY due post in one pass) and both are fixed. What this check still saw was pre-fix rows only: every over-cap row (09-20=4, 09-21=4) was created 09-17/09-19, i.e. before Growth::PostSlotPlanner landed (511afaf, 2026-09-20 01:36Z), and the proximity pairs are paced by Scheduling::PostReleasePlan (MAX_PER_RUN=1), so they cannot leave as a burst. Commit 7df4c22 splits every finding into LIVE (a row created at/after the planner landed => a producer is bypassing it) and RESIDUE (all rows predate it): live gates, residue is context, and a purely-residue over-cap day is info. Verified this run: probe 0 critical / 0 warn / 1 info, and over_cap_split is covered by 12 selftest assertions. Deliberately NO row edits -- re-spacing already-scheduled posts is a live-publishing edit, not a root-cause fix; the residue clears as each day passes."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: residue only, unchanged -- 09-20=4 and 09-21=4 over the 3/day cap, every row predating Growth::PostSlotPlanner (511afaf), no LIVE over-cap day. Release pacing still holds (21 scheduled, 2 posted in 24h, one post per tick). Self-clears as each day passes; deliberately no live-publishing edits."
+    },
+    {
+      "ts": "2026-09-20T11:37:49-0400",
+      "note": "2026-09-20 15:5xZ ops-triage: residue only, shrinking. 09-20 is no longer over the cap; the only over-cap future day left is 09-21=4, and every over-cap row predates Growth::PostSlotPlanner. Release pacing still holds (21 scheduled, next due 15:15Z, one post per publisher tick). Self-clears as the day passes; deliberately no live-publishing edits."
     }
   ]
 }

@@ -8,5 +8,10 @@
   "last_seen": "2026-09-20T11:36:12-0400",
   "seen_count": 1,
   "source": "probe",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-20T11:37:37-0400",
+      "note": "2026-09-20 15:5xZ ops-triage: filed by the new check (this run). Measured: log/growth_harness.log mtime 2026-08-20 (30.6d) while tc-overnight-watchdog and tc-weekly-persona-review both still instruct runs to tail it. In-repo half DONE and verified: check_cron_prompt_log_paths + a repo-owned command, python3 bin/tc_ops.py log-health, which prints each live log age and error lines and names the deprecated path (live: scheduled_posting 0.6h/0 errors, development 0.0h/0, comfyui_harness 9.5h/0, growth_harness DEPRECATED 30.6d). Remaining half is one line in jobs.json (outside this repo): replace \"tail -40 log/growth_harness.log\" with \"python3 bin/tc_ops.py log-health\" in both prompts."
+    }
+  ]
 }
