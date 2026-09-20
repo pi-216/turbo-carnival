@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T10:42:24-0400",
-      "note": "2026-09-20 14:4xZ ops-triage: unchanged, outside this repo. Re-read the source: /home/tim/backup.sh line 27 rsyncs '/mnt/fscache/essdee/' with -xahP and NO --copy-links, so ComfyUI/output (a symlink) is copied as a symlink and lands dangling on the NAS; -x also stops the walk at the filesystem boundary. The corpus therefore has one copy, on the same NAS volume as the mirror: no redundancy against volume loss or an accidental directory removal. Filed, not acted on (Tim's script, outside the working dir). Needs Tim: add --copy-links and ideally an off-site/second-volume target."
-    },
-    {
       "ts": "2026-09-20T11:37:49-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, outside this repo. Re-read /home/tim/backup.sh line 27: rsync -xahP -e ssh -p 2503 ... /mnt/fscache/essdee/ to the NAS backup host -- still no --copy-links, so ComfyUI/output (a symlink to /mnt/nas-ai-models/comfyui-output) is copied as a symlink and the corpus keeps ONE copy on the NAS volume. Needs Tim (backup.sh)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T16:43:16-0400",
       "note": "2026-09-20 20:4xZ ops-triage: unchanged, outside this repo (Tim's /home/tim/backup.sh line 27 rsyncs /mnt/fscache/essdee/ with -xahP and no --copy-links, so the ComfyUI output symlink is copied as a dangling symlink and -x stops the walk at the filesystem boundary). The corpus therefore has one copy. Fix is one flag on a script outside the working dir, so it stays filed rather than acted on. Needs Tim."
+    },
+    {
+      "ts": "2026-09-20T17:44:08-0400",
+      "note": "2026-09-20 21:4xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 live: rsync -xahP over ssh -p 2503 with --delete --delete-excluded and an exclude file, source /mnt/fscache/essdee/ -> NAS home, still no --copy-links (and -x stops the walk at the filesystem boundary), so ComfyUI/output is copied as a dangling symlink and the corpus keeps ONE copy on the same NAS volume as the mirror. Needs Tim."
     }
   ]
 }

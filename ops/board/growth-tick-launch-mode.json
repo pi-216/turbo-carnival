@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T10:42:24-0400",
-      "note": "2026-09-20 14:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean live this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs; publisher completed 10:00 EDT), so the residual is a truncated tick rather than lost work. Options for Tim unchanged: (a) detach growth:sync_cadence and defer the tick's ComfyUI shutdown + claim release, (b) give the rake task an in-repo self-imposed deadline so it exits cleanly between renders (no spend change), (c) split into per-slot batches."
-    },
-    {
       "ts": "2026-09-20T11:37:49-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 21 scheduled). Options for Tim unchanged: (a) detach growth:sync_cadence and defer the tick end-of-tick shutdown/release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T16:43:16-0400",
       "note": "2026-09-20 20:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean (0 stuck PipelineRuns, 0 stuck ComfyuiJobs). Needs Tim (spend/launch behaviour)."
+    },
+    {
+      "ts": "2026-09-20T17:44:08-0400",
+      "note": "2026-09-20 21:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris re-verified clean live: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 18 future scheduled. Side effect of the a29f8bb fix worth noting: the tick claim path no longer burns its 180s budget polling (not_my_turn now returns in under 1s), so the tick has more of its window left for actual work."
     }
   ]
 }

@@ -10,10 +10,6 @@
   "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
   "notes": [
     {
-      "ts": "2026-09-20T10:42:24-0400",
-      "note": "2026-09-20 14:4xZ ops-triage: unchanged, and this run found WHY it is a design decision rather than a stale predicate: CaptionGeneration::VisionGenerator both DOCUMENTS the current behaviour ('this path is only taken when the photo has an ActiveStorage attachment ... renders imported by the growth harness are path-only, so they take CaptionGeneration::Generator') and ENFORCES it (generate raises 'Photo must have attached image' unless image.attached?). Routing path-only renders through it therefore means changing that designed contract (guard + docstring), and every caption in the queue would start describing the image instead of text metadata. Needs Tim: wire the vision path on or accept text-only captions."
-    },
-    {
       "ts": "2026-09-20T11:37:49-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged product decision for Tim. No photo since 2026-05-28 has an ActiveStorage image, and CaptionGeneration::VisionGenerator enforces that contract (raises without an attachment), so captions come from the text path by design; nothing in the repo is stale. Needs Tim: wire the vision path on or accept text-only captions."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T16:43:16-0400",
       "note": "2026-09-20 20:4xZ ops-triage: unchanged, product config outside this repo -- no photo since 2026-05-28 has an ActiveStorage image, so CaptionGeneration::VisionGenerator never runs in production. Needs Tim: wire the vision path on, or accept text-only captions."
+    },
+    {
+      "ts": "2026-09-20T17:44:08-0400",
+      "note": "2026-09-20 21:4xZ ops-triage: unchanged, product config. Live (rails): 337 photos, 141 ActiveStorage attachments of type ContentPillars::Photo, newest 2026-05-28 13:07Z -- every render since is path-only, so CaptionGeneration::VisionGenerator never runs in production. Needs Tim: wire the vision path or accept text-only captions."
     }
   ]
 }
