@@ -5,8 +5,8 @@
   "evidence": "ollama /api/ps on 192.168.86.137 lists no model. Cold loads there do not finish inside Ollama's 300s llama-server start timeout (measured 2026-09-20: gemma3:4b 3.3GB failed twice and a third attempt was still loading at 4m42s; the 27B needs ~16.5GB off the same NFS store), so CaptionGeneration::ModelConfig walks its ladder to the fallback and then to the placeholder. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf, or preload the fallback model and pin it resident (keep_alive=-1).",
   "status": "open",
   "first_seen": "2026-09-19T23:52:45-0400",
-  "last_seen": "2026-09-19T23:52:45-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-19T23:56:51-0400",
+  "seen_count": 2,
   "source": "probe",
   "notes": [
     {

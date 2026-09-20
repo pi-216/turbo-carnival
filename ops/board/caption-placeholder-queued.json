@@ -5,8 +5,8 @@
   "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them; caption path now: no model is resident on max395 and a cold load cannot complete there (see caption-path-cold), so the next caption call ships the placeholder; repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
   "status": "open",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-09-19T23:52:45-0400",
-  "seen_count": 4,
+  "last_seen": "2026-09-19T23:56:51-0400",
+  "seen_count": 5,
   "source": "probe",
   "notes": [
     {
