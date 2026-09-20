@@ -15,8 +15,12 @@ then works the open issues and closes them with a note.
   tc_ops.py show KEY         full issue record
   tc_ops.py close KEY [-n]   close an issue with a resolution note
   tc_ops.py touch KEY        bump an issue (used by fixers to record progress)
+  tc_ops.py warm-caption     load+pin the caption model on max395
 
-Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts.
+Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
+up to TC_CAPTION_WARM_BUDGET seconds (default 240) ONLY when no caption model is
+resident, because measuring "can a cold caption load complete" means attempting
+one -- give it a timeout that accommodates that.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent
@@ -66,9 +71,20 @@ PUBLISH_CRITICAL_H = 12
 # 2026-09-10 -> 09-17: eight silent days with every report green).
 PUBLISH_GAP_WARN_H = 36
 PUBLISH_GAP_CRITICAL_H = 96
-# The caption model server. /api/ps is the only cheap, NON-LOADING answer to
-# "can the caption path work right now" -- see check_caption_path_cold.
+# The caption model server. /api/ps answers "is a caption model warm" without
+# paying a cold load; the WARM-UP below is the only honest way to answer "can a
+# cold load complete", because that is the failure mode that shipped the
+# placeholder (see check_caption_path_cold).
 CAPTION_ENDPOINT = "http://192.168.86.137:11434"
+CAPTION_FALLBACK_MODEL = os.environ.get("CAPTION_FALLBACK_MODEL", "gemma3:4b").strip() or "gemma3:4b"
+# The caption path's own budget before Ollama kills a slow load (~300s), kept
+# slightly under it so a load that would be killed server-side is reported as a
+# failure rather than as a slow success.
+CAPTION_WARM_BUDGET_S = int(os.environ.get("TC_CAPTION_WARM_BUDGET", "240"))
+# Keep the warmed model resident; the caption path sends the same value, so a
+# successful probe leaves the next post answering in seconds instead of paying
+# another cold load.
+CAPTION_KEEP_ALIVE_S = int(os.environ.get("CAPTION_KEEP_ALIVE", str(6 * 60 * 60)))
 # Board notes are a rolling window: keep the newest N per issue, archive the rest.
 NOTE_KEEP = 6
 # An up ComfyUI with no claim only matters for the VRAM it pins: an empty server
@@ -144,6 +160,41 @@ def caption_resident_models():
         return None
 
 
+def caption_warm(model=None, budget=None, keep_alive=None):
+    """Load `model` into Ollama on max395 and keep it resident.
+
+    Returns (ok, seconds, error). This is the CAPABILITY measurement for the
+    caption path: a model that is already resident answers in seconds, and one
+    that is not has to be read off the (NFS) model store inside Ollama's ~300s
+    llama-server start timeout -- which is exactly what fails when max395 is
+    degraded, and what makes the caption path ship the placeholder.
+
+    Deliberately blocking and deliberately state-changing: the only honest way
+    to answer "can a cold load complete" is to attempt one, and a successful
+    attempt leaves the path warm for the next post.
+    """
+    model = model or CAPTION_FALLBACK_MODEL
+    budget = CAPTION_WARM_BUDGET_S if budget is None else budget
+    keep_alive = CAPTION_KEEP_ALIVE_S if keep_alive is None else keep_alive
+    body = json.dumps({
+        "model": model,
+        "prompt": "ok",
+        "stream": False,
+        "keep_alive": keep_alive,
+        "options": {"num_predict": 1},
+    }).encode()
+    started = time.time()
+    try:
+        req = urllib.request.Request(
+            f"{CAPTION_ENDPOINT}/api/generate", data=body,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=budget) as resp:
+            json.loads(resp.read().decode())
+        return True, time.time() - started, None
+    except Exception as e:
+        return False, time.time() - started, f"{type(e).__name__}: {e}"
+
+
 def caption_state_note():
     """One clause describing whether a caption call can run right now."""
     resident = caption_resident_models()
@@ -151,8 +202,8 @@ def caption_state_note():
         return "ollama on max395 is unreachable (/api/ps probe failed)"
     if resident:
         return f"models resident on max395: {', '.join(resident)} (a caption call can run)"
-    return ("no model is resident on max395 and a cold load cannot complete there "
-            "(see caption-path-cold), so the next caption call ships the placeholder")
+    return ("no caption model is resident on max395, so the next caption call pays a "
+            "cold load (a few tens of seconds when the box is healthy)")
 
 
 def queue(job_id):
@@ -833,33 +884,46 @@ def check_placeholder_caption_queued():
 
 
 def check_caption_path_cold():
-    """The caption path is COLD and cannot warm itself -> the next post ships the placeholder.
+    """A caption call made right now would FAIL -> the next post ships the placeholder.
 
-    Every caption check so far measures an OUTCOME (a placeholder rate over the
+    Every other caption check measures an OUTCOME (a placeholder rate over the
     producer window, a placeholder already sitting in the queue), so a broken
     caption path reads green until a post is created. This measures the
-    CAPABILITY: Ollama on max395 holds no model, and a cold load there cannot
-    complete. Measured 2026-09-20, three attempts inside 16 minutes: gemma3:4b
-    (3.3 GB, the configured fallback) failed at Ollama's 300s "timed out waiting
-    for llama-server to start" twice (03:34Z, 03:40Z) and a third attempt was
-    still loading when the client gave up at 4m42s (03:45Z); the preferred 27B
-    needs ~16.5 GB off the same NFS store. So a cold caption call fails and both
-    producers substitute 'Fresh look'. Fix is on max395, not in this repo.
+    CAPABILITY -- and it must MEASURE it, not infer it: the previous version
+    fired whenever /api/ps was empty, which is the NORMAL state (Ollama unloads a
+    model 300s after the last call), so it warned permanently on a healthy path
+    and could never clear. The one thing that actually breaks the path is a cold
+    load that cannot finish inside Ollama's ~300s llama-server start timeout
+    (measured 2026-09-20 pre-reboot: gemma3:4b failed at 301.4s twice; the same
+    load takes ~30s on the healthy box), so this attempts one.
+
+    The attempt doubles as the repair: it warms the configured fallback and pins
+    it resident, so a successful probe leaves the next post answering in seconds.
+    Costs up to CAPTION_WARM_BUDGET_S when the path is cold, nothing when a model
+    is already resident. TC_CAPTION_WARM=0 turns the attempt off (the check then
+    reports nothing rather than guessing).
     """
     resident = caption_resident_models()
     if resident is None or resident:
         return None
+    if os.environ.get("TC_CAPTION_WARM", "1") == "0":
+        return None
+
+    ok, secs, err = caption_warm()
+    if ok:
+        return None
     return (
         "caption-path-cold",
-        "no caption model is resident on max395 and a cold load cannot complete: "
+        f"a cold caption load on max395 did not finish in {CAPTION_WARM_BUDGET_S}s: "
         "the next post ships the placeholder",
         "warn",
-        "ollama /api/ps on 192.168.86.137 lists no model. Cold loads there do not "
-        "finish inside Ollama's 300s llama-server start timeout (measured 2026-09-20: "
-        "gemma3:4b 3.3GB failed twice and a third attempt was still loading at 4m42s; "
-        "the 27B needs ~16.5GB off the same NFS store), so "
+        f"no caption model was resident (/api/ps on 192.168.86.137 = []) and the "
+        f"warm-up of {CAPTION_FALLBACK_MODEL} failed after {secs:.1f}s: {err}. "
         "CaptionGeneration::ModelConfig walks its ladder to the fallback and then to "
-        "the placeholder. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in "
+        "the placeholder, so any post created before the load succeeds carries 'Fresh "
+        "look'. Ollama kills a slow load at ~300s (llama-server start timeout) and the "
+        "cause is on max395: NFS model-store read speed, or memory pressure. Fix "
+        "(max395): raise OLLAMA_LOAD_TIMEOUT in "
         "/etc/systemd/system/ollama.service.d/override.conf, or preload the fallback "
         "model and pin it resident (keep_alive=-1).",
     )
@@ -1549,6 +1613,24 @@ def cmd_selftest(_argv):
     return 1 if fails else 0
 
 
+def cmd_warm_caption(_argv):
+    """Load and pin the caption model so the next post does not pay a cold load."""
+    resident = caption_resident_models()
+    if resident is None:
+        print("caption host unreachable (/api/ps failed) -- nothing warmed")
+        return 1
+    if resident:
+        print(f"already warm: {', '.join(resident)}")
+        return 0
+    ok, secs, err = caption_warm()
+    if ok:
+        print(f"warmed {CAPTION_FALLBACK_MODEL} in {secs:.1f}s "
+              f"(keep_alive={CAPTION_KEEP_ALIVE_S}s)")
+        return 0
+    print(f"warm-up FAILED after {secs:.1f}s: {err}")
+    return 1
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -1557,6 +1639,7 @@ def main():
     return {
         "probe": cmd_probe, "list": cmd_list, "show": cmd_show,
         "close": cmd_close, "touch": cmd_touch, "selftest": cmd_selftest,
+        "warm-caption": cmd_warm_caption,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 

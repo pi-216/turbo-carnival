@@ -3,7 +3,7 @@
   "title": "Watchdog calls any up ComfyUI with ours=no an 'orphaned GPU leak' (false CRITICAL) while a co-tenant holds the claim",
   "severity": "warn",
   "evidence": "live 2026-09-20 00:45Z: port 8188 served by pid 2585253 (cgroup tmux-spawn-b351cc73-*.scope, started 2026-09-19 20:15:05 EDT, 386 MiB) = FOREIGN instance; scheduler claim held by prx-tg-latent-first-v34 (ours=no, 10.6 GB, 100% util). Harness status now prints owner=foreign for it.",
-  "status": "open",
+  "status": "closed",
   "first_seen": "2026-09-20T00:52:00+0000",
   "last_seen": "2026-09-20T00:52:00+0000",
   "seen_count": 1,
@@ -24,6 +24,11 @@
     {
       "ts": "2026-09-19T23:55:21-0400",
       "note": "2026-09-20 03:5xZ: not reproducing now - bin/comfyui_harness.sh status = claim=claimed job=prx-tg-topup-val-v1 ours=no comfyui=down, so the \"comfyui=up + ours=no\" branch has no input this hour. The prompt defect itself is unchanged and lives in the Hermes cron config (outside this repo) -> Tim: narrow the rule to \"comfyui=up AND claim=idle\", or gate it on owner=ours."
+    },
+    {
+      "ts": "2026-09-20T00:34:18-0400",
+      "note": "FIXED (root cause = the watchdog cron prompt's rule, not the repo). The tc-overnight-watchdog prompt classified 'comfyui=up AND ours=no' as an ORPHANED GPU LEAK / loudest CRITICAL of the run. Both halves were wrong under sharing: another project holding the claim while running the shared ComfyUI install is normal, and the scheduler does NOT think the GPU is idle (it reads busy/current_job=<their job>). Live 2026-09-20 00:45Z the rule fired exactly that way (port 8188 = pid 2585253 in a foreign tmux scope, claim=busy job=prx-tg-latent-first-v34 ours=no). Changed via 'hermes cron edit 31c2d0bc8261 --prompt ...' so the rule now reads: comfyui=up + claim=idle => orphan leak (loudest); comfyui=up + claim=busy/claimed + ours=no => NORMAL SHARING, one informational line naming job=<id>, never a leak/CRITICAL. Also corrected the stale 'claim=other' token to the value the harness actually prints (claim=busy/claimed + ours=no). Verified by re-reading the job record from disk: jobs.json prompt_len 3837 -> 4215 and both new bullets present (grep NORMAL SHARING / ORPHANED GPU LEAK). No gateway restart needed; the next 240m tick reads the new prompt."
     }
-  ]
+  ],
+  "closed_at": "2026-09-20T00:34:18-0400"
 }

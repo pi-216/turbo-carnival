@@ -61,7 +61,8 @@ module CaptionGeneration
       load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
 
       choice = model_choice
-      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout])
+      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
+                                    keep_alive: choice[:keep_alive])
 
       result = client.chat(
         messages: [

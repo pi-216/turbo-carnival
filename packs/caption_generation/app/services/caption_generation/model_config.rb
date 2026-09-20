@@ -35,6 +35,11 @@ module CaptionGeneration
     DEFAULT_TIMEOUT = 180 # seconds; enough only for an already-resident model
     # A model that has to cold-load pays the disk read inside its own budget.
     DEFAULT_FALLBACK_TIMEOUT = 300
+    # Seconds to keep the model the caption path used resident in Ollama.
+    # Ollama's own default is 300s, which is shorter than the gap between two
+    # posts, so every post paid a cold load. 0 (or a blank value) restores
+    # Ollama's default behaviour.
+    DEFAULT_KEEP_ALIVE = 6 * 60 * 60
 
     module_function
 
@@ -56,6 +61,18 @@ module CaptionGeneration
     def fallback_timeout
       positive_int(ENV.fetch('CAPTION_FALLBACK_TIMEOUT', DEFAULT_FALLBACK_TIMEOUT),
                    DEFAULT_FALLBACK_TIMEOUT)
+    end
+
+    # Seconds to keep the chosen model resident (-1 pins it indefinitely).
+    # nil means "send nothing", i.e. Ollama's own 300s default.
+    def keep_alive
+      raw = ENV.fetch('CAPTION_KEEP_ALIVE', DEFAULT_KEEP_ALIVE).to_s.strip
+      return nil if raw.empty?
+
+      parsed = Integer(raw)
+      parsed.zero? ? nil : parsed
+    rescue ArgumentError, TypeError
+      DEFAULT_KEEP_ALIVE
     end
 
     # Choose the model to call and the timeout that belongs with it.
@@ -105,7 +122,7 @@ module CaptionGeneration
     end
 
     def selection(model_name, timeout_seconds, reason)
-      { model: model_name, timeout: timeout_seconds, reason: reason }
+      { model: model_name, timeout: timeout_seconds, reason: reason, keep_alive: keep_alive }
     end
 
     def log_fallback(choice, preferred)

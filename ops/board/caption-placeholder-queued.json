@@ -2,11 +2,11 @@
   "key": "caption-placeholder-queued",
   "title": "5 unpublished post(s) still carry the placeholder caption and will publish with it",
   "severity": "warn",
-  "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them; caption path now: no model is resident on max395 and a cold load cannot complete there (see caption-path-cold), so the next caption call ships the placeholder; repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
+  "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them; caption path now: models resident on max395: gemma3:4b (a caption call can run); repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
   "status": "open",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-09-19T23:56:51-0400",
-  "seen_count": 5,
+  "last_seen": "2026-09-20T00:40:30-0400",
+  "seen_count": 7,
   "source": "probe",
   "notes": [
     {
@@ -16,6 +16,10 @@
     {
       "ts": "2026-09-19T23:55:20-0400",
       "note": "Re-measured 2026-09-20 03:5xZ: still 5 queued placeholders (333/334/335/336 due today 15:15/16:01/16:25/17:10Z, 337 due 09-21 17:15Z). The check evidence used to claim \"the path itself has recovered\" - that was FALSE and is now replaced by the live caption state (repo commit this run). The suggested repair cannot even run while nothing is resident on max395, so APPLY=1 is blocked behind the same model-load problem. Tim has two decisions: warm a caption model on max395, then APPLY=1."
+    },
+    {
+      "ts": "2026-09-20T00:40:09-0400",
+      "note": "2026-09-20 04:4xZ ops-triage: now UNBLOCKED except for Tim's go-ahead, and the evidence for the decision is attached. (1) The caption path is warm: gemma3:4b cold-loaded in 29.2s and is pinned resident (keep_alive=21600s), and the app now sends keep_alive itself, so a successful caption call keeps its model. (2) READ-ONLY rehearsal (no write) of what the refresh would produce, PostAutomation::GenerateCaption per candidate with the DB re-read after each: all 5 returned success with real captions and post.caption was byte-identical afterwards -- #333 cobblestone-streets travel, #334 pine/outdoors, #335 pasta/food, #336 yoga, #337 vintage-shop/silk-scarf (model_selection=preferred_not_resident(gemma3:27b), i.e. the 4b fallback, which is the healthy path). (3) 'rails captions:refresh_placeholders' dry-run confirms the 5 candidates (333/334/335/336/337) and writes nothing. Apply with: APPLY=1 bundle exec rails captions:refresh_placeholders. Not applied here: replacing a queued caption changes what the public account will say, which the tool deliberately keeps opt-in. Timing: #333 is due 2026-09-20 15:15Z, so there are ~10h to decide; #337 not until 09-21 17:15Z."
     }
   ]
 }

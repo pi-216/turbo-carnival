@@ -5,8 +5,8 @@
   "evidence": "colliding: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10; the hourly publisher releases every due post in one tick (measured 2026-09-19: 3 posts inside 24 s)",
   "status": "open",
   "first_seen": "2026-09-19T21:35:37-0400",
-  "last_seen": "2026-09-19T23:56:52-0400",
-  "seen_count": 9,
+  "last_seen": "2026-09-20T00:40:30-0400",
+  "seen_count": 11,
   "source": "probe",
   "notes": [
     {
@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-19T23:55:20-0400",
       "note": "2026-09-20 03:5xZ: unchanged residue; the producer fix (511afaf) still holds and no post has been created since (queue at target 21/21). The 4 pre-fix rows release today 15:15-17:10Z and this entry self-clears as they age out of the 24h window. NEW: proposal recorded for Tim rather than applied - bin/scheduled_posting.sh releases EVERY due post in one tick, so any backlog (not just this residue) burst-publishes; a max-1-per-tick guard in packs/scheduling/lib/tasks/scheduled_posting.rake would pace it without editing any row. Not applied: it changes live publish timing, which is the same class of edit Tim reserved."
+    },
+    {
+      "ts": "2026-09-20T00:40:15-0400",
+      "note": "2026-09-20 04:4xZ ops-triage: self-clearing residue, no repo action left. The 3 counted pairs are all pre-fix rows created before 511afaf (333/334/335/336, due 09-20 15:15-17:10Z); the check counts posts CREATED in the last 24h, so it drains as they age out of that window (last one 09-21), and the probe auto-closes it then. Producers now allocate through Growth::PostSlotPlanner -- verified again this run from the live queue: from 09-22 the queue is 3/day with >=90min spacing, i.e. nothing new collides. The remaining live risk is the publisher releasing two due posts in one hourly tick (see post-schedule-bunched); that is the releaser, not the schedule, and it is Tim's call."
     }
   ]
 }

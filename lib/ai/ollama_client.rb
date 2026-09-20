@@ -13,10 +13,18 @@ module AI
     DEFAULT_MODEL = 'gemma3:27b'
     DEFAULT_TIMEOUT = 180 # Vision (image) inference on 27B can take 60-120s+
 
-    def initialize(endpoint: ENDPOINT, model: DEFAULT_MODEL, timeout: DEFAULT_TIMEOUT)
+    # `keep_alive` (seconds, or -1 to pin forever) is sent with every request.
+    # Without it Ollama unloads the model 5 minutes after the last call, so a
+    # post created more than 5 minutes after the previous one pays a COLD load
+    # again -- and on max395 a cold load is the failure this whole ladder exists
+    # to route around. Sending it keeps the model the caption path actually uses
+    # resident, so the next post answers in seconds.
+    def initialize(endpoint: ENDPOINT, model: DEFAULT_MODEL, timeout: DEFAULT_TIMEOUT,
+                   keep_alive: nil)
       @endpoint = endpoint
       @model = model
       @timeout = timeout
+      @keep_alive = keep_alive
     end
 
     def generate(prompt:, system_prompt: nil, temperature: 0.7)
@@ -30,7 +38,7 @@ module AI
           prompt: full_prompt,
           temperature: temperature,
           stream: false
-        }.to_json
+        }.merge(keep_alive_body).to_json
       end
 
       handle_response(response)
@@ -52,7 +60,8 @@ module AI
       
       # Add images if provided (for vision models)
       body[:images] = images if images
-      
+      body.merge!(keep_alive_body)
+
       response = connection.post('/api/chat') do |req|
         req.options.timeout = @timeout
         req.headers['Content-Type'] = 'application/json'
@@ -104,6 +113,12 @@ module AI
     end
 
     private
+
+    # {} when no keep_alive was configured, so the request body is byte-identical
+    # to what it was before this option existed.
+    def keep_alive_body
+      @keep_alive.nil? ? {} : { keep_alive: @keep_alive }
+    end
 
     def connection
       Faraday.new(url: @endpoint) do |conn|

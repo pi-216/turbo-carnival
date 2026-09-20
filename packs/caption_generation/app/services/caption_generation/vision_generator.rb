@@ -30,7 +30,8 @@ module CaptionGeneration
 
       # Call Ollama with vision
       choice = model_choice
-      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout])
+      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
+                                    keep_alive: choice[:keep_alive])
 
       result = client.chat(
         messages: [

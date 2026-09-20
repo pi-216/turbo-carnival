@@ -10,7 +10,7 @@ require 'rails_helper'
 # (/api/ps); these specs pin that decision table.
 RSpec.describe CaptionGeneration::ModelConfig do
   ENV_KEYS = %w[CAPTION_MODEL CAPTION_FALLBACK_MODEL CAPTION_TIMEOUT
-                CAPTION_FALLBACK_TIMEOUT].freeze
+                CAPTION_FALLBACK_TIMEOUT CAPTION_KEEP_ALIVE].freeze
 
   around do |example|
     saved = ENV_KEYS.to_h { |k| [k, ENV[k]] }
@@ -44,7 +44,7 @@ RSpec.describe CaptionGeneration::ModelConfig do
       stub_ollama_client(models: ['gemma3:27b'])
 
       expect(described_class.resolve).to eq(
-        model: 'gemma3:27b', timeout: 180, reason: 'preferred_resident'
+        model: 'gemma3:27b', timeout: 180, reason: 'preferred_resident', keep_alive: 21_600
       )
     end
 
@@ -58,7 +58,8 @@ RSpec.describe CaptionGeneration::ModelConfig do
       stub_ollama_client(models: ['gemma3:4b'])
 
       expect(described_class.resolve).to eq(
-        model: 'gemma3:4b', timeout: 300, reason: 'preferred_not_resident(gemma3:27b)'
+        model: 'gemma3:4b', timeout: 300,
+        reason: 'preferred_not_resident(gemma3:27b)', keep_alive: 21_600
       )
     end
 
@@ -66,7 +67,8 @@ RSpec.describe CaptionGeneration::ModelConfig do
       stub_ollama_client(error: RuntimeError.new('connection refused'))
 
       expect(described_class.resolve).to eq(
-        model: 'gemma3:27b', timeout: 180, reason: 'resident_check_unavailable'
+        model: 'gemma3:27b', timeout: 180,
+        reason: 'resident_check_unavailable', keep_alive: 21_600
       )
     end
 
@@ -96,7 +98,8 @@ RSpec.describe CaptionGeneration::ModelConfig do
               'CAPTION_FALLBACK_TIMEOUT' => '90')
 
       expect(described_class.resolve).to eq(
-        model: 'gemma3:1b', timeout: 90, reason: 'preferred_not_resident(gemma3:12b)'
+        model: 'gemma3:1b', timeout: 90,
+        reason: 'preferred_not_resident(gemma3:12b)', keep_alive: 21_600
       )
     end
 
@@ -105,6 +108,72 @@ RSpec.describe CaptionGeneration::ModelConfig do
       set_env('CAPTION_TIMEOUT' => '0')
 
       expect(described_class.resolve[:timeout]).to eq(180)
+    end
+  end
+
+  # Ollama unloads a model 300s after the last call, which is shorter than the
+  # gap between two posts, so without an explicit keep_alive every post pays a
+  # cold load -- the exact failure the ladder routes around.
+  describe '.keep_alive' do
+    it 'defaults to six hours' do
+      expect(described_class.keep_alive).to eq(21_600)
+    end
+
+    it 'is carried in the selection the callers build their client from' do
+      stub_ollama_client(models: ['gemma3:4b'])
+
+      expect(described_class.resolve[:keep_alive]).to eq(21_600)
+    end
+
+    it 'is env-overridable' do
+      set_env('CAPTION_KEEP_ALIVE' => '1800')
+
+      expect(described_class.keep_alive).to eq(1800)
+    end
+
+    it 'can be disabled (0 -> Ollama default) or set to pin forever (-1)' do
+      set_env('CAPTION_KEEP_ALIVE' => '0')
+      expect(described_class.keep_alive).to be_nil
+
+      set_env('CAPTION_KEEP_ALIVE' => '-1')
+      expect(described_class.keep_alive).to eq(-1)
+    end
+
+    it 'falls back to the default on a garbage value' do
+      set_env('CAPTION_KEEP_ALIVE' => 'forever')
+
+      expect(described_class.keep_alive).to eq(21_600)
+    end
+  end
+
+  describe 'AI::OllamaClient keep_alive plumbing' do
+    it 'sends keep_alive in the /api/chat body and omits it when unset' do
+      load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
+      bodies = []
+      response = instance_double(Faraday::Response, body: { message: { content: 'hi' } }.to_json,
+                                                     success?: true)
+      connection = instance_double(Faraday::Connection)
+      allow(connection).to receive(:post) do |_path, &blk|
+        req = double('request')
+        opts = double('options')
+        allow(opts).to receive(:timeout=)
+        allow(req).to receive(:options).and_return(opts)
+        allow(req).to receive(:headers).and_return({})
+        allow(req).to receive(:body=) { |b| bodies << b }
+        blk.call(req)
+        response
+      end
+
+      warm = AI::OllamaClient.new(keep_alive: 21_600)
+      allow(warm).to receive(:connection).and_return(connection)
+      warm.chat(messages: [{ role: 'user', content: 'x' }])
+
+      cold = AI::OllamaClient.new
+      allow(cold).to receive(:connection).and_return(connection)
+      cold.chat(messages: [{ role: 'user', content: 'x' }])
+
+      expect(JSON.parse(bodies[0])).to include('keep_alive' => 21_600)
+      expect(JSON.parse(bodies[1])).not_to have_key('keep_alive')
     end
   end
 
