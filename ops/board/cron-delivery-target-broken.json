@@ -1,18 +1,14 @@
 {
   "key": "cron-delivery-target-broken",
-  "title": "Growth-brain and persona-review cron results are never delivered ('unknown platform webui')",
-  "severity": "info",
-  "source": "manual",
+  "title": "cron results are written to disk but never delivered",
+  "severity": "warn",
+  "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-19T12:58:00-0400",
-  "seen_count": 1,
-  "evidence": "cron/jobs.json: tc-growth-harness-brain (43b0d5c4446d, hourly) and tc-weekly-persona-review (8d3ac21799d5, Mon 09:00) both report last_status=delivery_failed. The overnight watchdog logged the same thing twice: \"result not delivered \u2014 unknown platform 'webui'\". Every hourly growth report and the weekly persona review are therefore written to disk and thrown away.",
+  "last_seen": "2026-09-20T05:45:09-0400",
+  "seen_count": 3,
+  "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-19T21:37:39-0400",
-      "note": "Re-verified 2026-09-20 01:30Z from ~/.hermes/profiles/turbo-carnival/cron/jobs.json: tc-growth-harness-brain, tc-weekly-persona-review AND tc-ops-triage all carry last_status=delivery_failed (deliver=origin -> platform 'webui' unknown), while tc-overnight-watchdog is last_status=ok with deliver=local. This is now the TOP blocker of the whole ops loop: the triage run's own findings -- including every item in this file -- are written to cron/output/<id>/*.md and never delivered, so the only durable channel is this board plus the repo commits. One-line fix per job (set deliver=local, or repair the webui target), but the destination is Tim's call, so it stays open."
-    },
     {
       "ts": "2026-09-19T23:55:47-0400",
       "note": "2026-09-20 03:5xZ: re-verified from ~/.hermes/profiles/turbo-carnival/cron/jobs.json - tc-growth-harness-brain (last run 09-19 23:05 EDT), tc-weekly-persona-review and tc-ops-triage (23:01 EDT, this job) all deliver=origin with last_status=delivery_failed; only tc-overnight-watchdog is deliver=local / last_status=ok. So this triage run report reaches nobody through cron: the board files and the git commits are the only durable channel. Tim: set deliver=local (or name a real target) for those three jobs."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T04:49:23-0400",
       "note": "2026-09-20 08:5xZ ops-triage: re-verified unchanged in ~/.hermes/profiles/turbo-carnival/cron/jobs.json -- tc-growth-harness-brain (last run 04:01, delivery_failed), tc-weekly-persona-review (09-14, delivery_failed) and tc-ops-triage itself (03:56, delivery_failed) all deliver=origin; only tc-overnight-watchdog (deliver=local) reports ok. So three jobs' results are silently dropped, including the one that owns this fix loop. Outside this repo: needs Tim to name a delivery target (hermes cron edit <id> --deliver <target>)."
+    },
+    {
+      "ts": "2026-09-20T05:45:08-0400",
+      "note": "2026-09-20 09:4xZ ops-triage: this record is now PROBE-OWNED rather than a manual filing. bin/tc_ops.py gained check_cron_delivery (this run): it reads the profile cron jobs.json and files/refreshes this key whenever any job last_status says the delivery failed, so the record auto-closes the moment a working target is set instead of sitting open forever. Verified both ways: against a store whose jobs are ok/local the check returns None (probe: 0 critical, 0 warn, 1 info) and against the live store it fires (probe: 0 critical, 1 warn) naming all three jobs with error=unknown platform webui. Unchanged otherwise: still a Hermes cron config edit outside this repo."
     }
   ]
 }

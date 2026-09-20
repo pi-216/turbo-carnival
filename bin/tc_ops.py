@@ -113,6 +113,17 @@ NOTE_KEEP = 6
 # An up ComfyUI with no claim only matters for the VRAM it pins: an empty server
 # is ~0.4 GB, a resident render pipeline is 12-24 GB.
 UNCLAIMED_COMFYUI_VRAM_MIB = 8192
+# The ops loop's LAST MILE: Hermes writes a cron result to disk and then delivers
+# it; when the delivery target resolves to a platform with no adapter the run
+# still "succeeds", the output file still exists, and nobody receives anything.
+# Measured 2026-09-19/20: three jobs (growth-brain, weekly-persona-review and this
+# ops-triage job itself) logged last_status=delivery_failed, "unknown platform
+# 'webui'", for ~18h -- so every finding on this board was being dropped while
+# each run reported success. Nothing in this repo can see that, so read it from
+# the job store (override with TC_CRON_JOBS; unreadable -> no signal, not a warn).
+CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
+                 or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
+                 / "cron" / "jobs.json")
 
 
 # ---------------------------------------------------------------- utilities
@@ -1445,6 +1456,69 @@ def check_zombie_jobs():
     )
 
 
+def cron_delivery_verdict(rows):
+    """Pure: job records -> (severity, evidence) when a result was never delivered.
+
+    From the fix loop's point of view a run whose result never reaches the user is
+    a FAILED run -- and the failure is invisible from the repo side: the agent
+    runs, the output file is written, the next tick fires on time. Only a status
+    that actually says the delivery failed counts, so a job still running (status
+    None) or delivering locally is never reported as broken.
+    """
+    broken = []
+    for r in rows:
+        status = str(r.get("status") or "").lower()
+        if "delivery_failed" in status or "delivery_error" in status:
+            broken.append(r)
+    if not broken:
+        return None
+    detail = "; ".join(
+        f"{r.get('name')} ({r.get('id')}, deliver={r.get('deliver')}, "
+        f"origin={(r.get('origin') or {}).get('platform')}, "
+        f"error={r.get('error')})"
+        for r in broken)
+    return ("warn", f"{len(broken)} turbo-carnival cron job(s) whose last result was "
+                    f"never delivered: {detail}")
+
+
+def check_cron_delivery():
+    """The fix loop's own output path: a report nobody receives closes nothing.
+
+    Every other check reads a signal this repo owns. This one reads the job store,
+    because a delivery failure leaves no trace inside the repo: the run succeeds,
+    the output lands in cron/output/<id>/, and the only evidence is the job's own
+    last_status. That is exactly the silent-decay shape the board exists to catch
+    (genome: 'Acknowledgment != Resolution' / 'Expected-Event Absence'): findings
+    were filed, worked and closed for a day while the reports carrying them were
+    dropped, so the human side of the loop never saw any of it.
+
+    A store that cannot be read returns None (no signal) rather than a warn -- a
+    probe that cannot measure must not invent a failure; check_probe_inputs owns
+    the blindness report.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "status": j.get("last_status"), "deliver": j.get("deliver"),
+             "origin": j.get("origin"), "error": j.get("last_delivery_error")}
+            for j in jobs if isinstance(j, dict)]
+    v = cron_delivery_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-delivery-target-broken",
+        "cron results are written to disk but never delivered",
+        v[0],
+        v[1] + " — the fix is the delivery target on those jobs "
+              "(`hermes cron edit <id> --deliver <target>`), not this repo.",
+    )
+
+
 def check_probe_inputs():
     """Coverage guard: a probe that cannot measure must not report green.
 
@@ -1499,6 +1573,7 @@ CHECKS = [
     check_harness_log_growth,
     check_queue_growth,
     check_scheduler_dispatcher,
+    check_cron_delivery,
 ]
 
 
@@ -1880,6 +1955,28 @@ def cmd_selftest(_argv):
         v = release_pacing_verdict(rake_src, plan_src)
         expect(f"release_pacing_verdict[{name}]", v[0] if v else None, want)
 
+    # cron_delivery_verdict: job records -> severity. The delivery failure is
+    # silent from inside the repo (the run succeeds, the output file exists), so
+    # the job store's own status is the only signal; a job that is still running
+    # or delivering locally must never be read as broken.
+    def J(name, status, **kw):
+        return {"name": name, "id": kw.get("id", "j" + name), "status": status,
+                "deliver": kw.get("deliver", "origin"),
+                "origin": kw.get("origin", {"platform": "webui"}),
+                "error": kw.get("error")}
+
+    delivery_cases = [
+        ("all-ok", [J("a", "ok"), J("b", "local")], None),
+        ("in-flight", [J("a", None), J("b", "running")], None),
+        ("empty", [], None),
+        ("one-broken", [J("a", "ok"), J("b", "delivery_failed",
+                                       error="unknown platform 'webui'")], "warn"),
+        ("all-broken", [J("a", "delivery_failed"), J("b", "delivery_failed")], "warn"),
+    ]
+    for name, rows, want in delivery_cases:
+        v = cron_delivery_verdict(rows)
+        expect(f"cron_delivery_verdict[{name}]", v[0] if v else None, want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -1933,7 +2030,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + 14} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + 14} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
