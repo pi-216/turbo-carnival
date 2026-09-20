@@ -21,6 +21,10 @@ then works the open issues and closes them with a note.
   tc_ops.py touch KEY        bump an issue (used by fixers to record progress)
   tc_ops.py caption-endpoint is the caption service up? (scanner-safe probe for
                              cron prompts: the shell command carries no raw IP)
+  tc_ops.py log-health       which repo logs are live, and what are their recent
+                             errors? (repo-owned replacement for prompts that
+                             hardcode a log path -- a path rots when the writer
+                             moves, an age cannot)
   tc_ops.py warm-caption     load+pin the caption model on max395
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
@@ -1320,6 +1324,39 @@ def check_telemetry_oom():
     return None
 
 
+LOG_HEALTH_FILES = ("log/scheduled_posting.log", "log/development.log",
+                    "log/comfyui_harness.log")
+# Paths a prompt still points at but nothing writes: named here so a monitoring run
+# sees WHY they are absent from the live list instead of re-deriving it.
+DEPRECATED_LOGS = ("log/growth_harness.log",)
+# Deliberately narrow: a monitoring run must be able to read the answer at a
+# glance. "failed"/"error" appear in ordinary prose lines, so match the shapes a
+# real crash prints.
+LOG_ERROR_PAT = re.compile(r"\b(ERROR|FATAL|Traceback|aborted|Exception)\b")
+LOG_SCAN_BYTES = 2 * 1024 * 1024
+
+
+def log_error_samples(rel_path, limit=3):
+    """(exists, age_seconds, error_count, newest_error_lines) for a log's tail.
+
+    Bounded to the last LOG_SCAN_BYTES so `log-health` stays cheap on a 24 MB
+    development.log.
+    """
+    p = APP / rel_path
+    try:
+        st = p.stat()
+    except OSError:
+        return False, None, 0, []
+    age = time.time() - st.st_mtime
+    with open(p, "rb") as fh:
+        if st.st_size > LOG_SCAN_BYTES:
+            fh.seek(st.st_size - LOG_SCAN_BYTES)
+            fh.readline()  # drop the partial first line of the window
+        tail = fh.read().decode("utf-8", "replace")
+    hits = [ln.strip() for ln in tail.splitlines() if LOG_ERROR_PAT.search(ln)]
+    return True, age, len(hits), hits[-limit:]
+
+
 def check_harness_log_growth():
     if not HARNESS_LOG.exists():
         return None
@@ -1778,6 +1815,90 @@ def check_cron_prompt_orphan_wording():
     )
 
 
+# Third shape of the same rot (measured 2026-09-20): a prompt that reads a repo log
+# BY PATH keeps reading a file that stopped being written. Both monitoring prompts
+# tell every run to `tail -40 log/growth_harness.log` -- the log of
+# bin/growth_harness.sh, a wrapper deprecated on 2026-09-20 and unwritten since
+# 2026-08-20 -- so the error step reads 30-day-old text and cannot tell "no errors"
+# from "this log is dead" (genome #40: expected-event absence; #13: config rot that
+# agent improvisation hides). The durable fix is the one that retired the raw-IP
+# probe: point the prompt at a repo-owned command (`python3 bin/tc_ops.py
+# log-health`) instead of a path, so a writer moving cannot blind the step.
+PROMPT_LOG_PATH = re.compile(
+    r"(?<![\w/])log/([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:log|jsonl))")
+# Longer than any cadence in this repo (hourly publisher, daily backup, weekly
+# review), so a weekly job's own log is never called dead.
+DEAD_LOG_AGE_S = 10 * 86400
+
+
+def log_path_age(rel_path):
+    """(exists, age_seconds) for a repo-relative log path; age None when missing."""
+    try:
+        return True, time.time() - (APP / rel_path).stat().st_mtime
+    except OSError:
+        return False, None
+
+
+def cron_prompt_logpath_verdict(rows, probe=log_path_age):
+    """Pure: job records -> (severity, evidence) when a prompt reads a dead log.
+
+    `probe(rel_path)` returns (exists, age_seconds) and is injected so the decision
+    is testable without touching the filesystem.
+    """
+    hits = []
+    for r in rows:
+        for rel in sorted(set(PROMPT_LOG_PATH.findall(r.get("prompt") or ""))):
+            exists, age = probe("log/" + rel)
+            if exists and age is not None and age < DEAD_LOG_AGE_S:
+                continue
+            if not exists:
+                state = "MISSING"
+            elif age is None:
+                state = "age unreadable"
+            else:
+                state = f"unwritten for {age / 86400:.1f}d"
+            hits.append(f"{r.get('name')} ({r.get('id')}) reads log/{rel} -- {state}")
+    if not hits:
+        return None
+    return (
+        "warn",
+        f"{len(hits)} cron prompt log reference(s) point at a file nothing writes, "
+        f"so the step that reads it cannot tell 'no errors' from 'no signal': "
+        f"{'; '.join(hits)} -- replace the path with the repo-owned command "
+        f"(`python3 bin/tc_ops.py log-health` prints every live log's age and recent "
+        f"error lines, so it cannot rot when a writer moves)",
+    )
+
+
+def check_cron_prompt_log_paths():
+    """Config rot, third shape: a prompt reads a log that stopped being written.
+
+    Same reason as check_cron_prompt_probes -- the defect lives in the prompt text,
+    and a run that tails a dead log still finishes cleanly, so nothing else
+    surfaces it. Measured 2026-09-20: log/growth_harness.log was last written
+    2026-08-20 (by bin/growth_harness.sh, since deprecated), and both the overnight
+    watchdog and the weekly persona review still told every run to tail it.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "prompt": j.get("prompt")} for j in jobs if isinstance(j, dict)]
+    v = cron_prompt_logpath_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-prompt-dead-log-path",
+        "a cron prompt reads a log file that nothing writes any more",
+        v[0],
+        v[1],
+    )
+
+
 def check_probe_inputs():
     """Coverage guard: a probe that cannot measure must not report green.
 
@@ -2034,6 +2155,7 @@ CHECKS = [
     check_cron_delivery,
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
+    check_cron_prompt_log_paths,
 ]
 
 
@@ -2632,10 +2754,70 @@ def cmd_selftest(_argv):
         v = cron_prompt_orphan_verdict(rows)
         expect(f"cron_prompt_orphan_verdict[{name}]", v[0] if v else None, want)
 
+    # cron_prompt_logpath_verdict: a prompt reading a log nothing writes. The
+    # 2026-09-20 case is log/growth_harness.log (30d dead, two live prompts).
+    _fresh = lambda _rel: (True, 3600.0)
+    _dead = lambda _rel: (True, 30 * 86400.0)
+    _missing = lambda _rel: (False, None)
+    _unknown = lambda _rel: (True, None)
+    logpath_cases = [
+        ("fresh-log", [{"name": "w", "id": "w1",
+                        "prompt": "tail -40 log/development.log"}], _fresh, None),
+        ("dead-log", [{"name": "w", "id": "w1",
+                       "prompt": "tail -40 log/growth_harness.log and log/development.log"}],
+         _dead, "warn"),
+        ("missing-log", [{"name": "w", "id": "w1", "prompt": "read log/whatever.log"}],
+         _missing, "warn"),
+        ("age-unreadable", [{"name": "w", "id": "w1", "prompt": "tail log/x.log"}],
+         _unknown, "warn"),
+        ("no-log-ref", [{"name": "w", "id": "w1",
+                         "prompt": "run bin/comfyui_harness.sh ensure"}], _dead, None),
+        ("non-log-file", [{"name": "w", "id": "w1",
+                           "prompt": "read config/database.yml"}], _missing, None),
+        ("absolute-path-ignored",
+         [{"name": "w", "id": "w1", "prompt": "tail /var/log/syslog"}], _missing, None),
+        ("no-prompt", [{"name": "w", "id": "w1", "prompt": None}], _missing, None),
+    ]
+    for name, rows, probe, want in logpath_cases:
+        v = cron_prompt_logpath_verdict(rows, probe=probe)
+        expect(f"cron_prompt_logpath_verdict[{name}]", v[0] if v else None, want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
+
+
+def cmd_log_health(_argv):
+    """Answer "what are the harness errors" from the LIVE logs, for cron prompts.
+
+    Third instance of the same config-rot family as `caption-endpoint`: the
+    monitoring prompts hardcode log paths, and a path rots the moment its writer
+    moves (log/growth_harness.log died 2026-08-20 with its deprecated wrapper while
+    two live prompts still tailed it). This command owns the question instead: it
+    prints each live log's AGE -- so a dead log shows up as an age, not as an empty
+    tail that reads like "no errors" -- plus its recent error lines. Informational:
+    always exits 0, so a monitoring tick can never be blocked by it.
+    """
+    for rel in LOG_HEALTH_FILES:
+        exists, age, n, samples = log_error_samples(rel)
+        if not exists:
+            print(f"{rel}: MISSING (nothing writes this path any more)")
+            continue
+        if age is None:
+            print(f"{rel}: present but its age is unreadable")
+            continue
+        shown = f"{age / 3600:.1f}h" if age < 86400 else f"{age / 86400:.1f}d"
+        print(f"{rel}: age={shown} errors={n}")
+        for s in samples:
+            print(f"    {s[:160]}")
+    for rel in DEPRECATED_LOGS:
+        exists, age, _, _ = log_error_samples(rel)
+        if exists and age is not None:
+            print(f"{rel}: DEPRECATED — age={age / 86400:.1f}d, nothing writes it "
+                  f"(its wrapper bin/growth_harness.sh is retired); do NOT read it "
+                  f"for harness health")
+    return 0
 
 
 def cmd_caption_endpoint(_argv):
@@ -2684,6 +2866,7 @@ def main():
         "close": cmd_close, "touch": cmd_touch, "selftest": cmd_selftest,
         "file": cmd_file, "warm-caption": cmd_warm_caption,
         "caption-endpoint": cmd_caption_endpoint,
+        "log-health": cmd_log_health,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 

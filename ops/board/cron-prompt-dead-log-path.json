@@ -1,0 +1,12 @@
+{
+  "key": "cron-prompt-dead-log-path",
+  "title": "a cron prompt reads a log file that nothing writes any more",
+  "severity": "warn",
+  "evidence": "2 cron prompt log reference(s) point at a file nothing writes, so the step that reads it cannot tell 'no errors' from 'no signal': tc-weekly-persona-review (8d3ac21799d5) reads log/growth_harness.log -- unwritten for 30.6d; tc-overnight-watchdog (31c2d0bc8261) reads log/growth_harness.log -- unwritten for 30.6d -- replace the path with the repo-owned command (`python3 bin/tc_ops.py log-health` prints every live log's age and recent error lines, so it cannot rot when a writer moves)",
+  "status": "open",
+  "first_seen": "2026-09-20T11:36:12-0400",
+  "last_seen": "2026-09-20T11:36:12-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": []
+}
