@@ -5,14 +5,10 @@
   "evidence": "1 day(s) over the 3/day cap: 09-21=4; 18 future post(s) queued [6 pair(s) inside 60 min: 09-21 04:22/09-21 05:17, 09-21 05:17/09-21 05:31, 09-22 05:19/09-22 05:33, 09-23 05:20/09-23 05:35 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 1 of them (09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T15:39:41-0400",
-  "seen_count": 69,
+  "last_seen": "2026-09-20T16:40:07-0400",
+  "seen_count": 72,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T09:33:58-0400",
-      "note": "2026-09-20 13:3xZ ops-triage: unchanged pre-fix residue only (seen 44): 2 future days over the 3/day cap (09-20=4, 09-21=4), no live over-cap days. Self-clears as those days pass; deliberately no live-publishing edits."
-    },
     {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: residue only, unchanged -- 09-20=4 and 09-21=4 over the 3/day cap, every row predating Growth::PostSlotPlanner (511afaf), no LIVE over-cap day. Release pacing still holds (21 scheduled, 2 posted in 24h, one post per tick). Self-clears as each day passes; deliberately no live-publishing edits."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T14:37:47-0400",
       "note": "2026-09-20 18:3xZ ops-triage: residue only, unchanged. Live: the only future day over the 3/day cap is 09-21=4, every over-cap row predating Growth::PostSlotPlanner; 19 scheduled / 0 draft, 4 posted in 24h, 1 failed. Deliberately no live-publishing edits; the day self-clears as it passes."
+    },
+    {
+      "ts": "2026-09-20T16:43:16-0400",
+      "note": "2026-09-20 20:4xZ ops-triage: residue only, unchanged -- 09-21 still carries 4 rows against the 3/day cap, every one predating Growth::PostSlotPlanner (511afaf), no LIVE over-cap day. Self-clears as each day passes; deliberately no live-publishing edits."
     }
   ]
 }

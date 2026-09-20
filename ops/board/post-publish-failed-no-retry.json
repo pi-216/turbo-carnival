@@ -2,11 +2,11 @@
   "key": "post-publish-failed-no-retry",
   "title": "a post Instagram rejected is marked failed with no retry and no alarm -- the slot is lost silently",
   "severity": "warn",
-  "evidence": "1 post(s) marked failed in the last 24h (newest 3.6h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
+  "evidence": "1 post(s) marked failed in the last 24h (newest 4.7h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
   "status": "open",
   "first_seen": "2026-09-20T12:35:53-0400",
-  "last_seen": "2026-09-20T15:39:41-0400",
-  "seen_count": 18,
+  "last_seen": "2026-09-20T16:40:07-0400",
+  "seen_count": 21,
   "source": "probe",
   "notes": [
     {
@@ -24,6 +24,10 @@
     {
       "ts": "2026-09-20T15:35:47-0400",
       "note": "2026-09-20 19:4xZ ops-triage: the TRANSIENT half of the no-retry defect is now FIXED in-repo (commit ffe9692). Root cause of the 9007 class: Instagram answers the container status check status_code=FINISHED, then rejects the immediate publish with 400 code 9007/subcode 2207027 'media is not ready for publishing'; the client published with no tolerance and the publisher has no requeue, so the slot AND its photo were lost. Instagram::Client now classifies that response (MediaNotReadyError) and retries the publish 4x, 10s apart; every other error and the last attempt fail exactly as before. Verified: spec/services/scheduling/instagram_client_spec.rb is RED on the unfixed client (2 failures) and green after; full suite 409 examples / 0 failures; adjacent specs green. REMAINING (needs Tim): a post that definitively fails still consumes its slot with no requeue -- is a missed slot made up, or dropped? That is a product policy call, not a code defect."
+    },
+    {
+      "ts": "2026-09-20T16:42:59-0400",
+      "note": "2026-09-20 20:4xZ ops-triage: unchanged and self-clearing. The transient defect was fixed last run (ffe9692: Instagram::Client classifies 400/9007 MediaNotReadyError and retries the publish 4x, 10s apart). The only failure in the 24h window is post 333 at 16:00:58Z, which PREDATES that fix by ~3.7h, so the check is reporting history, not a live loss; post 334 published normally at 17:00Z. It auto-closes when the 24h window empties (~09-21 16:00Z). Residual is product policy, not code: a post that definitively fails still consumes its slot with no requeue -- make-up the slot, or drop it? Tim's call."
     }
   ]
 }

@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T15:39:41-0400",
-  "seen_count": 46,
+  "last_seen": "2026-09-20T16:40:10-0400",
+  "seen_count": 49,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-20T10:42:24-0400",
-      "note": "2026-09-20 14:4xZ ops-triage: unchanged; re-read the profile job store live -- tc-growth-harness-brain (last run 10:02), tc-weekly-persona-review (09-14) and tc-ops-triage itself (09:39) are deliver=origin with origin.platform='webui' and last_status=delivery_failed; only tc-overnight-watchdog (deliver=local) reports ok. Re-verified the impossibility claim first-hand this run: gateway/config.py's Platform enum lists 24 members and none is 'webui', and cron/scheduler_delivery.py:1776 is the line that files 'unknown platform'. This profile has no chat platform configured, so there is no target to point at. Outside this repo by the loop's scope rule; needs Tim to configure a chat platform (then `hermes cron edit <id> --deliver <platform>:<chat_id>`) or accept deliver=local, which works but reaches nobody. Probe-owned (check_cron_delivery) so it self-closes when a working target is set."
-    },
     {
       "ts": "2026-09-20T11:37:37-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, re-read live. 3 jobs delivery_failed with deliver=origin origin.platform=webui: tc-growth-harness-brain (last run 11:02), tc-weekly-persona-review (09-14), tc-ops-triage itself (10:44); tc-overnight-watchdog (deliver=local) reports ok. Needs Tim: configure a chat platform for this profile or accept deliver=local."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T15:36:34-0400",
       "note": "2026-09-20 19:5xZ ops-triage: re-verified, and this run pinned WHY it is unfixable from the repo. The three jobs (tc-growth-harness-brain, tc-weekly-persona-review, tc-ops-triage) are deliver=origin with origin.platform='webui'; hermes-agent's Platform enum (gateway/config.py) has no webui member and Platform._missing_ only admits bundled/runtime-registered PLUGIN platforms, so Platform('webui') raises ValueError and the send is skipped before any transport is chosen -- the target can never work. Delivery also has no fallback: the profile's gateway runs exactly one adapter (Signal, per logs/gateway.log) and it is DOWN (cannot reach signal-cli at 127.0.0.1:8080, every 5 min), and no TELEGRAM/DISCORD token exists in master.env. So in this install there is currently NO reachable delivery platform for this profile. Tim's decision: bring signal-cli up and set --deliver signal, or set --deliver local and accept that cron results stay on disk. Deliberately NOT set to deliver=local by this loop: that would flip last_status to ok and paint the board green while delivering nothing (the Acknowledgment!=Resolution anti-pattern)."
+    },
+    {
+      "ts": "2026-09-20T16:43:16-0400",
+      "note": "2026-09-20 20:4xZ ops-triage: unchanged, and it is Hermes config outside this repo. Re-read the live job store: tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage are deliver=origin with origin.platform=webui and last_status=delivery_failed; only tc-overnight-watchdog (deliver=local) reports ok. Already verified first-hand that this profile has no 'webui' delivery target (the gateway Platform enum has no such member), so the fix is a one-line change to those jobs' deliver target in the Hermes cron config. Consequence worth restating: every board finding this loop produces is written to disk and dropped -- which is why the board files ARE the record. Needs Tim."
     }
   ]
 }

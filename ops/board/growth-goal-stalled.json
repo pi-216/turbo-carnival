@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T09:33:52-0400",
-      "note": "2026-09-20 13:3xZ ops-triage: unchanged, still not a repo defect. Live: 157 followers (newest snapshot 13:01Z, flat), 21 scheduled / 0 draft, next due 2026-09-20 15:15Z, 2 posted in 24h, 0 open PipelineRuns (24h: 9 completed / 8 failed, all pre-16:40Z 09-19), ComfyuiJobs 24h 15 completed / 9 failed with nothing new failing. Volume lever is already at the configured 3/day cap and the review brain is interval-gated to 09-23; per-post reach collapse (1-4 accounts on 09-18/19 posts) is the signal the 09-23 review now has. Tim's call: content/format/audience vs volume."
-    },
-    {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged, and still not a repo defect. Live: 21 scheduled / 0 draft (next due 15:15Z), publisher ran 10:00 EDT 'Completed successfully' with salvage skipped (queue at target), 0 post failures and 0 stuck PipelineRuns/ComfyuiJobs, growth_snapshots fresh, insights 121/134 with the newest write 14:00:16Z. Volume is already at the configured 3/day cap and the review brain is interval-gated to 09-23, so the follower rate remains a market outcome. Per-post reach is the signal the 09-23 review now has (09-18/19 posts reach 1-4, 0 likes). Kept open because the terminal metric is genuinely behind, not because work is pending."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T14:38:15-0400",
       "note": "2026-09-20 18:3xZ ops-triage: unchanged, not a repo defect. Live: followers 157 (flat), 19 scheduled / 0 draft, 4 posted in 24h, 1 failed in 24h, posts_per_day already at the configured 3/day cap, review brain interval-gated to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim; the loop can move nothing here without changing live publish behaviour or the goal's own parameters."
+    },
+    {
+      "ts": "2026-09-20T16:43:16-0400",
+      "note": "2026-09-20 20:4xZ ops-triage: unchanged, still not a repo defect. Volume is already at the configured 3/day cap, the review brain is interval-gated to 09-23, and this tick again could not render (GPU held by a foreign project), so nothing in-repo moves the follower number. Tim's call: content/format/audience."
     }
   ]
 }

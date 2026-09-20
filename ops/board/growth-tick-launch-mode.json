@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T09:33:58-0400",
-      "note": "2026-09-20 13:3xZ ops-triage: unchanged, Hermes cron config outside this repo. Options recorded for Tim: (a) detach sync_cadence and defer the tick's end-of-tick ComfyUI shutdown + claim release, (b) put an in-repo deadline in the rake task, (c) per-slot batches. Needs Tim (spend/launch behaviour)."
-    },
-    {
       "ts": "2026-09-20T10:42:24-0400",
       "note": "2026-09-20 14:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean live this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs; publisher completed 10:00 EDT), so the residual is a truncated tick rather than lost work. Options for Tim unchanged: (a) detach growth:sync_cadence and defer the tick's ComfyUI shutdown + claim release, (b) give the rake task an in-repo self-imposed deadline so it exits cleanly between renders (no spend change), (c) split into per-slot batches."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T14:37:47-0400",
       "note": "2026-09-20 18:3xZ ops-triage: option (b) -- an in-repo self-imposed deadline in the rake task -- is now REFUTED with numbers, not just deferred to Tim. The tick's foreground tool budget is Hermes's default 180s (the job record in cron/jobs.json carries no tool-timeout override), while one render costs ~9 min (the measured 45-min 5-render shortfall). A deadline that exits cleanly between renders can therefore never fire usefully: with a 180s ceiling the task either starts render #1 and is SIGKILLed mid-render exactly as today, or refuses to start any render and tops up nothing. The same arithmetic kills option (c) per-slot batches UNLESS each tick launches its render detached -- and a detached producer collides with the tick's own end-of-tick ComfyUI shutdown + claim release (option a). So the remaining fix is outside this repo either way: (a) detach the producer and defer the release to a follow-up tick, or (c) one detached render per tick, or raise the tick's tool timeout above the measured worst case. Repo side re-verified clean this run: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs."
+    },
+    {
+      "ts": "2026-09-20T16:43:16-0400",
+      "note": "2026-09-20 20:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean (0 stuck PipelineRuns, 0 stuck ComfyuiJobs). Needs Tim (spend/launch behaviour)."
     }
   ]
 }
