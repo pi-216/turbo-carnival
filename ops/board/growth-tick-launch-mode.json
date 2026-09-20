@@ -28,6 +28,10 @@
     {
       "ts": "2026-09-19T23:55:47-0400",
       "note": "2026-09-20 03:5xZ: no change; the repo half (RenderSalvage wired into CadenceEngine#sync) is still done and the stranded renders 3180/3183/3184 are still awaiting the next shortfall tick (eligibility deadline 2026-09-26). Upcoming: posts 314/327 publish today at 04:20Z/05:29Z, which drops the queue below the 21 target for the first time - the next hourly tick is the first real exercise of the salvage path. Residual is the Hermes cron launch mode (outside repo) -> Tim."
+    },
+    {
+      "ts": "2026-09-20T01:40:10-0400",
+      "note": "2026-09-20 05:4xZ ops-triage: unchanged product decision -- the growth-brain tick still runs growth:sync_cadence in the foreground under a fixed timeout (Hermes cron config, outside the repo). The known failure it can cause (a killed producer leaving a non-terminal PipelineRun) is already reconciled downstream, so the residual cost is a truncated tick, not lost work. Needs Tim to decide whether the tick should run detached."
     }
   ]
 }

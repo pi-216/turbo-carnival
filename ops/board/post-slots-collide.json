@@ -24,6 +24,10 @@
     {
       "ts": "2026-09-20T00:40:15-0400",
       "note": "2026-09-20 04:4xZ ops-triage: self-clearing residue, no repo action left. The 3 counted pairs are all pre-fix rows created before 511afaf (333/334/335/336, due 09-20 15:15-17:10Z); the check counts posts CREATED in the last 24h, so it drains as they age out of that window (last one 09-21), and the probe auto-closes it then. Producers now allocate through Growth::PostSlotPlanner -- verified again this run from the live queue: from 09-22 the queue is 3/day with >=90min spacing, i.e. nothing new collides. The remaining live risk is the publisher releasing two due posts in one hourly tick (see post-schedule-bunched); that is the releaser, not the schedule, and it is Tim's call."
+    },
+    {
+      "ts": "2026-09-20T01:39:46-0400",
+      "note": "2026-09-20 05:4xZ ops-triage: harm mitigated at the source of the burst -- the publisher now paces releases to one post per run (Scheduling::PostReleasePlan), so bunched CREATION no longer becomes a bunched RELEASE. What this check still sees (3 pairs among rows created in the last 24h) is producer shape on pre-fix rows; it ages out of the 24h window by 09-21 17:10Z. No row edits."
     }
   ]
 }

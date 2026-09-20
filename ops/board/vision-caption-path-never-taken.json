@@ -10,10 +10,6 @@
   "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
   "notes": [
     {
-      "ts": "2026-09-19T17:10:00-0400",
-      "note": "Filed rather than changed: whether captions should describe the actual image is a product decision, and the text path is not broken per se - it produces on-voice captions from the pillar/context. But the vision path has been unreachable for ~4 months, so any tuning of the vision prompt is tuning dead code, and the caption model choice is really only about the text path. If vision captions are wanted, the fix is to attach the render bytes in import_photo (or have GenerateCaption fall back to servable_file_path instead of image.attached?). Not actioned - needs Tim."
-    },
-    {
       "ts": "2026-09-19T17:37:02-0400",
       "note": "2026-09-19 ops-triage: still a product decision for Tim, but the mechanical fix is now precisely scoped and one line long. PostAutomation::GenerateCaption routes to VisionGenerator only when photo.image.attached?; Growth::ContentGenerator#import_photo creates photos path-only, so every harness render takes the text path. VisionGenerator itself already supports path-only photos (it reads photo.servable_file_path first and only falls back to the ActiveStorage blob), so the routing condition is stricter than the generator capability -- routing on servable_file_path would switch the whole harness to image-described captions. That changes caption CONTENT (describes the render vs. the pillar/context text) and adds an image payload to every call, so it stays Tim call, not a bug fix. Relevant new context: the caption model ladder shipped this run means the vision path would use gemma3:4b whenever the 27B is cold, and gemma3:4b is multimodal, so the path would actually work if routed to."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T00:40:26-0400",
       "note": "2026-09-20 04:5xZ ops-triage: the interaction noted earlier is now stale, and the decision is cheaper than it looked. The earlier note said switching GenerateCaption to the vision path 'would not by itself restore captions until max395 can load any model' -- measured now: a cold load of the multimodal fallback gemma3:4b completes in 29.2s (pinned resident, keep_alive=21600s), and the app now sends keep_alive so it stays warm. So the one-line routing change (branch on photo.servable_file_path instead of photo.image.attached?, VisionGenerator already prefers the path-only file) is no longer blocked by max395. Still a product decision for Tim: captions would start describing the actual image instead of a text-only prompt built from ContextBuilder, which changes caption style across the whole queue."
+    },
+    {
+      "ts": "2026-09-20T01:40:10-0400",
+      "note": "2026-09-20 05:4xZ ops-triage: unchanged product decision, and cheaper than when filed -- no photo since 2026-05-28 has an ActiveStorage image, so every caption is generated from text metadata only and CaptionGeneration::VisionGenerator is dead code in production. The captioner is warm on max395 (gemma3:4b cold-loads in 29.2s, pinned by keep_alive), so routing captions through the vision path is now a one-line change whenever Tim wants captions to actually look at the photo."
     }
   ]
 }

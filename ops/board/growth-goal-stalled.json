@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-19T23:55:21-0400",
       "note": "2026-09-20 03:5xZ: the one repo-side residue of this entry is now CLOSED by two new probe checks (commit this run): publish-gap (age of newest posted_at; warn 36h, critical 96h) and future-queue-empty. Verified live: newest post 21.9h old, 4 posted in 24h, 21 queued, so neither fires now; both were exercised firing (forced threshold 10h -> warn; patched 0 queued rows -> warn) and both return None on an unreadable DB. The 2026-09-10..17 eight-day silence would have surfaced on day 2 instead of never. What remains is Tims strategy call: 3/day is already the configured cap and has produced ~0.2 followers/day, so the lever is content/format, not volume."
+    },
+    {
+      "ts": "2026-09-20T01:39:46-0400",
+      "note": "2026-09-20 05:4xZ ops-triage: re-checked, still strategy-blocked, no in-repo fix (follower rate is a market outcome; the review brain is in cooldown to 09-23 and volume is already at the 3/day cap). New evidence from the 05:03Z growth tick: the render path was refused this tick (vram_insufficient) because a co-tenant's BreastTissue-Net process (PID 2757523) holds 4.6 GiB outside the scheduler, leaving 19.0 GiB free against our 21 GiB reservation. NOT a fixable request-size bug: ComfyUI's measured VRAM peak on this card is 23.2 GiB (log/comfyui_telemetry.jsonl max vram_used_mib=23743), so lowering the reservation would trade a refused claim for a mid-render VRAM OOM. Repo-side improvement shipped instead: the harness now names the holder and the free/requested numbers on a vram_insufficient refusal (bin/comfyui_harness.sh vram_holders), so the next refusal diagnoses itself instead of being re-derived by hand. Needs a human: decide whether BT-Net should run outside the scheduler's bookkeeping on the shared 4090."
     }
   ]
 }
