@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T07:45:39-0400",
-  "seen_count": 15,
+  "last_seen": "2026-09-20T08:35:17-0400",
+  "seen_count": 19,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-20T01:40:10-0400",
-      "note": "2026-09-20 05:4xZ ops-triage: still unfixed and it is the loop's top blocker -- this report is in the same class, so nothing this job files reaches Tim through cron; the only reason the work is visible at all is cron/output/ on disk. Origin is a Hermes-side delivery target ({platform: webui, chat_id: ...}) that the delivery layer rejects as 'unknown platform webui'; no chat platform is configured for this profile (auth.json holds only LLM providers), so the working target is local, which hides the failure rather than fixing it. Outside this repo's scope (Hermes cron config) -- needs Tim or a Hermes-side fix; boarded, not acted on."
-    },
     {
       "ts": "2026-09-20T03:52:04-0400",
       "note": "2026-09-20 07:5xZ ops-triage: unchanged, outside this repo (Hermes cron config). Confirmed again from jobs.json: tc-growth-harness-brain (43b0d5c4446d), tc-weekly-persona-review (8d3ac21799d5) and tc-ops-triage (9c05f60f5fef) all carry last_status=delivery_failed ('unknown platform webui'); only tc-overnight-watchdog is ok. Nothing these jobs report reaches the operator -- the ops board is currently the only durable record. Remediation is a config edit outside this repo: hermes cron edit <id> --deliver <valid target>."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T07:42:47-0400",
       "note": "2026-09-20 11:3xZ ops-triage: re-verified unchanged -- still the loop's top blocker, and this report is in the same class (deliver=origin, origin.platform=webui, last_status=delivery_failed: 'unknown platform webui'). Only tc-overnight-watchdog reports ok, and only because it is deliver=local. Hermes cron config, outside this repo: no chat platform is configured for this profile, so the only target that works today is --deliver local (which matches the watchdog but reaches nobody), and reaching a chat needs a platform decision from Tim."
+    },
+    {
+      "ts": "2026-09-20T08:34:35-0400",
+      "note": "2026-09-20 12:5xZ ops-triage: new root-cause evidence (this sharpens the ask for Tim). The target is not merely misconfigured -- it is IMPOSSIBLE in this install: gateway/config.py's Platform enum has no 'webui' member (23 members: local/telegram/discord/...; verified by reading the enum), and no plugin supplies one (grep for a webui adapter across gateway/platforms/ and plugins/platforms/ returns nothing), while cron/scheduler_delivery.py resolves the target via Platform(platform_name.lower()) and files 'unknown platform' when it raises. So a WebUI-created job (origin.platform=webui) can NEVER deliver, however long it waits. Second half: this profile has no chat platform configured at all -- channel_directory.json lists only homeassistant and email, both empty -- so there is no valid target to point at today. Decision needed from Tim: configure a chat platform (then 'hermes cron edit <id> --deliver <platform>:<chat_id>'), or accept deliver=local (works; matches tc-overnight-watchdog's ok status; reaches nobody). No in-repo fix exists, and silently downgrading to local would hide the failure rather than fix it."
     }
   ]
 }

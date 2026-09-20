@@ -1523,6 +1523,78 @@ def check_cron_delivery():
     )
 
 
+# A cron prompt is CONFIG, and config rots silently: a probe written as a raw-IP
+# curl is blocked by the tool scanner on private-network/plain-HTTP grounds, so
+# every run improvises its own workaround (an SSH hop, or a string-concatenated
+# address) and burns context rediscovering it while the prompt stays wrong. Both
+# shapes are the same defect -- the scanner reads the SHELL COMMAND, so neither
+# form ever runs as written (genome #13: agent adaptability without config repair).
+RAW_IP_URL = re.compile(r"https?://(?:\d{1,3}\.){3}\d{1,3}")
+SPLIT_IP = re.compile(r"['\"]\d{1,3}\.\d{1,3}\.\d{1,3}\.['\"]\s*\+")
+
+
+def cron_prompt_probe_verdict(rows):
+    """Pure: job records -> (severity, evidence) when a prompt probes a raw IP.
+
+    `localhost` and a real domain are fine (neither trips the scanner); the
+    literal private address and the split-address workaround are not.
+    """
+    hits = []
+    for r in rows:
+        prompt = r.get("prompt") or ""
+        urls = sorted(set(RAW_IP_URL.findall(prompt)))
+        splits = SPLIT_IP.findall(prompt)
+        if not urls and not splits:
+            continue
+        shapes = []
+        if urls:
+            shapes.append(", ".join(urls))
+        if splits:
+            shapes.append(f"{len(splits)} split-address workaround(s)")
+        hits.append(f"{r.get('name')} ({r.get('id')}): {' + '.join(shapes)}")
+    if not hits:
+        return None
+    return (
+        "warn",
+        f"{len(hits)} cron prompt(s) probe a raw private address, which the tool "
+        f"scanner blocks so the probe never runs as written: {'; '.join(hits)} "
+        f"-- point them at a repo-owned command instead "
+        f"(`python3 bin/tc_ops.py caption-endpoint` answers the caption question "
+        f"from Python and cannot be blocked); a split address is the same defect "
+        f"dodging the scanner",
+    )
+
+
+def check_cron_prompt_probes():
+    """The other half of check_cron_delivery: a prompt nobody can execute.
+
+    Reads the same job store for the same reason -- a blocked probe leaves no
+    trace inside this repo (the run still finishes, the check still "passes" via
+    an improvised fallback), so the only durable signal is the prompt text.
+    Measured 2026-09-20: the overnight watchdog's raw-IP curl and the growth
+    brain's string-concatenated address were both scanner-blocked, and every run
+    reported the caption service via an ad-hoc SSH hop instead.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "prompt": j.get("prompt")} for j in jobs if isinstance(j, dict)]
+    v = cron_prompt_probe_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-prompt-raw-ip-probe",
+        "a cron prompt probes a raw IP the scanner blocks (so no run executes it)",
+        v[0],
+        v[1],
+    )
+
+
 def check_probe_inputs():
     """Coverage guard: a probe that cannot measure must not report green.
 
@@ -1777,6 +1849,7 @@ CHECKS = [
     check_queue_growth,
     check_scheduler_dispatcher,
     check_cron_delivery,
+    check_cron_prompt_probes,
 ]
 
 
@@ -2013,16 +2086,40 @@ def cmd_file(argv):
 
 
 def cmd_touch(argv):
+    """Bump an issue and record progress: `touch KEY [-n|--note TEXT]` or `touch KEY TEXT`.
+
+    Same trap `close` was fixed for, hit live on 2026-09-20 by this loop's own
+    agent: the flag was passed but its VALUE landed in the note slot, so the board
+    recorded the literal string "--note" and the real text was dropped. Both
+    spellings are accepted; a flag with no value is refused rather than persisted.
+    """
     if not argv:
+        print("usage: tc_ops.py touch KEY [-n|--note TEXT]", file=sys.stderr)
         return 2
-    p = issue_path(argv[0])
+    key = argv[0]
+    note, flag_used = "", False
+    for flag in ("--note", "-n"):
+        if flag in argv:
+            flag_used = True
+            i = argv.index(flag) + 1
+            note = argv[i] if i < len(argv) else ""
+            break
+    if not flag_used:
+        note = argv[1] if len(argv) > 1 else ""
+    if flag_used and (not note or note.startswith("-")):
+        print("usage: tc_ops.py touch KEY [-n|--note TEXT] "
+              "(the note must be the flag's value, or the second positional arg)",
+              file=sys.stderr)
+        return 2
+    note = note or "progress"
+    p = issue_path(key)
     if not p.exists():
+        print(f"no such issue: {key}", file=sys.stderr)
         return 2
     rec = json.loads(p.read_text())
-    note = argv[1] if len(argv) > 1 else "progress"
     append_note(rec, note)
     p.write_text(json.dumps(rec, indent=2) + "\n")
-    print(f"noted on {argv[0]}: {note}")
+    print(f"noted on {key}: {note}")
     return 0
 
 
@@ -2180,6 +2277,24 @@ def cmd_selftest(_argv):
         v = cron_delivery_verdict(rows)
         expect(f"cron_delivery_verdict[{name}]", v[0] if v else None, want)
 
+    # cron_prompt_probe_verdict: prompt text -> severity. A blocked probe leaves
+    # no in-repo trace, so the prompt text is the signal; localhost/domains are
+    # legitimate, a literal private address and its split-address workaround are not.
+    def JP(name, prompt):
+        return {"name": name, "id": "j" + name, "prompt": prompt}
+
+    rawip_cases = [
+        ("clean", [JP("a", "python3 bin/tc_ops.py caption-endpoint")], None),
+        ("literal", [JP("a", "curl -s -m5 http://192.168.86.137:11434/api/version")], "warn"),
+        ("split-workaround", [JP("a", "h=Net::HTTP.new('192.168.86.'+'137',11434)")], "warn"),
+        ("localhost", [JP("a", "curl -s -m5 http://localhost:8188/system_stats")], None),
+        ("domain", [JP("a", "curl -s -m8 https://carnival.pi216.ai/up")], None),
+        ("empty", [], None),
+    ]
+    for name, rows, want in rawip_cases:
+        v = cron_prompt_probe_verdict(rows)
+        expect(f"cron_prompt_probe_verdict[{name}]", v[0] if v else None, want)
+
     # photo_pool_verdict: (measured counts, expected severity or None). The pool
     # must EQUAL the servable-or-attached set: dead candidates fail at publish
     # time, missed ones never post, and a drained corpus reads as an empty queue.
@@ -2240,6 +2355,28 @@ def cmd_selftest(_argv):
         expect("close[-n] note", rec["notes"][-1]["note"], "resolved by selftest")
         expect("close[probe-owned] warns", "probe-owned" in buf.getvalue(), True)
 
+        # touch: the SAME trap as close, hit live 2026-09-20 -- `touch KEY --note
+        # TEXT` persisted the literal "--note" and dropped the text. The flag form
+        # must be accepted (and its value kept), a bare flag refused.
+        with redirect_stdout(buf):
+            rc_t_bad = cmd_touch(["k", "--note"])
+        expect("touch[missing-note] rc", rc_t_bad, 2)
+        expect("touch[missing-note] untouched",
+               json.loads((tmp / "k.json").read_text())["notes"][-1]["note"],
+               "resolved by selftest")
+        with redirect_stdout(buf):
+            rc_t_ok = cmd_touch(["k", "--note", "progress by selftest"])
+        expect("touch[--note] rc", rc_t_ok, 0)
+        expect("touch[--note] note",
+               json.loads((tmp / "k.json").read_text())["notes"][-1]["note"],
+               "progress by selftest")
+        with redirect_stdout(buf):
+            rc_t_pos = cmd_touch(["k", "positional note"])
+        expect("touch[positional] rc", rc_t_pos, 0)
+        expect("touch[positional] note",
+               json.loads((tmp / "k.json").read_text())["notes"][-1]["note"],
+               "positional note")
+
         # file: a manual filing must not steal a probe-owned key (the probe would
         # stop re-filing and auto-closing it), and a missing --evidence must be
         # refused rather than persisted as a blank record.
@@ -2273,7 +2410,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(pool_cases) + len(res_cases) + 14} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

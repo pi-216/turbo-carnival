@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-19T19:40:36-0400",
-      "note": "Status 2026-09-19 23:5xZ. Repo-side mitigation is live and verified WIRED: Growth::CadenceEngine#sync calls Growth::RenderSalvage FIRST, bounded by the outstanding shortfall (packs/growth_harness/.../cadence_engine.rb:92), and the salvage was exercised end-to-end against the production DB in a rolled-back transaction (decision salvage_recovered for run 463 -> post 341; no such row exists in growth_decisions, which confirms the rollback). It has NOT yet run for real, because the queue is at target (21/21) so no tick has a shortfall. Consequence, measured: the three paid-for renders from the 15:01-17:01Z kill window (runs 457/463/471, candidates 3180/3183/3184) are still on disk with no Photo and no post row -- deferred BY DESIGN (budget = shortfall) and eligible until 2026-09-26 (MAX_AGE 7d on updated_at), after which the GPU time is lost for good. Residual unchanged and outside the repo: the tick still calls growth:sync_cadence in the FOREGROUND under the cron's fixed timeout; the fix is the cron prompt / launch mode (run the producer detached), which needs Tim."
-    },
-    {
       "ts": "2026-09-19T20:49:31-0400",
       "note": "2026-09-20 00:5xZ: repo half stays done (RenderSalvage wired into CadenceEngine#sync). Re-verified the three stranded renders are still recoverable: candidates 3180/3183/3184 (runs 457/463/471, all variables.sync_producer set) are status=active with their files on disk (1.0-1.2 MB) and no Photo row. ELIGIBILITY DEADLINE: MAX_AGE=7d from run updated_at (2026-09-19 16:41/18:38Z) = 2026-09-26. First exercise expected at the next shortfall tick: the queue drops below target when 314/327 publish (2026-09-20 04:20/05:29Z), and the following hourly tick runs sync_cadence -> salvage. Residual is the Hermes cron config (foreground sync_cadence under a fixed budget); needs Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T07:42:38-0400",
       "note": "2026-09-20 11:3xZ ops-triage: unchanged, Hermes cron config outside this repo (the growth tick still runs growth:sync_cadence in the foreground under a fixed tool budget). Repo-side debris handling is still in place and clean: 0 stuck PipelineRuns and 0 stuck ComfyuiJobs live this run. Needs Tim: run the producer detached, or raise the tick budget."
+    },
+    {
+      "ts": "2026-09-20T08:34:35-0400",
+      "note": "2026-09-20 12:5xZ ops-triage: still open, but the option set is now narrowed by evidence -- the naive fix in this record (run growth:sync_cadence detached with >> log 2>&1 &) would COLLIDE with the tick's own GPU policy: the same prompt ends by stopping the heartbeat, SIGTERMing ComfyUI, verifying the port is closed and RELEASING the claim, so a detached producer would keep rendering into a GPU the tick has just handed back (and the next claimant would OOM against it). Three real options: (a) detach the producer AND defer the release to a follow-up tick/heartbeat that waits for it; (b) keep it foreground and give the rake task a self-imposed deadline so it exits cleanly between renders before the tool timeout (in-repo, no spend change -- the next tick's render_need tops up what it skipped); (c) split into per-slot batches. Repo-side debris handling is verified clean live this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs), so the residual is a truncated tick, not lost work. Needs Tim: launch mode + spend behaviour is his call."
     }
   ]
 }
