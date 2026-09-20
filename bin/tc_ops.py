@@ -1643,6 +1643,18 @@ def check_cron_delivery():
 RAW_IP_URL = re.compile(r"https?://(?:\d{1,3}\.){3}\d{1,3}")
 SPLIT_IP = re.compile(r"['\"]\d{1,3}\.\d{1,3}\.\d{1,3}\.['\"]\s*\+")
 
+# Same rot, second shape (2026-09-20): the monitoring prompts taught every run that
+# an unclaimed ComfyUI is an "ORPHANED GPU LEAK", which is only true for the pid WE
+# launched. An interactive session or another project rendering on the shared
+# install with no scheduler claim is normal sharing -- and a prompt that calls it a
+# leak is an instruction to report (and, for the brain, "self-heal" = kill) live
+# work. Measured: the 09:04 growth tick labelled Tim's live tmux render an
+# "orphan/leak" while it was mid-render. A prompt line that says orphan AND a claim
+# state AND never mentions owner= is the defect.
+ORPHAN_PHRASE = re.compile(r"orphan", re.I)
+CLAIM_STATE_PHRASE = re.compile(r"claim\s*=\s*idle|ours\s*=\s*no|claim\s*idle", re.I)
+OWNER_PHRASE = re.compile(r"owner\s*=", re.I)
+
 
 def cron_prompt_probe_verdict(rows):
     """Pure: job records -> (severity, evidence) when a prompt probes a raw IP.
@@ -1701,6 +1713,66 @@ def check_cron_prompt_probes():
     return (
         "cron-prompt-raw-ip-probe",
         "a cron prompt probes a raw IP the scanner blocks (so no run executes it)",
+        v[0],
+        v[1],
+    )
+
+
+def cron_prompt_orphan_verdict(rows):
+    """Pure: job records -> (severity, evidence) when a prompt mislabels an unclaimed
+    ComfyUI as an orphan without the owner= discrimination.
+
+    Only the instance WE launched (owner=ours) is ours to call a leak; a foreign
+    instance with no claim is another session's live work on a shared install.
+    """
+    hits = []
+    for r in rows:
+        for line in (r.get("prompt") or "").splitlines():
+            if not ORPHAN_PHRASE.search(line):
+                continue
+            if not CLAIM_STATE_PHRASE.search(line):
+                continue
+            if OWNER_PHRASE.search(line):
+                continue
+            hits.append(f"{r.get('name')} ({r.get('id')}): {line.strip()[:120]}")
+    if not hits:
+        return None
+    return (
+        "warn",
+        f"{len(hits)} cron prompt line(s) call ANY unclaimed ComfyUI an orphan/leak "
+        f"without checking the owner= field, so a co-tenant's live render on the "
+        f"shared install gets reported (and, where the prompt says the harness "
+        f"'self-heals' it, killed) as a leak: {'; '.join(hits)} -- gate on "
+        f"owner=ours (our pid, a real leak) vs owner=foreign (leave it alone; "
+        f"contention at most)",
+    )
+
+
+def check_cron_prompt_orphan_wording():
+    """Config rot in the monitoring prompts: a live co-tenant called an orphan.
+
+    Same reason as check_cron_prompt_probes -- the defect lives in the prompt text,
+    so the prompt text is the only durable signal. Measured 2026-09-20: all three
+    monitoring prompts told their runs that comfyui=up with claim=idle (or
+    ours=no) IS an orphaned leak, and the 09:04 growth tick reported Tim's live
+    tmux render exactly that way; the harness never kills a foreign instance, so
+    the prompt also misdescribed what ensure does.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "prompt": j.get("prompt")} for j in jobs if isinstance(j, dict)]
+    v = cron_prompt_orphan_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-prompt-orphan-mislabel",
+        "a cron prompt calls a co-tenant's live ComfyUI an orphan (no owner= gate)",
         v[0],
         v[1],
     )
@@ -1961,6 +2033,7 @@ CHECKS = [
     check_scheduler_dispatcher,
     check_cron_delivery,
     check_cron_prompt_probes,
+    check_cron_prompt_orphan_wording,
 ]
 
 
@@ -2539,9 +2612,29 @@ def cmd_selftest(_argv):
         expect(f"comfyui_holder_verdict[{name}]",
                comfyui_holder_verdict(depth, age), want)
 
+    # cron_prompt_orphan_verdict: a prompt line that calls ANY unclaimed ComfyUI an
+    # orphan, without the owner= gate, is the defect (it names a co-tenant's live
+    # render a leak; 2026-09-20, all three monitoring prompts read that way).
+    old_line = ("  * comfyui=up while claim=idle \u2192 ORPHANED GPU LEAK: ComfyUI holds "
+                "22+GB with NO claim")
+    new_line = ("  * comfyui=up while claim=idle: read owner=; owner=ours is OUR orphan "
+                "(a leak), owner=foreign is normal sharing")
+    orphan_cases = [
+        ("old-wording", [{"name": "watchdog", "id": "w1", "prompt": old_line}], "warn"),
+        ("fixed-wording", [{"name": "watchdog", "id": "w1", "prompt": new_line}], None),
+        ("orphan-without-claim-state",
+         [{"name": "x", "id": "x1", "prompt": "* an orphaned ComfyUI is an anomaly"}], None),
+        ("claim-state-without-orphan",
+         [{"name": "x", "id": "x1", "prompt": "* claim=idle means the GPU is free"}], None),
+        ("no-prompts", [{"name": "x", "id": "x1", "prompt": None}], None),
+    ]
+    for name, rows, want in orphan_cases:
+        v = cron_prompt_orphan_verdict(rows)
+        expect(f"cron_prompt_orphan_verdict[{name}]", v[0] if v else None, want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
