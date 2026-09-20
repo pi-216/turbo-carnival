@@ -556,6 +556,21 @@ def colliding_pairs(times, window_min=BURST_WINDOW_MINUTES):
     ]
 
 
+def schedule_shape(times, cap, window_min=BURST_WINDOW_MINUTES):
+    """Pure: sorted future publish epochs -> (over_cap_days, colliding_pairs).
+
+    Days are UTC buckets (the app runs Time.zone = UTC, the same clock
+    PostSlotPlanner's windows are built on). over_cap_days is
+    [(day_start_epoch, count)] for every day holding MORE than `cap` posts.
+    """
+    per_day = {}
+    for t in times:
+        bucket = int(t // 86400) * 86400
+        per_day[bucket] = per_day.get(bucket, 0) + 1
+    over = [(d, n) for d, n in sorted(per_day.items()) if n > cap]
+    return over, colliding_pairs(times, window_min)
+
+
 def check_post_slot_bursts():
     """Newly scheduled posts placed on top of each other -> a burst release.
 
@@ -598,6 +613,61 @@ def check_post_slot_bursts():
         "colliding: " + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4])
         + "; the hourly publisher releases every due post in one tick "
         "(measured 2026-09-19: 3 posts inside 24 s)",
+    )
+
+
+def check_post_schedule_shape():
+    """The SHAPE of the future queue: days over the cadence cap, slots sharing a publisher tick.
+
+    check_post_slot_bursts measures the PRODUCER (rows created in the last 24 h),
+    so it goes green exactly when a pre-fix cluster ages out of that window --
+    which is the same hour the cluster is RELEASED. Measured 2026-09-20: the
+    probe stopped counting the 09-19 cluster at 15:15Z while posts 334/335/336
+    were still queued to go out at 17:00Z, i.e. the board went green mid-burst.
+    This measures what will actually leave the building: every future
+    draft/scheduled row, grouped by publish day against the goal's posts_per_day,
+    plus any consecutive pair close enough that bin/scheduled_posting.sh (hourly)
+    releases both in one tick. Pre-fix rows are what it currently sees, and it
+    clears itself: a day drops out once it is past.
+    """
+    rows = psql_lines(
+        "select extract(epoch from scheduled_at)::bigint from scheduling_posts "
+        "where status in ('draft','scheduled') and scheduled_at is not null "
+        "and scheduled_at > (now() at time zone 'UTC') order by scheduled_at"
+    )
+    cap = psql("select coalesce(max(posts_per_day), 3) from growth_goals where status = 'active'")
+    if rows is None or cap is None:
+        return None
+    try:
+        times = sorted(float(x) for x in rows)
+        cap = max(int(cap), 1)
+    except ValueError:
+        return None
+    if not times:
+        return None
+
+    over, pairs = schedule_shape(times, cap)
+    if not over and not pairs:
+        return None
+
+    day = lambda d: time.strftime("%m-%d", time.gmtime(d))  # noqa: E731
+    stamp = lambda t: time.strftime("%m-%d %H:%M", time.gmtime(t))  # noqa: E731
+    parts = []
+    if over:
+        parts.append(f"{len(over)} day(s) over the {cap}/day cap: "
+                     + ", ".join(f"{day(d)}={n}" for d, n in over[:4]))
+    if pairs:
+        parts.append(f"{len(pairs)} pair(s) inside {BURST_WINDOW_MINUTES} min: "
+                     + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4]))
+
+    return (
+        "post-schedule-bunched",
+        f"future queue still carries pre-fix slots: {'; '.join(parts)}",
+        "warn" if over else "info",
+        f"{'; '.join(parts)}; {len(times)} future post(s) queued. Producers now "
+        "allocate through Growth::PostSlotPlanner, so this is residue from rows "
+        "created before that fix and it drains as the queue publishes; re-spacing "
+        "already-scheduled rows is a live-publishing edit (Tim's call).",
     )
 
 
@@ -954,6 +1024,7 @@ CHECKS = [
     check_render_starved,
     check_publish_liveness,
     check_post_slot_bursts,
+    check_post_schedule_shape,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_harness_log_growth,
@@ -1202,6 +1273,29 @@ def cmd_selftest(_argv):
     for name, times, want in burst_cases:
         expect(f"colliding_pairs[{name}]", len(colliding_pairs(times)), want)
 
+    # schedule_shape: (sorted future epochs, cap) -> (over-cap days, colliding pairs).
+    # The same instants the old producers stamped: creation time-of-day, so a day
+    # collects whatever the producing tick's clock was.
+    D = 86400.0
+    shape_cases = [
+        # one spaced post per day, all under cap -> nothing to report
+        ("healthy", [D * 10 + 32400, D * 11 + 36000, D * 12 + 39600], 3, 0, 0),
+        # 6 posts on one day, 3 of them inside an hour (the live 2026-09-20 shape)
+        ("over-cap-burst",
+         sorted([D * 10 + 15600, D * 10 + 19740, D * 10 + 54900,
+                 D * 10 + 57660, D * 10 + 59100, D * 10 + 61800]), 3, 1, 3),
+        # exactly at cap is fine; only MORE than cap is a violation
+        ("at-cap", [D * 10 + 32400, D * 10 + 36000, D * 10 + 39600], 3, 0, 0),
+        # over cap on two days, no sub-hour pair
+        ("two-over-cap", [D * 10 + i * 3600 for i in range(4)]
+         + [D * 11 + i * 3600 for i in range(5)], 3, 2, 0),
+        ("empty", [], 3, 0, 0),
+    ]
+    for name, times, cap, want_over, want_pairs in shape_cases:
+        over, pairs = schedule_shape(sorted(times), cap)
+        expect(f"schedule_shape[{name}].over", len(over), want_over)
+        expect(f"schedule_shape[{name}].pairs", len(pairs), want_pairs)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -1239,7 +1333,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(burst_cases) + 9} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

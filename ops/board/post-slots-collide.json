@@ -5,8 +5,8 @@
   "evidence": "colliding: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10; the hourly publisher releases every due post in one tick (measured 2026-09-19: 3 posts inside 24 s)",
   "status": "open",
   "first_seen": "2026-09-19T21:35:37-0400",
-  "last_seen": "2026-09-19T21:37:45-0400",
-  "seen_count": 2,
+  "last_seen": "2026-09-19T22:35:03-0400",
+  "seen_count": 4,
   "source": "probe",
   "notes": [
     {
