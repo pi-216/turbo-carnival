@@ -2,17 +2,13 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v2) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 4.3h; our queue entries=1",
+  "evidence": "we hold no claim; held 5.7h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-20T18:28:10-0400",
-  "seen_count": 17,
+  "last_seen": "2026-09-20T19:54:31-0400",
+  "seen_count": 22,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-19T20:49:31-0400",
-      "note": "2026-09-20 00:5xZ: by-design capacity record, not a work item -- the probe keeps it while a foreign hold exceeds 6h. Held 6.6h+ by prx-tg-latent-first-v34, our queue entries=0, render queue at target (need=no). Rules forbid touching another project's job; nothing to action."
-    },
     {
       "ts": "2026-09-19T21:35:58-0400",
       "note": "condition no longer reproduces"
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T18:36:23-0400",
       "note": "2026-09-20 22:3xZ ops-triage: by-design capacity record, nothing to action. Live: 4090 busy on foreign prx-tg-pixel-posttrain-v2 (job requested/claimed 18:13:02Z, duration 6.5h, so it releases about 00:43Z) with our own comfyui-1789930863-2431031 (21GB, requested 19:01:03Z) next in the derived queue. Rules forbid touching another project job and our render need is absorbed by the 18-post queue; recorded so the GPU gate is explained rather than re-diagnosed."
+    },
+    {
+      "ts": "2026-09-20T19:56:48-0400",
+      "note": "2026-09-20 23:5xZ ops-triage: by-design capacity record, untouched. Live scheduler status: 4090 busy, current_job=prx-tg-pixel-posttrain-v2 (16.0GB, claimed 18:13:02Z, 6.5h), our comfyui-1789930863-2431031 (21GB, 9h, requested 19:01:03Z) next in the derived FIFO. Rules forbid touching another project's job; nothing to action."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400"

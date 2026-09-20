@@ -1,1 +1,2 @@
 {"ts": "2026-09-19T14:33:34-0400", "note": "condition no longer reproduces"}
+{"ts": "2026-09-19T20:49:31-0400", "note": "2026-09-20 00:5xZ: by-design capacity record, not a work item -- the probe keeps it while a foreign hold exceeds 6h. Held 6.6h+ by prx-tg-latent-first-v34, our queue entries=0, render queue at target (need=no). Rules forbid touching another project's job; nothing to action."}

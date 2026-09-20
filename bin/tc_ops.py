@@ -26,6 +26,11 @@ then works the open issues and closes them with a note.
                              hardcode a log path -- a path rots when the writer
                              moves, an age cannot)
   tc_ops.py warm-caption     load+pin the caption model on max395
+  tc_ops.py needs-human      rewrite ops/NEEDS_HUMAN.md -- the markdown digest of
+                             the open board (also refreshed by every `probe`), for
+                             the one reader the board could not reach: cron
+                             delivery from this profile is broken, so a human reads
+                             the repo, not the reports
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
 up to TC_CAPTION_WARM_BUDGET seconds (default 240) ONLY when no caption model is
@@ -56,6 +61,15 @@ DB = "turbo_carnival_development"
 GPU = "4090"
 
 SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
+
+# The board is JSON, readable only through `tc_ops.py list`. Delivery from this
+# profile is broken (`cron-delivery-target-broken`), so no report reaches a human
+# either -- meaning the decision queue had NO readable surface anywhere. This
+# markdown digest is regenerated from ops/board/*.json on every probe run and
+# lives in the repo, where git log is the delivery channel that actually works.
+NEEDS_HUMAN = APP / "ops" / "NEEDS_HUMAN.md"
+DIGEST_EVIDENCE_CHARS = 300
+DIGEST_NOTE_CHARS = 400
 
 # A foreign project holding the 4090 is the NORMAL shared-resource state and our
 # rules forbid interfering with it, so a foreign hold is only an issue when it
@@ -854,16 +868,21 @@ def publish_failed_verdict(n_failed, newest_h):
 
 
 def check_publish_failed_silent():
-    """A post Instagram REJECTED is marked failed with no retry and no alarm.
+    """A post Instagram REJECTED is marked failed -- the slot and photo are lost.
 
     check_publish_liveness counts only rows that were DUE and still unpublished,
     and check_publish_gap measures the newest POSTED post -- so a rejected post
-    is invisible to both while its slot is lost for good: the rake task calls
-    mark_as_failed! with no requeue path, the row stores no reason, and the
-    publisher still exits 0 ("Completed successfully"), so the run reads clean.
+    is invisible to both while its slot is lost: the rake task calls
+    record_failure! with no requeue path and the publisher still exits 0
+    ("Completed successfully"), so the run reads clean.
     Measured 2026-09-20: post 333 (photo 339, slot 15:15Z) -> 400 code 9007
     "Media ID is not available -- the media is not ready for publishing"
     (container-readiness race); 3rd such loss in the account's history.
+    Both halves of the ORIGINAL finding are now fixed in-repo -- ffe9692 retries
+    the publish on 9007 (4 attempts, 10s apart) and record_failure! persists the
+    cause -- so this check no longer reports an unhandled failure; it is the alarm
+    for whatever still survives the retry. The residual is the lost SLOT: nothing
+    re-books it, and that is a live-publish policy call, not a code defect.
     """
     row = psql(
         "select count(*) || '|' || coalesce(round(extract(epoch from "
@@ -893,8 +912,8 @@ def check_publish_failed_silent():
     age = "age unknown" if newest_h is None else f"newest {newest_h:.1f}h ago"
     return (
         "post-publish-failed-no-retry",
-        "a post Instagram rejected is marked failed with no retry and no alarm "
-        "-- the slot is lost silently",
+        "a post Instagram rejected ends as `failed` -- the slot and its photo are "
+        "lost, and nothing re-books them",
         sev,
         f"{n_failed} post(s) marked failed in the last {PUBLISH_FAILED_WINDOW_H}h "
         f"({age}): {'; '.join(rows)}. packs/scheduling/lib/tasks/scheduled_posting.rake "
@@ -902,9 +921,10 @@ def check_publish_failed_silent():
         "cause; rows written before 2026-09-20 have none, so grep the post id in "
         "log/scheduled_posting.log for those). Nothing else can see it: "
         "check_publish_liveness counts only scheduled/draft rows past due, and "
-        "check_publish_gap measures the newest POSTED post. Known cause: Instagram "
-        "400 code 9007 'media not ready for publishing'. Suggested fix -- one "
-        "bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
+        "check_publish_gap measures the newest POSTED post. The original failure "
+        "mode is fixed in-repo -- Instagram::Client retries a 9007 'media not ready' "
+        "publish 4x/10s and the row persists its reason -- so what lands here has "
+        "already survived the retry; it ages out of this window on its own.",
     )
 
 
@@ -2584,6 +2604,69 @@ def archive_notes(key, notes):
             fh.write(json.dumps(n) + "\n")
 
 
+def human_digest(recs, now=None):
+    """Render the open board as one markdown digest -- a surface a human can READ.
+
+    Pure: takes the records, returns text. Bounded by construction (evidence and
+    notes truncated, file rewritten rather than appended), so regenerating it on
+    every probe run cannot grow it.
+    """
+    now = now or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    manual = [r for r in recs if r.get("source", "probe") == "manual"]
+    lines = [
+        "# turbo-carnival ops board -- open items",
+        "",
+        f"Regenerated by `bin/tc_ops.py probe` at {now} from `ops/board/*.json`.",
+        "Do not edit by hand -- every probe run rewrites this file.",
+        "",
+        "It exists because nothing else reaches a human: cron delivery from this",
+        "profile fails (`cron-delivery-target-broken`, `deliver=origin` with origin",
+        "`webui`, which the gateway cannot deliver to), so the board and this digest",
+        "are the surfaces a human actually sees. Full records:",
+        "`python3 bin/tc_ops.py show <key>`.",
+        "",
+        f"Open: {len(recs)} (`source=manual` means it waits on a human decision: {len(manual)})",
+        "",
+        "| sev | key | source | seen | first seen | last seen |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for r in recs:
+        lines.append(
+            f"| {r.get('severity', 'info')} | `{r.get('key', '')}` "
+            f"| {r.get('source', 'probe')} | {r.get('seen_count', 0)} "
+            f"| {r.get('first_seen', '')} | {r.get('last_seen', '')} |"
+        )
+    lines.append("")
+    for r in recs:
+        lines.append(f"## {r.get('severity', 'info').upper()} `{r.get('key', '')}` -- "
+                     f"{r.get('title', '')}")
+        lines.append("")
+        lines.append(f"- source {r.get('source', 'probe')} | seen {r.get('seen_count', 0)}x "
+                     f"| first {r.get('first_seen', '')} | last {r.get('last_seen', '')}")
+        evidence = " ".join((r.get("evidence") or "").split())
+        if evidence:
+            lines.append(f"- evidence: {evidence[:DIGEST_EVIDENCE_CHARS]}")
+        notes = r.get("notes") or []
+        if notes:
+            latest = " ".join((notes[-1].get("note") or "").split())
+            lines.append(f"- latest note ({notes[-1].get('ts', '')}): {latest[:DIGEST_NOTE_CHARS]}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def write_human_digest(now=None):
+    NEEDS_HUMAN.parent.mkdir(parents=True, exist_ok=True)
+    NEEDS_HUMAN.write_text(human_digest(load_all(), now=now))
+    return NEEDS_HUMAN
+
+
+def cmd_needs_human(_argv):
+    recs = load_all()
+    p = write_human_digest()
+    print(f"needs-human: wrote {p} ({len(recs)} open item(s))")
+    return 0
+
+
 def cmd_probe(_argv):
     found, quiet = [], []
     for chk in CHECKS:
@@ -2618,6 +2701,9 @@ def cmd_probe(_argv):
     for r in crit + warns:
         print(f"  [{r['severity'].upper()}] {r['key']}: {r['title']}")
         print(f"      {r['evidence'][:200]}")
+    # Keep the human-readable digest in step with the board, here rather than in
+    # the caller: a surface that only a caller can refresh is a surface that rots.
+    write_human_digest()
     return 0
 
 
@@ -3241,9 +3327,35 @@ def cmd_selftest(_argv):
         expect(f"_blob_violations[{name}].adult", adult, want_adult)
         expect(f"_blob_violations[{name}].juvenile", juvenile, want_juvenile)
 
+    # human_digest: the board has no OTHER readable surface (cron delivery from
+    # this profile fails), so this is the artifact a human reads. It must stay
+    # BOUNDED -- it is rewritten on every probe run -- and must carry the NEWEST
+    # note, since the latest triage pass is the part that says where the item
+    # stands.
+    d_empty = human_digest([], now="2026-09-20T00:00:00Z")
+    long_evidence = "x" * (DIGEST_EVIDENCE_CHARS + 50)
+    digest_rec = {
+        "key": "k1", "title": "t1", "severity": "warn", "evidence": long_evidence,
+        "source": "manual", "seen_count": 3, "first_seen": "2026-09-19T00:00:00Z",
+        "last_seen": "2026-09-20T00:00:00Z",
+        "notes": [{"ts": "old", "note": "OLD NOTE"}, {"ts": "new", "note": "NEW NOTE"}],
+    }
+    d_one = human_digest([digest_rec], now="2026-09-20T00:00:00Z")
+    digest_cases = [
+        ("empty-counts-zero", "Open: 0" in d_empty, True),
+        ("empty-has-no-items", "## WARN" in d_empty, False),
+        ("key-present", "`k1`" in d_one, True),
+        ("newest-note-only", "NEW NOTE" in d_one and "OLD NOTE" not in d_one, True),
+        ("evidence-bounded", (long_evidence not in d_one)
+         and ("x" * DIGEST_EVIDENCE_CHARS in d_one), True),
+        ("records-manual-count", "waits on a human decision: 1" in d_one, True),
+    ]
+    for name, got, want in digest_cases:
+        expect(f"human_digest[{name}]", got, want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
@@ -3326,6 +3438,7 @@ def main():
         "file": cmd_file, "warm-caption": cmd_warm_caption,
         "caption-endpoint": cmd_caption_endpoint,
         "log-health": cmd_log_health,
+        "needs-human": cmd_needs_human,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 

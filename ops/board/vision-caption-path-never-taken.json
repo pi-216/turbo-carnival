@@ -10,10 +10,6 @@
   "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
   "notes": [
     {
-      "ts": "2026-09-20T12:47:25-0400",
-      "note": "2026-09-20 16:5xZ ops-triage: unchanged product decision for Tim. Live: 337 photos total, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 13:07Z -- 196 renders since then are path-only, so CaptionGeneration::VisionGenerator (which raises without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
-    },
-    {
       "ts": "2026-09-20T13:45:34-0400",
       "note": "2026-09-20 17:4xZ ops-triage: unchanged product decision for Tim. Live: 337 photos total, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises 'Photo must have attached image' without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T18:36:23-0400",
       "note": "2026-09-20 22:3xZ ops-triage: unchanged, product config. Live psql: 337 photos, 145 active_storage_attachments, newest photo attachment 2026-05-28 13:07Z - no render since has an attached image, so CaptionGeneration::VisionGenerator never runs in production and every caption comes from the context text. Needs Tim: wire the vision path on, or accept text-only captions."
+    },
+    {
+      "ts": "2026-09-20T19:56:48-0400",
+      "note": "2026-09-20 23:5xZ ops-triage: unchanged product decision for Tim. Live psql: 337 photos, 141 with an ActiveStorage attachment, newest attached photo created 2026-05-28 13:07Z -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises without an attachment) never runs and captions are built from context text. Needs Tim: wire the vision path on (import_photo attaching bytes) or accept text-only captions."
     }
   ]
 }
