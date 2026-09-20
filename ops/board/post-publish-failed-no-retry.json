@@ -2,17 +2,13 @@
   "key": "post-publish-failed-no-retry",
   "title": "a post Instagram rejected is marked failed with no retry and no alarm -- the slot is lost silently",
   "severity": "warn",
-  "evidence": "1 post(s) marked failed in the last 24h (newest 5.6h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
+  "evidence": "1 post(s) marked failed in the last 24h (newest 6.5h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
   "status": "open",
   "first_seen": "2026-09-20T12:35:53-0400",
-  "last_seen": "2026-09-20T17:39:14-0400",
-  "seen_count": 25,
+  "last_seen": "2026-09-20T18:28:17-0400",
+  "seen_count": 27,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T12:45:51-0400",
-      "note": "2026-09-20 16:5xZ ops-triage: DETECTION half FIXED in-repo; the retry half is Tim's call. Root cause of the invisibility: the class is 'a row with status=failed', and every publish check looked elsewhere -- check_publish_liveness counts only scheduled/draft rows past due, check_publish_gap measures the newest POSTED post -- so a rejected post was unobservable while its slot was permanently lost. Added check_publish_failed_silent + pure publish_failed_verdict to bin/tc_ops.py: it counts scheduling_posts with status='failed' and updated_at inside PUBLISH_FAILED_WINDOW_H (24h) and files this key with the post/photo/slot and the known cause. VERIFIED live: probe fires it on today's real failure -- '1 post(s) marked failed in the last 24h (newest 0.7h ago): post 333 photo 339 slot 2026-09-20 15:15:13 failed 2026-09-20 16:00:58'; selftest 129 assertions / 0 failures (4 new verdict cases); psql cross-check: exactly 1 failed row in 24h, 65 lifetime, so the check is quiet on history and loud on a live loss. The record is now PROBE-OWNED (source manual -> probe) so it auto-closes when no rejection falls in the window instead of staying open forever; the 24h window is what makes that correct. NOT fixed, deliberately: the lost slot itself. scheduled_posting.rake:121-125 calls mark_as_failed! with no requeue, and the suggested one-bounded-retry on Instagram code 9007 (container-readiness race) changes live publish behaviour -- the same class of edit Tim reserved -- so it is filed as a decision, not applied. Also proposed: persist the failure reason (the row stores none; it survives only in log/scheduled_posting.log)."
-    },
     {
       "ts": "2026-09-20T13:45:21-0400",
       "note": "2026-09-20 17:4xZ ops-triage: unchanged; detection in-repo, the retry half is Tim's call. Live: post 333 is still the only failed row in 24h (photo 339, slot 15:15Z, failed 16:00:58Z on 400/code 9007) and its slot is permanently lost; the 17:00Z tick published post 334 fine (posted=200, newest posted_at 17:00:28Z). Nothing new failed. Options unchanged: one bounded requeue on 9007 (media-not-ready) or accept the loss -- the row stores no reason and the publisher exits 0, so check_publish_failed_silent is now the only thing that can see it."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T17:43:54-0400",
       "note": "2026-09-20 21:4xZ ops-triage: unchanged, self-clearing. Live: exactly 1 failed row in the 24h window (post 333, photo 339, slot 15:15Z, failed 16:00:58Z on 400/code 9007) which predates the ffe9692 publish-retry fix by ~3.7h; 3 posts created in 24h, 18 future scheduled, 0 stuck ComfyuiJobs, 0 stuck PipelineRuns. Window empties ~09-21 16:00Z."
+    },
+    {
+      "ts": "2026-09-20T18:36:23-0400",
+      "note": "2026-09-20 22:3xZ ops-triage: unchanged in-window; the detection half is already fixed in-repo (check_publish_failed_silent). Live psql: exactly 1 failed post in the last 24h - post 333, failed 16:00:58 EDT (instagram 400 code 9007), which predates the retry fix ffe9692, and it ages out of the window around 20:00Z on 09-21. Residual is whether a definitively-rejected slot gets made up or dropped: live-publish policy, so Tim call."
     }
   ]
 }

@@ -5,14 +5,10 @@
   "evidence": "1 day(s) over the 3/day cap: 09-21=4; 18 future post(s) queued [6 pair(s) inside 60 min: 09-21 04:22/09-21 05:17, 09-21 05:17/09-21 05:31, 09-22 05:19/09-22 05:33, 09-23 05:20/09-23 05:35 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 1 of them (09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T17:39:15-0400",
-  "seen_count": 76,
+  "last_seen": "2026-09-20T18:28:17-0400",
+  "seen_count": 78,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T11:37:49-0400",
-      "note": "2026-09-20 15:5xZ ops-triage: residue only, shrinking. 09-20 is no longer over the cap; the only over-cap future day left is 09-21=4, and every over-cap row predates Growth::PostSlotPlanner. Release pacing still holds (21 scheduled, next due 15:15Z, one post per publisher tick). Self-clears as the day passes; deliberately no live-publishing edits."
-    },
     {
       "ts": "2026-09-20T12:47:25-0400",
       "note": "2026-09-20 16:5xZ ops-triage: residue only, shrinking. Live: the only future day over the 3/day cap is 09-21=4, and every over-cap row predates Growth::PostSlotPlanner. Release pacing verified in production, not just in specs: posted_at shows the pre-fix bursts (09-18 and 09-19, four releases in one tick) but 09-20 released only 05:00:14 and 06:00:13, and the 12:00 local publisher log reads 'Found 1 post(s) ready to publish'. Deliberately no live-publishing edits; the day self-clears as it passes."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T17:44:08-0400",
       "note": "2026-09-20 21:4xZ ops-triage: residue only, unchanged. Live: 09-21 is the only future day over the 3/day cap (4 rows), every over-cap row predating Growth::PostSlotPlanner; 18 future scheduled. Self-clears as the day passes; deliberately no live-publishing edits."
+    },
+    {
+      "ts": "2026-09-20T18:36:23-0400",
+      "note": "2026-09-20 22:3xZ ops-triage: residue only, shrinking, self-clears after 09-21. Live psql by scheduled day: 09-21=4 (the only over-cap day, all rows predate Growth::PostSlotPlanner), 09-22=3, 09-23=3, 09-24=3, 09-25=3, 09-26=2. Release pacing check is quiet in this probe run and the publisher releases at most one post per tick, so the over-cap day cannot leave as a burst; deliberately no live-publishing edits."
     }
   ]
 }

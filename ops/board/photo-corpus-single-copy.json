@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T11:37:49-0400",
-      "note": "2026-09-20 15:5xZ ops-triage: unchanged, outside this repo. Re-read /home/tim/backup.sh line 27: rsync -xahP -e ssh -p 2503 ... /mnt/fscache/essdee/ to the NAS backup host -- still no --copy-links, so ComfyUI/output (a symlink to /mnt/nas-ai-models/comfyui-output) is copied as a symlink and the corpus keeps ONE copy on the NAS volume. Needs Tim (backup.sh)."
-    },
-    {
       "ts": "2026-09-20T12:47:25-0400",
       "note": "2026-09-20 16:5xZ ops-triage: unchanged, outside this repo. Re-read /home/tim/backup.sh:27 live: rsync -xahP -e ssh -p 2503 --delete --delete-excluded /mnt/fscache/essdee/ to the NAS home, still no --copy-links, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is copied as a dangling symlink and the corpus keeps ONE copy, on the same NAS volume. Needs Tim: --copy-links plus a second or off-site target, or an explicit archive step."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T17:44:08-0400",
       "note": "2026-09-20 21:4xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 live: rsync -xahP over ssh -p 2503 with --delete --delete-excluded and an exclude file, source /mnt/fscache/essdee/ -> NAS home, still no --copy-links (and -x stops the walk at the filesystem boundary), so ComfyUI/output is copied as a dangling symlink and the corpus keeps ONE copy on the same NAS volume as the mirror. Needs Tim."
+    },
+    {
+      "ts": "2026-09-20T18:36:23-0400",
+      "note": "2026-09-20 22:3xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 re-read live: rsync -xahP -e ssh -p 2503 --delete --delete-excluded --exclude-from=... /mnt/fscache/essdee/ -> nas:~/backup/essdee/ with no --copy-links, and -x stops the walk at the filesystem boundary, so ComfyUI/output is mirrored as a dangling symlink and the 337-photo corpus keeps ONE copy on the same NAS volume as its mirror. Fix is one flag in a script outside the working dir; needs Tim."
     }
   ]
 }

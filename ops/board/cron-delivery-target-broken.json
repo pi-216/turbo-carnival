@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T17:39:15-0400",
-  "seen_count": 53,
+  "last_seen": "2026-09-20T18:28:17-0400",
+  "seen_count": 55,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-20T12:47:25-0400",
-      "note": "2026-09-20 16:5xZ ops-triage: unchanged, re-read live (16:39Z): tc-growth-harness-brain (last run 12:02), tc-weekly-persona-review (09-14) and tc-ops-triage (11:38) are deliver=origin with origin.platform=webui and last_status=delivery_failed; tc-overnight-watchdog (deliver=local) is ok and ran again at 12:36, proving the local target works. No chat platform is configured for this profile (channel_directory lists homeassistant and email, both empty), so there is no valid target to point at; needs Tim to configure one (then hermes cron edit <id> --deliver <platform>:<chat_id>) or to accept deliver=local, which reaches nobody. Probe-owned: it self-closes the moment a working target is set."
-    },
     {
       "ts": "2026-09-20T13:45:21-0400",
       "note": "2026-09-20 17:4xZ ops-triage: unchanged, re-read live. tc-growth-harness-brain (last run 13:05), tc-weekly-persona-review (09-14) and tc-ops-triage (12:48) are deliver=origin with origin.platform='webui' and last_status=delivery_failed; tc-overnight-watchdog (deliver=local) is ok. Re-verified there is NO reachable target to point deliver at in this profile: gateway/config.py Platform has no 'webui' member, and the profile's own channel_directory.json lists only homeassistant and email, both empty (the slack channels in the global directory belong to the default profile's gateway). Needs Tim: configure a chat platform for this profile, or accept deliver=local (output stays on disk under cron/output/, which is where this loop already reads it)."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T17:43:54-0400",
       "note": "2026-09-20 21:4xZ ops-triage: unchanged, Hermes config outside this repo. Re-read cron/jobs.json live: tc-growth-harness-brain (last run 17:05 local), tc-weekly-persona-review (09-14) and tc-ops-triage (16:45) are deliver=origin with origin.platform=webui -> last_status delivery_failed, last_delivery_error unknown platform webui; tc-overnight-watchdog (deliver=local) is ok. No chat platform is configured for this profile, so there is no valid in-repo target to point deliver at. Needs Tim: one line in the job store."
+    },
+    {
+      "ts": "2026-09-20T18:36:23-0400",
+      "note": "2026-09-20 22:3xZ ops-triage: unchanged, outside this repo and unfixable from it. Live 22:30Z: all three jobs (43b0d5c4446d growth-brain run 18:03, 9c05f60f5fef ops-triage 17:46, 8d3ac21799d5 persona-review 09-14) are deliver=origin / origin.platform=webui with last_status=delivery_failed; tc-overnight-watchdog (deliver=local) ran ok, proving the local path works. channel_directory.json re-read live = homeassistant [] , email []; config.yaml carries no telegram/discord credentials, so this profile has NO valid chat target to point hermes cron edit <id> --deliver at. Switching to deliver=local would silence this check while still reaching nobody, so it stays open as the honest state. Needs Tim: configure a platform, or accept that these three reports only land in cron/output/ and on the board. This report is one of the three."
     }
   ]
 }
