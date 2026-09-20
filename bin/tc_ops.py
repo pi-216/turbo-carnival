@@ -1648,6 +1648,103 @@ def check_photo_pool():
     return photo_pool_verdict(stats)
 
 
+def photo_resolution_verdict(stats):
+    """Pure: measured photo-resolution counts -> issue tuple or None.
+
+    stats: roots / missing / stranded / ids, as strings from the rails probe.
+    Returns None when the resolver finds every photo whose bytes exist.
+    """
+    if not stats:
+        return None
+    roots = [r for r in (stats.get("roots") or "").split(";") if r]
+    missing = [r for r in (stats.get("missing") or "").split(";") if r]
+    try:
+        stranded = int(stats.get("stranded") or 0)
+    except ValueError:
+        return None
+    if not roots:
+        return (
+            "photo-resolution-dead",
+            "the photo resolver has no configured source root",
+            "critical",
+            "ContentPillars::Photo::MIRROR_ROOTS is empty, so every photo whose "
+            "recorded mount has moved resolves to nothing -- the corpus reads as "
+            "empty while its bytes exist",
+        )
+    if missing:
+        return (
+            "photo-resolution-dead",
+            f"{len(missing)} photo source root(s) do not exist: {', '.join(missing)}",
+            "warn",
+            "the resolver searches these roots for any photo whose recorded mount "
+            "is gone; a root that does not exist is a SILENT dead end (measured "
+            "2026-09-20: the fallback pointed at /mnt/synology-home, an empty "
+            "root-owned directory, so 101 photos with intact bytes read as 'no "
+            "bytes anywhere' and were written off as permanently unpostable)",
+        )
+    if stranded > 0:
+        return (
+            "photo-resolution-dead",
+            f"{stranded} photo(s) have bytes in the NAS mirror that the resolver does not find",
+            "warn",
+            f"ids: {stats.get('ids') or '?'} -- the mount-prefix fallback has "
+            "regressed; these photos are served as missing although their bytes "
+            f"exist at the same relative path under {roots[0]}",
+        )
+    return None
+
+
+def check_photo_resolution():
+    """Can we still FIND the bytes of a photo whose recorded mount has moved?
+
+    `servable_file_path` fell back to
+    '/mnt/synology-home/backup/essdee/ComfyUI', which is not a mount at all
+    (/mnt/synology-home is an empty, root-owned directory), and its prefix test
+    knew only the ORIGINAL /mnt/essdee/ComfyUI mount -- so photos imported from
+    the current mount (/mnt/fscache/essdee/ComfyUI, itself a symlink into the
+    NAS) had no fallback at all, while the fallback that did exist could never
+    resolve. Nothing reported it: those records simply read as "no bytes
+    anywhere" (measured 2026-09-20: 101 photos were written off as permanently
+    unpostable while their bytes sat intact at the same RELATIVE path under the
+    NAS mirror).
+
+    So this measures the resolver's own answer against the mirror: every
+    configured root must exist, and no photo may read as unreachable while its
+    bytes are present.
+    """
+    script = (
+        "klass = ContentPillars::Photo;"
+        "roots = klass::MIRROR_ROOTS;"
+        "stranded = [];"
+        "klass.find_each do |p|"
+        " next if p.servable_file_path.present?;"
+        " d = p.path.to_s;"
+        # Independent of the resolver's own constants: derive the path relative
+        # to the ComfyUI output tree from the path itself, so a prefix list that
+        # lost a mount is caught rather than mirrored by the measurement.
+        " i = d.rindex('/ComfyUI/');"
+        " next unless i;"
+        " rel = d[(i + 9)..].sub(%r{\\Aoutput/}, '');"
+        " hit = roots.find { |r| File.file?(File.join(r, rel)) ||"
+        " File.file?(File.join(r, 'output', rel)) };"
+        " stranded << p.id if hit;"
+        " end;"
+        "puts ['roots=' + roots.join(';'),"
+        " 'missing=' + roots.reject { |r| File.directory?(r) }.join(';'),"
+        " 'stranded=' + stranded.size.to_s,"
+        " 'ids=' + stranded.first(5).join(',')].join(' ')"
+    )
+    out, rc = run(["bin/rails", "runner", script], timeout=240)
+    if rc != 0 or not out:
+        return None
+    stats = {}
+    for tok in out.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            stats[k] = v
+    return photo_resolution_verdict(stats)
+
+
 CHECKS = [
     check_probe_inputs,
     check_worker_running,
@@ -1665,6 +1762,7 @@ CHECKS = [
     check_placeholder_caption_queued,
     check_render_acceptance,
     check_photo_pool,
+    check_photo_resolution,
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
@@ -2103,6 +2201,25 @@ def cmd_selftest(_argv):
         v = photo_pool_verdict(stats)
         expect(f"photo_pool_verdict[{name}]", v[2] if v else None, want)
 
+    # photo_resolution_verdict: can the resolver FIND the bytes of a photo whose
+    # recorded mount has moved? A missing root is a silent dead end, and bytes
+    # present in the mirror that the resolver misses is the regression itself.
+    def R(roots, missing="", stranded=0, ids=""):
+        return {"roots": roots, "missing": missing, "stranded": str(stranded),
+                "ids": ids}
+
+    res_cases = [
+        ("healthy", R("/mnt/nas-ai-models/comfyui-output"), None),
+        ("dead-root", R("/mnt/a;/mnt/synology-home/backup", missing="/mnt/synology-home/backup"), "warn"),
+        ("stranded-bytes", R("/mnt/nas-ai-models/comfyui-output", stranded=3, ids="8,9,10"), "warn"),
+        ("no-roots", R(""), "critical"),
+        ("unreadable", {}, None),
+        ("garbage", {"roots": "/x", "stranded": "many"}, None),
+    ]
+    for name, stats, want in res_cases:
+        v = photo_resolution_verdict(stats)
+        expect(f"photo_resolution_verdict[{name}]", v[2] if v else None, want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -2156,7 +2273,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(pool_cases) + 14} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(pool_cases) + len(res_cases) + 14} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

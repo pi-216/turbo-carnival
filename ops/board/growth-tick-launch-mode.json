@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-19T17:37:02-0400",
-      "note": "2026-09-19 ops-triage: unchanged, still a Hermes cron config change outside this repo. Re-verified this run: the repo half is done (RenderSalvage recovers abandoned renders; no new orphaned runs), and the tick still runs growth:sync_cadence in the foreground under a fixed tool budget. This tick needed nothing (render_need=no, queue 21/21) so the exposure was not exercised today. Needs Tim: run sync_cadence detached (direct >> log 2>&1 &) and let the next tick top up what is missing -- sync_cadence counts existing posts, so a partial run is safe to resume -- or split it into per-slot batches, or raise the tick tool timeout above the measured ~45 min worst case."
-    },
-    {
       "ts": "2026-09-19T19:40:36-0400",
       "note": "Status 2026-09-19 23:5xZ. Repo-side mitigation is live and verified WIRED: Growth::CadenceEngine#sync calls Growth::RenderSalvage FIRST, bounded by the outstanding shortfall (packs/growth_harness/.../cadence_engine.rb:92), and the salvage was exercised end-to-end against the production DB in a rolled-back transaction (decision salvage_recovered for run 463 -> post 341; no such row exists in growth_decisions, which confirms the rollback). It has NOT yet run for real, because the queue is at target (21/21) so no tick has a shortfall. Consequence, measured: the three paid-for renders from the 15:01-17:01Z kill window (runs 457/463/471, candidates 3180/3183/3184) are still on disk with no Photo and no post row -- deferred BY DESIGN (budget = shortfall) and eligible until 2026-09-26 (MAX_AGE 7d on updated_at), after which the GPU time is lost for good. Residual unchanged and outside the repo: the tick still calls growth:sync_cadence in the FOREGROUND under the cron's fixed timeout; the fix is the cron prompt / launch mode (run the producer detached), which needs Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T03:52:04-0400",
       "note": "2026-09-20 07:5xZ ops-triage: unchanged, outside this repo (Hermes cron config): the growth-brain tick still runs growth:sync_cadence in the foreground under a fixed timeout, so a killed tick can leave its own debris behind. Repo-side the debris is already reaped (the GPU-free salvage runs from the publisher) and the publisher's new insights step is non-fatal; the launch mode itself needs the cron config changed."
+    },
+    {
+      "ts": "2026-09-20T07:42:38-0400",
+      "note": "2026-09-20 11:3xZ ops-triage: unchanged, Hermes cron config outside this repo (the growth tick still runs growth:sync_cadence in the foreground under a fixed tool budget). Repo-side debris handling is still in place and clean: 0 stuck PipelineRuns and 0 stuck ComfyuiJobs live this run. Needs Tim: run the producer detached, or raise the tick budget."
     }
   ]
 }
