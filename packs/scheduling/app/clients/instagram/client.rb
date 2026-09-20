@@ -7,6 +7,22 @@ module Instagram
   class Client
     class Error < StandardError; end
 
+    # Instagram answers the container status check with FINISHED and then rejects
+    # the publish with 9007 / subcode 2207027 ("The media is not ready for
+    # publishing, please wait for a moment"). Measured on post 333 (2026-09-20):
+    # container create + status check + publish all finished in ~5s, so the
+    # FINISHED answer is optimistic and the publish needs a moment -- publishing
+    # immediately loses the slot permanently (3rd lifetime occurrence: posts 37,
+    # 246, 333, each a lost slot AND a consumed photo). A retry is safe: 9007
+    # means the container was NOT published, and containers are single-use, so a
+    # retry can never produce a second post.
+    class MediaNotReadyError < Error; end
+
+    MEDIA_NOT_READY_CODES = [ 9007 ].freeze
+    MEDIA_NOT_READY_SUBCODES = [ 2207027 ].freeze
+    PUBLISH_ATTEMPTS = 4
+    PUBLISH_RETRY_DELAY_S = 10
+
     BASE_URL = 'https://graph.facebook.com/v20.0'
 
     def initialize
@@ -22,7 +38,7 @@ module Instagram
     def create_post(image_url:, caption:)
       creation_id = create_media_container(image_url, caption)
       wait_for_media_ready(creation_id)
-      publish_media_container(creation_id)
+      publish_when_ready(creation_id)
     rescue Faraday::Error => e
       raise Error, "Request failed: #{e.message}"
     end
@@ -77,9 +93,43 @@ module Instagram
     end
 
     def handle_response(response)
-      raise Error, "API Error: #{response.status} - #{response.body}" unless response.success?
+      unless response.success?
+        message = "API Error: #{response.status} - #{response.body}"
+        raise MediaNotReadyError, message if media_not_ready?(response.body)
+
+        raise Error, message
+      end
 
       response.body
+    end
+
+    # Publish, tolerating the "not ready yet" answer Instagram gives right after
+    # its own status check said FINISHED. Bounded: 4 attempts, 10s apart, and any
+    # other error (or the last attempt) fails exactly as before.
+    def publish_when_ready(creation_id)
+      attempt = 0
+      begin
+        attempt += 1
+        publish_media_container(creation_id)
+      rescue MediaNotReadyError => e
+        raise if attempt >= PUBLISH_ATTEMPTS
+
+        Rails.logger.warn(
+          "Instagram container #{creation_id} not ready to publish " \
+          "(attempt #{attempt}/#{PUBLISH_ATTEMPTS}); retrying in #{PUBLISH_RETRY_DELAY_S}s: #{e.message}"
+        )
+        sleep(PUBLISH_RETRY_DELAY_S)
+        retry
+      end
+    end
+
+    def media_not_ready?(body)
+      error = body.is_a?(Hash) ? (body['error'] || body[:error]) : nil
+      return false unless error.is_a?(Hash)
+
+      code = error['code'] || error[:code]
+      subcode = error['error_subcode'] || error[:error_subcode]
+      MEDIA_NOT_READY_CODES.include?(code.to_i) || MEDIA_NOT_READY_SUBCODES.include?(subcode.to_i)
     end
 
     def create_media_container(image_url, caption)
