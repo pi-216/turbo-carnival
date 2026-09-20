@@ -671,6 +671,47 @@ def check_post_schedule_shape():
     )
 
 
+def check_placeholder_caption_queued():
+    """A queued post whose caption is still the failure artifact publishes as-is.
+
+    check_caption_fallback measures the PRODUCER (rows created in the last 24 h)
+    and goes silent as soon as the newest post has a real caption, so the
+    placeholders a caption outage already wrote into the QUEUE are invisible --
+    the same blind spot check_post_schedule_shape closes for slots. Measured
+    2026-09-20: 5 unpublished posts carried 'Fresh look' (4 of them due inside
+    two hours) while every caption probe read green. The repair is
+    `rails captions:refresh_placeholders` (dry-run; APPLY=1 to write).
+    """
+    pred = ("status in ('draft','scheduled') and caption like 'Fresh look%' "
+            "and (scheduled_at > (now() at time zone 'UTC') "
+            "or optimal_time_calculated > (now() at time zone 'UTC'))")
+    n = psql(f"select count(*) from scheduling_posts where {pred}")
+    if n is None:
+        return None
+    try:
+        n = int(n)
+    except ValueError:
+        return None
+    if n == 0:
+        return None
+
+    rows = psql_lines(
+        "select id || ' due ' || to_char(coalesce(scheduled_at, "
+        "optimal_time_calculated), 'MM-DD HH24:MI') from scheduling_posts "
+        f"where {pred} order by coalesce(scheduled_at, optimal_time_calculated)"
+    )
+    return (
+        "caption-placeholder-queued",
+        f"{n} unpublished post(s) still carry the placeholder caption and will publish with it",
+        "warn",
+        "queued placeholders: " + ", ".join((rows or [])[:6])
+        + "; these are artifacts of the caption outage that wrote them (the path "
+        "itself has recovered); repair = bundle exec rails "
+        "captions:refresh_placeholders (dry-run), APPLY=1 to write -- a "
+        "live-publishing edit, so Tim's call",
+    )
+
+
 def gpu_vram_used_mib():
     out, rc = run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"])
     if rc != 0 or not out:
@@ -1020,6 +1061,7 @@ CHECKS = [
     check_stuck_pipeline_runs,
     check_render_for_terminal_run,
     check_caption_fallback,
+    check_placeholder_caption_queued,
     check_render_acceptance,
     check_render_starved,
     check_publish_liveness,

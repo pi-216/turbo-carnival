@@ -1,0 +1,12 @@
+{
+  "key": "caption-placeholder-queued",
+  "title": "5 unpublished post(s) still carry the placeholder caption and will publish with it",
+  "severity": "warn",
+  "evidence": "queued placeholders: 333 due 09-20 15:15, 334 due 09-20 16:01, 335 due 09-20 16:25, 336 due 09-20 17:10, 337 due 09-21 17:15; these are artifacts of the caption outage that wrote them (the path itself has recovered); repair = bundle exec rails captions:refresh_placeholders (dry-run), APPLY=1 to write -- a live-publishing edit, so Tim's call",
+  "status": "open",
+  "first_seen": "2026-09-19T22:39:28-0400",
+  "last_seen": "2026-09-19T22:39:28-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": []
+}

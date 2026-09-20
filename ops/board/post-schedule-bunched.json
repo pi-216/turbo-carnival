@@ -1,0 +1,12 @@
+{
+  "key": "post-schedule-bunched",
+  "title": "future queue still carries pre-fix slots: 2 day(s) over the 3/day cap: 09-20=6, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17",
+  "severity": "warn",
+  "evidence": "2 day(s) over the 3/day cap: 09-20=6, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17; 21 future post(s) queued. Producers now allocate through Growth::PostSlotPlanner, so this is residue from rows created before that fix and it drains as the queue publishes; re-spacing already-scheduled rows is a live-publishing edit (Tim's call).",
+  "status": "open",
+  "first_seen": "2026-09-19T22:35:03-0400",
+  "last_seen": "2026-09-19T22:39:28-0400",
+  "seen_count": 2,
+  "source": "probe",
+  "notes": []
+}
