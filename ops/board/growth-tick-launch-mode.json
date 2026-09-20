@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-19T20:49:31-0400",
-      "note": "2026-09-20 00:5xZ: repo half stays done (RenderSalvage wired into CadenceEngine#sync). Re-verified the three stranded renders are still recoverable: candidates 3180/3183/3184 (runs 457/463/471, all variables.sync_producer set) are status=active with their files on disk (1.0-1.2 MB) and no Photo row. ELIGIBILITY DEADLINE: MAX_AGE=7d from run updated_at (2026-09-19 16:41/18:38Z) = 2026-09-26. First exercise expected at the next shortfall tick: the queue drops below target when 314/327 publish (2026-09-20 04:20/05:29Z), and the following hourly tick runs sync_cadence -> salvage. Residual is the Hermes cron config (foreground sync_cadence under a fixed budget); needs Tim."
-    },
-    {
       "ts": "2026-09-19T23:55:47-0400",
       "note": "2026-09-20 03:5xZ: no change; the repo half (RenderSalvage wired into CadenceEngine#sync) is still done and the stranded renders 3180/3183/3184 are still awaiting the next shortfall tick (eligibility deadline 2026-09-26). Upcoming: posts 314/327 publish today at 04:20Z/05:29Z, which drops the queue below the 21 target for the first time - the next hourly tick is the first real exercise of the salvage path. Residual is the Hermes cron launch mode (outside repo) -> Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T08:34:35-0400",
       "note": "2026-09-20 12:5xZ ops-triage: still open, but the option set is now narrowed by evidence -- the naive fix in this record (run growth:sync_cadence detached with >> log 2>&1 &) would COLLIDE with the tick's own GPU policy: the same prompt ends by stopping the heartbeat, SIGTERMing ComfyUI, verifying the port is closed and RELEASING the claim, so a detached producer would keep rendering into a GPU the tick has just handed back (and the next claimant would OOM against it). Three real options: (a) detach the producer AND defer the release to a follow-up tick/heartbeat that waits for it; (b) keep it foreground and give the rake task a self-imposed deadline so it exits cleanly between renders before the tool timeout (in-repo, no spend change -- the next tick's render_need tops up what it skipped); (c) split into per-slot batches. Repo-side debris handling is verified clean live this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs), so the residual is a truncated tick, not lost work. Needs Tim: launch mode + spend behaviour is his call."
+    },
+    {
+      "ts": "2026-09-20T09:33:58-0400",
+      "note": "2026-09-20 13:3xZ ops-triage: unchanged, Hermes cron config outside this repo. Options recorded for Tim: (a) detach sync_cadence and defer the tick's end-of-tick ComfyUI shutdown + claim release, (b) put an in-repo deadline in the rake task, (c) per-slot batches. Needs Tim (spend/launch behaviour)."
     }
   ]
 }

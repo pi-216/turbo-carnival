@@ -8,5 +8,10 @@
   "last_seen": "2026-09-20T07:42:05-0400",
   "seen_count": 1,
   "source": "manual",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-20T09:33:58-0400",
+      "note": "2026-09-20 13:3xZ ops-triage: re-verified from the source script -- /home/tim/backup.sh line 27 rsyncs '/mnt/fscache/essdee/' to the NAS host with -xahP and NO --copy-links, so ComfyUI/output (a symlink) is copied as a symlink and lands dangling; -x also stops the walk at a filesystem boundary. The corpus therefore has one copy on the same NAS volume as the mirror: no redundancy against volume loss or an accidental directory removal. Outside this repo (Tim's script, outside the working dir) so filed and not acted on, per the loop's scope rule. Needs Tim: add --copy-links (and ideally an off-site/second-volume target)."
+    }
+  ]
 }
