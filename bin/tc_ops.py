@@ -41,12 +41,16 @@ GPU = "4090"
 
 SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 
-# A foreign project holding the 4090 is the NORMAL shared-resource state (our rules
-# forbid interfering), so it is only worth an issue once the hold is long enough to
-# starve our renders. Below this, filing it is board churn, not signal.
-FOREIGN_HOLD_ALERT_H = 6.0
+# A foreign project holding the 4090 is the NORMAL shared-resource state and our
+# rules forbid interfering with it, so a foreign hold is only an issue when it
+# actually blocks US (one of our jobs waiting in that GPU's queue, or refusals
+# with no output -- see check_render_starved). A pure time threshold filed a
+# record that could never be actioned and re-opened on every probe.
 # Starvation = we asked for the GPU and were refused, AND nothing came out.
 STARVE_WINDOW_H = 12
+# A burst is two newly scheduled posts close enough together that the hourly
+# publisher (bin/scheduled_posting.sh) releases them in the SAME tick.
+BURST_WINDOW_MINUTES = 60
 # Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
@@ -77,6 +81,14 @@ def psql(sql, timeout=25):
     if rc != 0 or not out:
         return None
     return out.splitlines()[0].strip()
+
+
+def psql_lines(sql, timeout=25):
+    """Multi-row query via psql; returns [] for an empty result, None when unreadable."""
+    out, rc = run(["psql", "-At", "-d", DB, "-c", sql], timeout=timeout)
+    if rc != 0:
+        return None
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def sched_state():
@@ -222,26 +234,28 @@ def foreign_hold_hours():
 def check_slot():
     """Our claim state. The 'someone else holds the 4090' case is NORMAL sharing.
 
-    Filing every foreign hold as an issue produced a board entry that could never
-    be actioned (the rules are explicit: never touch another project's job) and
-    re-opened on every probe. Real contention is reported by check_render_starved
-    (refusals + no output); here we only keep a record once a foreign hold is long
-    enough to matter for capacity planning.
+    A foreign hold is not an issue by itself: our rules forbid touching another
+    project's job, so a record filed on hold duration alone could never be
+    actioned -- it sat open through 5 probes and two ops runs that both concluded
+    "nothing to action". It is only a work item when it BLOCKS us: one of our own
+    jobs is queued on that GPU. Real starvation (refusals with no output) is
+    reported by check_render_starved.
     """
     status, job, ours, ourjob = our_claim()
     q = queue(GPU)
     ahead = [j for j in q if j.get("project") == "turbo-carnival"]
     if status == "busy" and not ours and job:
+        if not ahead:
+            return None
         held = foreign_hold_hours()
-        if ahead or (held is not None and held >= FOREIGN_HOLD_ALERT_H):
-            return (
-                "gpu-slot-other-project",
-                f"4090 held by another project ({job})",
-                "info",
-                f"we hold no claim; held {held:.1f}h; our queue entries={len(ahead)}" if held
-                else f"we hold no claim; our queue entries={len(ahead)}",
-            )
-        return None
+        return (
+            "gpu-slot-other-project",
+            f"4090 held by another project ({job}) with our job(s) queued behind it",
+            "info",
+            f"we hold no claim; held {held:.1f}h; our queue entries={len(ahead)}"
+            if held
+            else f"we hold no claim; our queue entries={len(ahead)}",
+        )
     if ours and not comfyui_up():
         return (
             "comfyui-down-while-claimed",
@@ -530,6 +544,60 @@ def check_publish_liveness():
         f"oldest overdue {oldest_h:.1f}h (grace {PUBLISH_GRACE_H}h, critical at "
         f"{PUBLISH_CRITICAL_H}h); newest published={last}; "
         "publisher=bin/scheduled_posting.sh (user crontab, hourly)",
+    )
+
+
+def colliding_pairs(times, window_min=BURST_WINDOW_MINUTES):
+    """Pure: sorted epoch times -> the consecutive pairs inside the burst window."""
+    return [
+        (prev, cur)
+        for prev, cur in zip(times, times[1:])
+        if (cur - prev) < window_min * 60
+    ]
+
+
+def check_post_slot_bursts():
+    """Newly scheduled posts placed on top of each other -> a burst release.
+
+    Every producer used to stamp `scheduled_at = Time.current + offset_days.days`,
+    so a post's wall-clock time was whatever time the producing tick ran. Posts
+    made by successive ticks for the same target day therefore shared a publishing
+    hour, and bin/scheduled_posting.sh (hourly) released them in one tick --
+    measured 2026-09-19: posts 317/319/326 published 06:00:14Z / 06:00:26Z /
+    06:00:38Z, three posts inside 24 s, while the cadence cap is 3/day.
+
+    Growth::PostSlotPlanner now allocates spaced slots. This check measures the
+    PRODUCER (posts created in the last 24 h), so it clears by itself once the fix
+    is live instead of staying open on pre-fix rows that the queue still has to
+    drain.
+    """
+    lines = psql_lines(
+        "select extract(epoch from scheduled_at)::bigint from scheduling_posts "
+        "where created_at > (now() at time zone 'UTC') - interval '24 hours' "
+        "and scheduled_at is not null order by scheduled_at"
+    )
+    if lines is None:
+        return None
+    try:
+        times = sorted(float(x) for x in lines)
+    except ValueError:
+        return None
+
+    pairs = colliding_pairs(times)
+    if not pairs:
+        return None
+
+    def stamp(t):
+        return time.strftime("%m-%d %H:%M", time.gmtime(t))
+
+    return (
+        "post-slots-collide",
+        f"{len(pairs)} pair(s) of posts created in the last 24h sit inside "
+        f"{BURST_WINDOW_MINUTES} min of each other",
+        "warn",
+        "colliding: " + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4])
+        + "; the hourly publisher releases every due post in one tick "
+        "(measured 2026-09-19: 3 posts inside 24 s)",
     )
 
 
@@ -885,6 +953,7 @@ CHECKS = [
     check_render_acceptance,
     check_render_starved,
     check_publish_liveness,
+    check_post_slot_bursts,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_harness_log_growth,
@@ -1122,6 +1191,17 @@ def cmd_selftest(_argv):
     for name, due, oldest, want in publish_cases:
         expect(f"publish_verdict[{name}]", publish_verdict(due, oldest), want)
 
+    # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
+    burst_cases = [
+        ("empty", [], 0),
+        ("single", [1000.0], 0),
+        ("spaced-90m", [0.0, 5400.0, 10800.0], 0),
+        ("burst-24s", [0.0, 24.0, 48.0], 2),
+        ("pair-only", [0.0, 1200.0, 20000.0], 1),
+    ]
+    for name, times, want in burst_cases:
+        expect(f"colliding_pairs[{name}]", len(colliding_pairs(times)), want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -1159,7 +1239,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + 9} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(burst_cases) + 9} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
