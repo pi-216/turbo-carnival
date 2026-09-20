@@ -54,6 +54,24 @@ if [ "$REPAIR_CODE" -ne 0 ]; then
     log "WARN: placeholder caption repair exited $REPAIR_CODE — publishing anyway"
 fi
 
+# Fill hashtags on queued posts that have none (2026-09-20). The hashtag chain
+# was repaired on 2026-09-19 (engine, persona strategy, the generator's create,
+# the caption at send time) but every one of those fixes is on the PRODUCER
+# side, so a row already in the queue keeps its empty column and the publisher
+# appends nothing: measured 2026-09-20, post 340 (slot 09-24 17:50Z) was created
+# two minutes AFTER the fix by a process still running pre-fix code, and the
+# post would have shipped untagged. Same shape as the caption repair above --
+# the publisher is the only path that knows the post is about to become public.
+# Deliberately NON-FATAL -- an untagged post is still publishable, and the ops
+# board keeps the condition open (check_queued_post_hashtags) so a repair that
+# stops working cannot hide.
+log "Filling hashtags on untagged queued posts (if any)..."
+APPLY=1 INCLUDE_DUE=1 bundle exec rails hashtags:backfill_queued 2>&1 | tee -a "$LOG_FILE"
+HASHTAG_CODE=${PIPESTATUS[0]}
+if [ "$HASHTAG_CODE" -ne 0 ]; then
+    log "WARN: hashtag backfill exited $HASHTAG_CODE — publishing anyway"
+fi
+
 # Recover PAID-FOR renders that no post was ever made from (2026-09-20). The
 # growth tick's recovery path lives inside CadenceEngine#sync, and the tick skips
 # the whole cadence step when it cannot acquire the 4090 -- so the one recovery

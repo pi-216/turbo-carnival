@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T07:42:38-0400",
-      "note": "2026-09-20 11:3xZ ops-triage: unchanged, Hermes cron config outside this repo (the growth tick still runs growth:sync_cadence in the foreground under a fixed tool budget). Repo-side debris handling is still in place and clean: 0 stuck PipelineRuns and 0 stuck ComfyuiJobs live this run. Needs Tim: run the producer detached, or raise the tick budget."
-    },
-    {
       "ts": "2026-09-20T08:34:35-0400",
       "note": "2026-09-20 12:5xZ ops-triage: still open, but the option set is now narrowed by evidence -- the naive fix in this record (run growth:sync_cadence detached with >> log 2>&1 &) would COLLIDE with the tick's own GPU policy: the same prompt ends by stopping the heartbeat, SIGTERMing ComfyUI, verifying the port is closed and RELEASING the claim, so a detached producer would keep rendering into a GPU the tick has just handed back (and the next claimant would OOM against it). Three real options: (a) detach the producer AND defer the release to a follow-up tick/heartbeat that waits for it; (b) keep it foreground and give the rake task a self-imposed deadline so it exits cleanly between renders before the tool timeout (in-repo, no spend change -- the next tick's render_need tops up what it skipped); (c) split into per-slot batches. Repo-side debris handling is verified clean live this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs), so the residual is a truncated tick, not lost work. Needs Tim: launch mode + spend behaviour is his call."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T12:47:25-0400",
       "note": "2026-09-20 16:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean this run: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 0 non-terminal runs, 21 scheduled, 7 ComfyuiJobs completed in 24h with 0 failures; decisions 24h = comfyui_unclaimed 2 / salvage_recovered 3, so the GPU-free salvage is carrying top-ups while prx-tg holds the 4090. Options for Tim unchanged: (a) detach growth:sync_cadence in the tick and defer the end-of-tick release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
+    },
+    {
+      "ts": "2026-09-20T13:45:33-0400",
+      "note": "2026-09-20 17:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris re-verified clean live: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 18 future scheduled, comfyui_jobs 24h = 15 completed / 9 failed (nothing new failing). The residual is a truncated growth tick, not lost work. Options for Tim unchanged: (a) detach growth:sync_cadence and defer the tick's end-of-tick ComfyUI shutdown + claim release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
     }
   ]
 }

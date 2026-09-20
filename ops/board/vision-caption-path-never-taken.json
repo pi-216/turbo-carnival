@@ -10,10 +10,6 @@
   "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
   "notes": [
     {
-      "ts": "2026-09-20T06:40:41-0400",
-      "note": "2026-09-20 10:4xZ ops-triage: new evidence, and it makes the branch predicate unambiguous -- ActiveStorage is not merely unused for new photos, it is DEAD for the ones that carry attachments: 0 of the 101 attached-but-local-dead photos have a present blob file on the :local Disk service (storage/ = 116K total). So 'image.attached?' can never be the branch predicate; photo.servable_file_path is the only source that resolves."
-    },
-    {
       "ts": "2026-09-20T07:42:38-0400",
       "note": "2026-09-20 11:3xZ ops-triage: unchanged product decision for Tim. New fact from this run's photo-corpus work: the caption branch can never key on image.attached? -- ActiveStorage is dead for the attached photos too -- so photo.servable_file_path is the only source that resolves, and it now ALSO resolves the 101 legacy photos from the NAS mirror (same resolver fix as photo-corpus-bytes-gone). Routing captions through VisionGenerator stays a one-line change; it would now work for those photos as well."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T12:47:25-0400",
       "note": "2026-09-20 16:5xZ ops-triage: unchanged product decision for Tim. Live: 337 photos total, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 13:07Z -- 196 renders since then are path-only, so CaptionGeneration::VisionGenerator (which raises without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
+    },
+    {
+      "ts": "2026-09-20T13:45:34-0400",
+      "note": "2026-09-20 17:4xZ ops-triage: unchanged product decision for Tim. Live: 337 photos total, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises 'Photo must have attached image' without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
     }
   ]
 }

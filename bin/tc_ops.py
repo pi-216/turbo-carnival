@@ -1185,6 +1185,64 @@ def check_placeholder_caption_queued():
     )
 
 
+def queued_hashtag_verdict(n_untagged):
+    """Pure: queued posts carrying no hashtags -> severity (None when none)."""
+    if not n_untagged or n_untagged <= 0:
+        return None
+    return "warn"
+
+
+def check_queued_post_hashtags():
+    """An unpublished post with NO hashtags publishes with none -- silently.
+
+    The hashtag chain was broken for the account's whole life (all 197 posted
+    items went out with zero tags) and was repaired on 2026-09-19 in four places
+    (HashtagEngine's pillar split, Personas::HashtagStrategy#tags, the
+    generator's create, and the publisher's caption). Every one of those fixes
+    is on the PRODUCER side, so a row that is already in the queue keeps its
+    empty `hashtags` and the publisher appends nothing: measured 2026-09-20,
+    post 340 (slot 09-24 17:50Z) was created 2 min AFTER that fix by a process
+    still running pre-fix code, and nothing could see it -- the hashtag probes
+    measure the producer window, and the send path reads the column as-is.
+    This is the queue-side counterpart of check_placeholder_caption_queued, and
+    the same shape of blind spot: an artifact an outage already wrote into the
+    queue, which the fix for the outage does not repair.
+    """
+    pred = ("status in ('draft','scheduled') and "
+            "jsonb_array_length(coalesce(hashtags, '[]'::jsonb)) = 0 "
+            "and (scheduled_at > (now() at time zone 'UTC') "
+            "or optimal_time_calculated > (now() at time zone 'UTC'))")
+    n = psql(f"select count(*) from scheduling_posts where {pred}")
+    if n is None:
+        return None
+    try:
+        n = int(n)
+    except ValueError:
+        return None
+    sev = queued_hashtag_verdict(n)
+    if not sev:
+        return None
+
+    rows = psql_lines(
+        "select id || ' slot ' || to_char(coalesce(scheduled_at, "
+        "optimal_time_calculated), 'MM-DD HH24:MI') from scheduling_posts "
+        f"where {pred} order by coalesce(scheduled_at, optimal_time_calculated)"
+    )
+    return (
+        "queued-post-untagged",
+        f"{n} unpublished post(s) have no hashtags and will publish without any",
+        sev,
+        "untagged queue: " + ", ".join((rows or [])[:6])
+        + "; the publisher appends scheduling_posts.hashtags to the caption at "
+        "send time, so an empty column ships an untagged post (the account's only "
+        "discoverability lever at 157 followers). Repair: "
+        "`bundle exec rails hashtags:backfill_queued` (dry-run; APPLY=1 to write) "
+        "-- bin/scheduled_posting.sh runs it with APPLY=1 ahead of "
+        "scheduling:post_scheduled, so this clears at the next publishing tick; "
+        "a row that survives a tick means the engine returned nothing for it.",
+    )
+
+
 def check_caption_path_cold():
     """A caption call made right now would FAIL -> the next post ships the placeholder.
 
@@ -2203,6 +2261,7 @@ CHECKS = [
     check_caption_fallback,
     check_caption_path_cold,
     check_placeholder_caption_queued,
+    check_queued_post_hashtags,
     check_render_acceptance,
     check_photo_pool,
     check_photo_resolution,
@@ -2566,6 +2625,19 @@ def cmd_selftest(_argv):
     for name, n, age, want in failed_cases:
         expect(f"publish_failed_verdict[{name}]", publish_failed_verdict(n, age), want)
 
+    # queued_hashtag_verdict: untagged queued posts -> severity. Zero must be
+    # None (the entry self-closes once the publisher's repair fills the queue) and
+    # any untagged row must warn: the publisher appends the column verbatim, so an
+    # empty one ships an untagged post with no other signal.
+    untagged_cases = [
+        ("clean-queue", 0, None),
+        ("unknown", None, None),
+        ("one-untagged", 1, "warn"),
+        ("several-untagged", 4, "warn"),
+    ]
+    for name, n, want in untagged_cases:
+        expect(f"queued_hashtag_verdict[{name}]", queued_hashtag_verdict(n), want)
+
     # insights_verdict: hours since the newest insights write -> severity. None
     # means no posted item has insights at all (the ~4-month case this exists for).
     insights_cases = [
@@ -2864,7 +2936,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

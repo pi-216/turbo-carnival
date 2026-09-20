@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T06:40:41-0400",
-      "note": "2026-09-20 10:4xZ ops-triage: unchanged and not a repo defect. Live: 21 scheduled posts (next due 15:15Z), publisher ran 05:00 EDT 'Completed successfully', 0 PipelineRun/ComfyuiJob failures since 16:40Z 09-19, growth_snapshots fresh (913 rows, newest 10:00Z). Volume lever already at the configured cap; follower rate is a market outcome. Next review 2026-09-23."
-    },
-    {
       "ts": "2026-09-20T07:42:38-0400",
       "note": "2026-09-20 11:3xZ ops-triage: unchanged and still not a repo defect. Live: 21 queued (next due 15:15Z), 2 posted in 24h, 0 post failures and 0 stuck PipelineRuns, followers 157 (flat), caption service up (gemma3:4b resident), media path unchanged. Volume lever is already at the configured 3/day cap and the follower rate is a market outcome; next review 2026-09-23. This run's fix work was on the photo corpus instead (photo-corpus-bytes-gone closed, photo-corpus-single-copy filed)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T12:47:25-0400",
       "note": "2026-09-20 16:5xZ ops-triage: unchanged, not a repo defect. Live: followers 157 across all four snapshots in the last 3h (14:00/15:01/16:01/16:28Z), 21 scheduled / 0 draft, 2 posted in 24h, 2 rows past due (16:01Z, 16:25Z) that the 17:00Z tick releases. posts_per_day=3/3 (already at the configured cap) and the review interval gates the next escalation to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim, not something this loop can edit."
+    },
+    {
+      "ts": "2026-09-20T13:45:21-0400",
+      "note": "2026-09-20 17:4xZ ops-triage: unchanged, not a repo defect. Live: 157 followers flat across four snapshots (15:01/16:01/16:28/17:04Z), 18 future scheduled / 0 draft, posted=200 / failed=65, posts_per_day already at the configured 3/day cap, review brain interval-gated to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim, not something this loop can move."
     }
   ]
 }
