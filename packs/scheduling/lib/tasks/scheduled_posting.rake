@@ -43,7 +43,7 @@ namespace :scheduling do
         .order(:scheduled_at)
         .first
 
-      next_posts = [next_draft, next_scheduled].compact
+      next_posts = [ next_draft, next_scheduled ].compact
       next_post = next_posts.min_by { |p| p.optimal_time_calculated || p.scheduled_at }
 
       if next_post
@@ -98,7 +98,7 @@ namespace :scheduling do
           # always been able to fill it, but nothing ever read it at send time: every
           # one of the 197 posted items went out with ZERO hashtags, which is the
           # single biggest discoverability lever for a small account.
-          published_caption = [post.caption, Array(post.hashtags).join(" ")]
+          published_caption = [ post.caption, Array(post.hashtags).join(" ") ]
                                 .map { |part| part.to_s.strip }
                                 .reject(&:empty?)
                                 .join("\n\n")
@@ -159,8 +159,19 @@ namespace :scheduling do
     # WARN and publishes anyway); a sustained failure surfaces on the ops board as
     # `insights-stale` (bin/tc_ops.py check_insights_stale).
     result = Scheduling::Commands::CollectPostInsights.call
-    puts "CollectPostInsights: refreshed #{result.collected} of #{result.pending} candidate post(s)"
-    if result.pending.to_i.positive? && result.collected.to_i.zero?
+    detail = if result.unavailable.to_i.positive?
+               " (#{result.unavailable} permanently unavailable: media deleted or inaccessible)"
+    else
+               ''
+    end
+    puts "CollectPostInsights: refreshed #{result.collected} of #{result.pending} candidate post(s)#{detail}"
+    # A run where NOTHING refreshed is a failure only if some candidate was
+    # refreshable: when every candidate is a media Instagram will never serve
+    # (400/code 100), no refresh was possible and exiting non-zero would raise a
+    # permanent false alarm in the publisher log. Sustained staleness still
+    # surfaces on the ops board (bin/tc_ops.py check_insights_stale).
+    if result.pending.to_i.positive? && result.collected.to_i.zero? &&
+       result.unavailable.to_i < result.pending.to_i
       warn 'CollectPostInsights: candidates existed but none were refreshed ' \
            '(Instagram API/permission failure?) — insights stay stale'
       exit 1

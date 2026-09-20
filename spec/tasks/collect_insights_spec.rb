@@ -26,12 +26,12 @@ RSpec.describe 'scheduling:collect_insights' do
                              insights_updated_at: insights_at)
   end
 
-  def stub_insights_api(status: 200)
-    body = { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 7 }] },
-                        { 'name' => 'comments', 'values' => [{ 'value' => 1 }] },
-                        { 'name' => 'reach', 'values' => [{ 'value' => 100 }] },
-                        { 'name' => 'saved', 'values' => [{ 'value' => 2 }] },
-                        { 'name' => 'shares', 'values' => [{ 'value' => 1 }] }] }
+  def stub_insights_api(status: 200, body: nil)
+    body ||= { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 7 }] },
+                          { 'name' => 'comments', 'values' => [{ 'value' => 1 }] },
+                          { 'name' => 'reach', 'values' => [{ 'value' => 100 }] },
+                          { 'name' => 'saved', 'values' => [{ 'value' => 2 }] },
+                          { 'name' => 'shares', 'values' => [{ 'value' => 1 }] }] }
     connection = double('faraday')
     allow(connection).to receive(:get).and_return(double('response', status: status, body: body))
     allow(Faraday).to receive(:new).and_return(connection)
@@ -91,5 +91,24 @@ RSpec.describe 'scheduling:collect_insights' do
     # logs a WARN and publishes anyway, and the ops board's insights-stale check
     # catches a sustained failure.
     expect { run_task }.to raise_error(SystemExit)
+  end
+
+  it 'names a deleted media (400/code 100) as permanently unavailable instead of skipping it silently' do
+    gone = posted(at: 3.days.ago)
+    stub_insights_api(status: 400,
+                      body: { 'error' => { 'message' => '(#100) Tried accessing nonexisting field (insights)',
+                                           'code' => 100 } })
+
+    # Measured in production 2026-09-20: 11 posts answer 400/code 100 forever
+    # (media deleted / inaccessible) and, because the query orders never-collected
+    # rows first, they re-enter every run. Before this the non-200 returned nil
+    # with no log line at all, so the publisher printed "refreshed 14 of 25" and
+    # the 11 unexplained failures were indistinguishable from a transient blip.
+    expect(Rails.logger).to receive(:warn).with(/media returned HTTP 400/).at_least(:once)
+    expect(Rails.logger).to receive(:warn).with(/can never be refreshed/).at_least(:once)
+
+    expect { run_task }.not_to raise_error
+
+    expect(gone.reload.insights_updated_at).to be_nil
   end
 end
