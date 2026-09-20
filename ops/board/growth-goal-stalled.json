@@ -1,0 +1,17 @@
+{
+  "key": "growth-goal-stalled",
+  "title": "Follower goal is flat: 157 vs a required 2.5/day (0.08x trajectory), and the review brain is in cooldown until 2026-09-23",
+  "severity": "warn",
+  "evidence": "goal 1: 151 -> 1000 by 2027-08-20; latest snapshot 157 (2026-09-20 00:03Z, 901 snapshots since 2026-08-21) = +6 in 30 days vs 2.52/day required; ratio 0.08. Publishing ran 1-8/day Aug 30-Sep 9, then ZERO posts Sep 10-17 (queue empty, no scheduled_at rows in that window), resumed Sep 18 at 4/day. growth:review_strategy last_reviewed_at 2026-09-16, review_interval_days 7 -> next 2026-09-23.",
+  "status": "open",
+  "first_seen": "2026-09-20T01:00:00+0000",
+  "last_seen": "2026-09-20T01:00:00+0000",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-20T01:00:00+0000",
+      "note": "Filed by the ops-triage run from the hourly tc-growth-harness-brain report, which names this its primary anomaly every tick -- but the report is never delivered (see cron-delivery-target-broken), so the only durable record was the cron output file. The pipeline itself is healthy now (token live, queue 21/21 scheduled through 2026-09-25, media 200, captions real since the 21:39Z fix, publishing 4/day since Sep 18), so this is NOT a technical defect: it is the terminal metric failing while every sub-system reports green, plus an 8-day publication gap (Sep 10-17, queue empty) that no monitor flagged at the time -- expected-event absence, the class this board exists for. What is repo-side and already configured: posts_per_day=3 (max 3), review_interval_days=7, review brain respects the cooldown (view: skip, next_review_at 2026-09-23) so cadence cannot escalate before then. Decision needed from Tim: whether 3/day is the intended ceiling for a 2.5 followers/day target (the arithmetic does not close: 3 posts/day has produced ~0.2 followers/day), or whether the lever is content quality/format rather than volume."
+    }
+  ]
+}
