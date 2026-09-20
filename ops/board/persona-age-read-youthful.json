@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-19T17:37:02-0400",
-      "note": "2026-09-19 21:3x UTC ops-triage: unchanged, still blocked on the same two things, neither of which moved this run. (1) Human decision -- what age should Sarah read as. The pre-scoped fix stays unapplied: drop adult, mature_face from node 79 (the NEGATIVE prompt) of pipeline 21 turbo-one-step-clean, optionally add an explicit adult descriptor to Growth::PillarPrompt::SAFE_BASE. Guessing would silently change who Sarah is. (2) A 4090 window to re-measure with a vision read: re-checked live at 21:31 UTC, the 4090 is still busy with prx-tg-latent-first-v34 (16.0 GB, 10 h, requested 15:00:28Z, ours=no, comfyui=down), so no claim, no renders, no prompt or identity text touched. Note for whoever picks this up: the re-measurement cannot use CaptionGeneration::VisionGenerator while photos are imported without an ActiveStorage attachment -- read the render file directly via servable_file_path instead."
-    },
-    {
       "ts": "2026-09-19T19:40:36-0400",
       "note": "Blocked on two things 2026-09-19 23:5xZ, neither of them fixable from here: (1) Tim's statement of the intended persona age -- editing Growth::PillarPrompt::SAFE_BASE or the node-88 tokens changes who Sarah IS, a creative-identity decision; (2) a 4090 window to re-measure any prompt change with a vision read, which we do not have (prx-tg-latent-first-v34 holds the claim; the render queue is at target so no tick will request one). No renders were run, per the no-claim rule."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T01:39:46-0400",
       "note": "2026-09-20 05:4xZ ops-triage: unchanged and still blocked on a human decision -- the persona's intended age is not stated anywhere in the repo, and the renders that read 'late teens/early twenties' cannot be re-shot or re-prompted without it. Not re-run this pass: the 4090 currently has only 19.0 GiB free (a co-tenant holds 4.6 GiB) against the harness's measured 21 GiB reservation, so there is no render window anyway; no claim held, no renders attempted. Needs Tim: state the intended age (or accept the current read) before this can close."
+    },
+    {
+      "ts": "2026-09-20T03:52:04-0400",
+      "note": "2026-09-20 07:5xZ ops-triage: the measurement window is now fully open -- nvidia-smi shows 468 MiB used / 23.6 GiB free, 0% util, NO compute apps (the BreastTissue-Net co-tenant that held 4.6 GiB all night has exited), scheduler 4090 idle with an empty derived queue. The ONLY blocker left is Tim's statement of the intended persona age; the pre-scoped fix (drop 'adult, mature_face' from the node-79 negative in pipeline 21 turbo-one-step-clean) stays unapplied because guessing changes who Sarah is. No claim taken and no prompt/identity text touched (queue at target, so no render was needed)."
     }
   ]
 }

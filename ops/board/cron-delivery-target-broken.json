@@ -10,10 +10,6 @@
   "evidence": "cron/jobs.json: tc-growth-harness-brain (43b0d5c4446d, hourly) and tc-weekly-persona-review (8d3ac21799d5, Mon 09:00) both report last_status=delivery_failed. The overnight watchdog logged the same thing twice: \"result not delivered \u2014 unknown platform 'webui'\". Every hourly growth report and the weekly persona review are therefore written to disk and thrown away.",
   "notes": [
     {
-      "ts": "2026-09-19T19:40:36-0400",
-      "note": "Re-verified 2026-09-19 23:5xZ against ~/.hermes/profiles/turbo-carnival/cron/jobs.json: ALL FOUR turbo-carnival jobs fail delivery -- tc-growth-harness-brain (deliver=origin, last_status=delivery_failed), tc-weekly-persona-review (origin, delivery_failed), tc-ops-triage (origin, delivery_failed), tc-overnight-watchdog (deliver=local, last_status=ok 16:01). So the failure is exactly deliver=origin resolving to platform 'webui', which the gateway cannot deliver to, while 'local' succeeds. One-line fix per job: hermes cron edit <id> --deliver <target> with a target the gateway serves (local writes the report to the profile cron/output/, where it is already being read; telegram or similar if Tim wants a push). NOT ACTIONED: cron config is outside this repo and the destination is Tim's call -- note this run's own report is subject to the same failure, which is why it is escalated instead of worked around."
-    },
-    {
       "ts": "2026-09-19T20:49:31-0400",
       "note": "2026-09-20 00:5xZ: re-verified in ~/.hermes/profiles/turbo-carnival/cron/jobs.json -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage all deliver=origin with last_status=delivery_failed; tc-overnight-watchdog deliver=local last_status=ok. Needs Tim to name a delivery target (Hermes config, outside this repo)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T01:40:10-0400",
       "note": "2026-09-20 05:4xZ ops-triage: still unfixed and it is the loop's top blocker -- this report is in the same class, so nothing this job files reaches Tim through cron; the only reason the work is visible at all is cron/output/ on disk. Origin is a Hermes-side delivery target ({platform: webui, chat_id: ...}) that the delivery layer rejects as 'unknown platform webui'; no chat platform is configured for this profile (auth.json holds only LLM providers), so the working target is local, which hides the failure rather than fixing it. Outside this repo's scope (Hermes cron config) -- needs Tim or a Hermes-side fix; boarded, not acted on."
+    },
+    {
+      "ts": "2026-09-20T03:52:04-0400",
+      "note": "2026-09-20 07:5xZ ops-triage: unchanged, outside this repo (Hermes cron config). Confirmed again from jobs.json: tc-growth-harness-brain (43b0d5c4446d), tc-weekly-persona-review (8d3ac21799d5) and tc-ops-triage (9c05f60f5fef) all carry last_status=delivery_failed ('unknown platform webui'); only tc-overnight-watchdog is ok. Nothing these jobs report reaches the operator -- the ops board is currently the only durable record. Remediation is a config edit outside this repo: hermes cron edit <id> --deliver <valid target>."
     }
   ]
 }
