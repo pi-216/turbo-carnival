@@ -12,6 +12,21 @@ class BuildJobPayload < GLCommand::Callable
     
     workflow = JSON.parse(workflow_json)
 
+    # PROMPT SAFETY (see Pipeline::PromptSafety): the workflow JSON is executable
+    # instruction text stored in the database, and the stored text drifted -- the
+    # production negative prompt conditioned against "adult, mature_face" and a
+    # legacy face step instructed "a white, Caucasian young teenager". Both are
+    # stored data, so no code-only fix could reach them; this is the single choke
+    # point every render passes through, so the guard lives here.
+    workflow, safety_changes = PipelinePromptSafety.sanitize_workflow(workflow)
+    if safety_changes.any?
+      Rails.logger.warn(
+        "BuildJobPayload: PipelinePromptSafety rewrote #{safety_changes.size} " \
+        "field(s) on step #{context.pipeline_step.id}: " \
+        "#{safety_changes.map(&:to_s).join(' | ')}"
+      )
+    end
+
     payload = {
       workflow: workflow,
       variables: {},

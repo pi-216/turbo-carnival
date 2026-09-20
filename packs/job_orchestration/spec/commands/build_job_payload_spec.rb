@@ -218,5 +218,48 @@ RSpec.describe BuildJobPayload do
         expect(result.job_payload[:variables][:parent_image]).to eq("/images/parent.png")
       end
     end
+
+    # The guard only counts if it is actually IN the render path: every render is
+    # submitted through this command, so this asserts the wiring rather than the
+    # rules (packs/pipeline/spec/services/pipeline_prompt_safety_spec.rb covers
+    # the rules).
+    context "prompt safety guard" do
+      let(:unsafe_workflow) do
+        {
+          "79" => { "class_type" => "CLIPTextEncode",
+                    "inputs" => { "text" => "worst quality, low quality, adult, mature_face" } },
+          "96" => { "class_type" => "KSampler",
+                    "inputs" => { "positive" => %w[60 0], "negative" => %w[79 0] } }
+        }.to_json
+      end
+
+      it "strips adult-suppressing tokens from the sampler's negative prompt" do
+        step = FactoryBot.create(:pipeline_step,
+          pipeline: pipeline,
+          comfy_workflow_json: unsafe_workflow)
+
+        result = described_class.call(pipeline_step: step, pipeline_run: pipeline_run)
+
+        expect(result).to be_success
+        expect(result.job_payload[:workflow]["79"]["inputs"]["text"])
+          .to eq("worst quality, low quality")
+      end
+
+      it "rewrites a minor direction stored in the workflow" do
+        legacy = "Change the prompt so the resulting image will be that of a white, " \
+                 "Caucasian young teenager. Only return the new prompt."
+        step = FactoryBot.create(:pipeline_step,
+          pipeline: pipeline,
+          comfy_workflow_json: { "1" => { "class_type" => "OllamaGenerateV2",
+                                          "inputs" => { "system" => legacy } } }.to_json)
+
+        result = described_class.call(pipeline_step: step, pipeline_run: pipeline_run)
+
+        expect(result).to be_success
+        expect(result.job_payload[:workflow]["1"]["inputs"]["system"])
+          .to eq("Change the prompt so the resulting image will be that of a white, " \
+                 "Caucasian adult. Only return the new prompt.")
+      end
+    end
   end
 end

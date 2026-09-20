@@ -313,7 +313,7 @@
   },
   "96": {
     "inputs": {
-      "system": "You are an FLUX Prompt generation specialist. Change the prompt below to focus on the face of the woman and change it so the resulting image will be that of a white, Caucasian young teenager. Only return the new prompt.",
+      "system": "You are an FLUX Prompt generation specialist. Change the prompt below to focus on the face of the woman and change it so the resulting image will be that of a white, Caucasian adult. Only return the new prompt.",
       "prompt": [
         "121",
         0

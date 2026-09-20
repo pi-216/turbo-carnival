@@ -35,6 +35,7 @@ one -- give it a timeout that accommodates that.
 from __future__ import annotations
 
 import json
+import base64
 import calendar
 import os
 import re
@@ -150,6 +151,44 @@ COMFYUI_LIVE_WINDOW_S = 1800
 CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
                  or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
                  / "cron" / "jobs.json")
+
+# PROMPT SAFETY: a stored workflow is executable instruction text, and the stored
+# text drifted. Measured live 2026-09-20: pipeline_steps 39/40 (pipeline 20
+# 'turbo-one-step', the generator's fallback, and 21 'turbo-one-step-clean', the
+# production path) carried a NEGATIVE prompt reading "... long neck, adult,
+# mature_face, sunken_eyes" -- conditioning the render AGAINST adult features --
+# while vision reads of three production renders returned "a young girl, likely a
+# teenager"; and step 34 (pipeline 17, reachable from the admin UI via
+# ContentSuggestionsController#generate_image, which picks Pipeline.first)
+# instructed an LLM, verbatim, to make the image "a white, Caucasian young
+# teenager". Every previous run recorded this as Tim's identity decision and moved
+# on, which left published content reading as a minor.
+#
+# The render path is guarded (BuildJobPayload runs every workflow through
+# PipelinePromptSafety), so a dirty STORED value is a warn -- the render is already
+# neutralised and the repair is `bundle exec rake pipeline:prompt_safety APPLY=1`.
+# A render path that no longer runs the guard is critical: then nothing stands
+# between the stored text and a render.
+PROMPT_SAFETY_GUARD_SRC = (APP / "packs" / "job_orchestration" / "app"
+                           / "commands" / "build_job_payload.rb")
+PROMPT_SAFETY_GUARD_REF = "PipelinePromptSafety"
+WORKFLOW_DIR = APP / "comfy_workflows"
+# Mirrors PipelinePromptSafety::JUVENILE_RULES (detection only; the Ruby side owns
+# the rewrite). Deliberately narrow: "young"/"petite" are NOT violations.
+JUVENILE_RX = re.compile(
+    r"\b(?:young\s+teen(?:ager|aged)?s?|teenagers?|teen[-\s]?aged|teens?|pre[-\s]?teens?"
+    r"|tweens?|(?:young|little|small)\s+girls?|school\s?girls?|adolescents?|under[-\s]?aged?"
+    r"|minors?|children|child|high[-\s]?school(?:ers?)?|\d{1,2}[-\s]?year[-\s]?olds?)\b",
+    re.IGNORECASE)
+# Adult-suppressing tokens only count as a violation in a comma-separated list
+# (the negative-prompt shape), and only in a blob that also carries negative
+# boilerplate -- otherwise a positive prompt that merely says "adult woman" fires.
+ADULT_LIST_RX = re.compile(
+    r"(?:^|,)\s*(?:adults?|mature[_\s-]?face|mature\s+wom[ae]n|grown[-\s]?wom[ae]n"
+    r"|elderly|old\s+wom[ae]n)\s*(?=,|$)",
+    re.IGNORECASE | re.MULTILINE)
+NEG_BOILERPLATE_RX = re.compile(r"worst quality|low quality|bad anatomy|score_5|score_4",
+                                re.IGNORECASE)
 
 
 # ---------------------------------------------------------------- utilities
@@ -1245,6 +1284,145 @@ def check_queued_post_hashtags():
     )
 
 
+def prompt_safety_verdict(guard_wired, db_hits, file_hits):
+    """Severity for the prompt-safety condition, or None when it is clean.
+
+    Pure so the selftest can drive it. The guard's presence is the difference
+    between "stored text is dirty but every render is neutralised" (warn) and
+    "nothing stands between the stored text and a render" (critical).
+    """
+    if not guard_wired:
+        return "critical"
+    if db_hits or file_hits:
+        return "warn"
+    return None
+
+
+def _workflow_blobs_from_db():
+    """[(step_id, pipeline_id, workflow_json)] or None when the DB is unreadable.
+
+    base64 so a pretty-printed workflow (multi-line) survives psql -At's
+    line-per-row framing: a raw select would shred each row into dozens of lines.
+    """
+    rows = psql_lines(
+        "select id || '|' || pipeline_id || '|' || "
+        "encode(convert_to(comfy_workflow_json, 'UTF8'), 'base64') "
+        "from pipeline_steps order by id")
+    if rows is None:
+        return None
+    out = []
+    for line in rows:
+        parts = line.split("|", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            blob = base64.b64decode(parts[2]).decode("utf-8", "replace")
+        except Exception:
+            continue
+        out.append((parts[0], parts[1], blob))
+    return out
+
+
+def _workflow_blobs_from_repo():
+    out = []
+    if not WORKFLOW_DIR.exists():
+        return out
+    for p in sorted(WORKFLOW_DIR.rglob("*.json")):
+        try:
+            out.append((str(p.relative_to(APP)), p.read_text(errors="replace")))
+        except Exception:
+            continue
+    return out
+
+
+def _blob_violations(blob):
+    """(juvenile_tokens, adult_suppressing_tokens) found in one workflow blob."""
+    juvenile = sorted({m.group(0).strip().lower() for m in JUVENILE_RX.finditer(blob or "")})
+    adult = []
+    # An adult-suppressing token is only a violation in a comma-separated list
+    # (the negative-prompt shape) inside a blob that carries negative boilerplate.
+    if NEG_BOILERPLATE_RX.search(blob or ""):
+        adult = sorted({m.group(0).strip(" ,\t\n").lower()
+                        for m in ADULT_LIST_RX.finditer(blob or "")})
+    return juvenile, adult
+
+
+def check_pipeline_prompt_safety():
+    """Stored render text must not direct a minor or condition against adulthood.
+
+    This is the check for the class of defect that every earlier run recorded as
+    "Tim's identity decision" and left in place: a STORED workflow is executable
+    instruction text, and the stored text was conditioning the production render
+    against "adult, mature_face" (vision reads of the results: "a young girl,
+    likely a teenager") while a legacy face step instructed an LLM to render "a
+    white, Caucasian young teenager".
+
+    Two independent things are asserted, because either alone is insufficient:
+    the RENDER PATH still runs the guard (structural -- a code edit that drops the
+    call would otherwise be invisible until a render shipped), and the STORED text
+    is clean (data -- the guard neutralises a render, but the admin UI, an audit
+    and every other consumer of pipeline_steps.comfy_workflow_json read the raw
+    column). Detection only: the rewrite lives in PipelinePromptSafety and the
+    repair in `rake pipeline:prompt_safety`.
+    """
+    try:
+        guard_wired = PROMPT_SAFETY_GUARD_REF in PROMPT_SAFETY_GUARD_SRC.read_text()
+    except Exception:
+        guard_wired = False
+
+    db_rows = _workflow_blobs_from_db()
+    db_hits = []
+    if db_rows is not None:
+        for step_id, pipeline_id, blob in db_rows:
+            juvenile, adult = _blob_violations(blob)
+            if juvenile or adult:
+                db_hits.append((f"step {step_id} (pipeline {pipeline_id})", juvenile + adult))
+
+    file_hits = []
+    for rel, blob in _workflow_blobs_from_repo():
+        juvenile, adult = _blob_violations(blob)
+        if juvenile or adult:
+            file_hits.append((rel, juvenile + adult))
+
+    severity = prompt_safety_verdict(guard_wired, db_hits, file_hits)
+    if not severity:
+        return None
+
+    if not guard_wired:
+        return (
+            "pipeline-prompt-safety",
+            "the render path no longer runs the prompt-safety guard, so stored "
+            "workflow text reaches ComfyUI unsanitised",
+            "critical",
+            f"{PROMPT_SAFETY_GUARD_SRC.relative_to(APP)} no longer references "
+            f"{PROMPT_SAFETY_GUARD_REF}, so the guard is not applied to any render "
+            "payload. Stored violations still present: "
+            + ("; ".join(f"{lbl}: {', '.join(toks)}" for lbl, toks in (db_hits + file_hits)) or "none")
+            + ". Restore the call in BuildJobPayload#call (it parses the workflow "
+              "and must run it through PipelinePromptSafety.sanitize_workflow before "
+              "building the payload).",
+        )
+
+    evidence = (
+        "STORED workflow text carries a prompt-safety violation. The render path "
+        "IS guarded (BuildJobPayload runs every workflow through "
+        "PipelinePromptSafety), so a render is neutralised -- but the stored column "
+        "is what the admin UI shows, what a human reads when auditing the persona, "
+        "and what every other consumer inherits. "
+        + " | ".join(f"{lbl}: {', '.join(toks)}" for lbl, toks in (db_hits + file_hits))
+        + ". Repair: `bundle exec rake pipeline:prompt_safety` (dry run) then "
+          "APPLY=1 to write; it backs the original column value up to "
+          "ops/backups/ first. Rules and rationale: "
+          "packs/pipeline/app/services/pipeline_prompt_safety.rb."
+    )
+    return (
+        "pipeline-prompt-safety",
+        "stored render prompts direct a minor or condition against adult features",
+        severity,
+        evidence,
+    )
+
+
 def check_caption_path_cold():
     """A caption call made right now would FAIL -> the next post ships the placeholder.
 
@@ -2264,6 +2442,7 @@ CHECKS = [
     check_caption_path_cold,
     check_placeholder_caption_queued,
     check_queued_post_hashtags,
+    check_pipeline_prompt_safety,
     check_render_acceptance,
     check_photo_pool,
     check_photo_resolution,
@@ -2936,9 +3115,50 @@ def cmd_selftest(_argv):
         v = cron_prompt_logpath_verdict(rows, probe=probe)
         expect(f"cron_prompt_logpath_verdict[{name}]", v[0] if v else None, want)
 
+    # prompt_safety_verdict + _blob_violations: stored render text that directs a
+    # minor or conditions against adult features. The 2026-09-20 live case is the
+    # production negative prompt (", adult, mature_face,") and the legacy face
+    # step's "white, Caucasian young teenager" instruction.
+    safety_cases = [
+        ("guard-wired-and-clean", True, [], [], None),
+        ("guard-wired-stored-dirty", True, [("step 40 (pipeline 21)", ["adult", "mature_face"])], [], "warn"),
+        ("guard-wired-repo-dirty", True, [], [("comfy_workflows/sarah1a3/34.json", ["young teenager"])], "warn"),
+        ("guard-missing-clean-data", False, [], [], "critical"),
+        ("guard-missing-dirty-data", False, [("step 34 (pipeline 17)", ["young teenager"])], [], "critical"),
+    ]
+    for name, wired, db_hits, file_hits, want in safety_cases:
+        expect(f"prompt_safety_verdict[{name}]",
+               prompt_safety_verdict(wired, db_hits, file_hits), want)
+
+    blob_cases = [
+        ("live-production-negative",
+         '{"79": {"inputs": {"text": "worst quality, low quality, long neck, adult, '
+         'mature_face, sunken_eyes\\n"}}}',
+         ["adult", "mature_face"], []),
+        ("legacy-llm-instruction",
+         '{"96": {"inputs": {"system": "make it a white, Caucasian young teenager."}}}',
+         [], ["young teenager"]),
+        ("positive-adult-woman-is-fine",
+         '{"88": {"inputs": {"text": "score_9, adult woman, sarah1a3"}}}',
+         [], []),
+        ("petite-and-young-are-not-violations",
+         '{"88": {"inputs": {"text": "petite face, small nose, young female arm and hand"}}}',
+         [], []),
+        ("clean-negative",
+         '{"79": {"inputs": {"text": "worst quality, low quality, bad anatomy"}}}',
+         [], []),
+        ("adult-token-without-negative-boilerplate",
+         '{"88": {"inputs": {"text": "portrait, adult, woman, garden"}}}',
+         [], []),
+    ]
+    for name, blob, want_adult, want_juvenile in blob_cases:
+        juvenile, adult = _blob_violations(blob)
+        expect(f"_blob_violations[{name}].adult", adult, want_adult)
+        expect(f"_blob_violations[{name}].juvenile", juvenile, want_juvenile)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
