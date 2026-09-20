@@ -3,11 +3,13 @@
 # comfyui_debug_go.sh — claim the 4090 for an INTERACTIVE ComfyUI debug session.
 #
 # Why this exists (2026-09-19): the automated renderer is the growth harness's
-# hourly `comfyui_harness.sh ensure`, which requests a FRESH job id on every
-# tick. To hold the FIFO head for a human debug session we instead adopt the
-# turbo-carnival entry already sitting at the front of the 4090 queue, claim it
-# ourselves, and only then hand off to the harness (which does the heartbeat
-# unit + instrumented launch — no launch logic is duplicated here).
+# hourly `comfyui_harness.sh ensure`. To hold the FIFO head for a human debug
+# session we adopt the turbo-carnival entry already sitting at the front of the
+# 4090 queue, claim it ourselves, and only then hand off to the harness (which
+# does the heartbeat unit + instrumented launch — no launch logic is duplicated
+# here). Since 2026-09-20 `ensure` adopts that same entry too
+# (reconcile_own_queue) instead of minting a fresh id per tick, so the automated
+# and the interactive path now agree on which queue entry is ours.
 #
 # Safe by default: if the GPU is still held by another project, it polls until
 # --wait and then exits 0 WITHOUT side effects — the queued entry is left

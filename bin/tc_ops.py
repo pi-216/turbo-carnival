@@ -452,6 +452,67 @@ def check_slot():
     return None
 
 
+OWN_QUEUE_GRACE_MIN = 10   # a just-requested entry is not a blockade yet
+
+
+def own_queue_verdict(q, status, ours, now=None):
+    """Our own queued 4090 entries -> (key, title, severity, evidence) or None.
+
+    Two shapes, both invisible to every existing check (check_slot only files a
+    foreign hold, and only when one of our jobs is queued):
+
+    * FLOOD: more than one outstanding request from this project. The harness
+      mints a fresh `comfyui-<ts>-<pid>` per tick, so a tick killed mid-wait (the
+      caller's tool budget is 180s, the wait 300s) leaves its entry queued and the
+      next tick adds another BEHIND it -- `poll` refuses `not_my_turn` for
+      anything behind a queued entry, so the project starves itself.
+    * SELF-BLOCKADE: one own entry at the head of the derived queue while the 4090
+      is scheduler-idle and no claim is ours, older than the grace period.
+      Nothing polls an entry whose owner is gone, so the card sits physically
+      idle until a tick adopts it or the 24h expiry reaps it.
+    """
+    now = now if now is not None else time.time()
+    own = [j for j in (q or []) if j.get("project") == "turbo-carnival"]
+    if not own:
+        return None
+    own.sort(key=lambda j: j.get("requested_at", ""))
+
+    def age_min(j):
+        ts = (j.get("requested_at") or "")[:19]
+        try:
+            return (now - calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%S"))) / 60.0
+        except Exception:
+            return None
+
+    if len(own) > 1:
+        return (
+            "own-queue-flood",
+            f"{len(own)} outstanding 4090 requests from this project (one is enough)",
+            "warn",
+            "ids=" + ", ".join(j.get("id", "?") for j in own)
+            + f"; oldest {own[0].get('id')} @ {own[0].get('requested_at')} — poll returns "
+              "not_my_turn for anything behind our own entry, so we starve ourselves",
+        )
+    j = own[0]
+    head = (q or [None])[0]
+    age = age_min(j)
+    if (head is not None and head.get("id") == j.get("id") and status == "idle"
+            and not ours and age is not None and age >= OWN_QUEUE_GRACE_MIN):
+        return (
+            "own-queue-blockade",
+            "our queued entry is at the FIFO head while the 4090 is idle and no claim is ours",
+            "warn",
+            f"id={j.get('id')} queued {age:.0f} min ago, head of the derived queue, gpu=idle, "
+            "ours=no — nothing polls it until the next harness tick, so the card idles",
+        )
+    return None
+
+
+def check_own_queue_leak():
+    status, _job, ours, _ourjob = our_claim()
+    return own_queue_verdict(queue(GPU), status, ours)
+
+
 def check_stuck_comfyui_jobs():
     n = psql("select count(*) from comfyui_jobs where status='submitted' "
              "and created_at < (now() at time zone 'UTC') - interval '30 minutes'")
@@ -2435,6 +2496,7 @@ CHECKS = [
     check_venv_drift,
     check_launch_deps_importable,
     check_slot,
+    check_own_queue_leak,
     check_stuck_comfyui_jobs,
     check_stuck_pipeline_runs,
     check_render_for_terminal_run,
@@ -2974,6 +3036,29 @@ def cmd_selftest(_argv):
         v = photo_resolution_verdict(stats)
         expect(f"photo_resolution_verdict[{name}]", v[2] if v else None, want)
 
+    # own_queue_verdict: our own queued scheduler entries -> severity. The harness
+    # mints a fresh job id per tick, so a tick killed mid-wait leaks its entry and
+    # the next tick queues BEHIND it (self-starvation); a single own entry at the
+    # head with the GPU idle is the blockade. Both were live on 2026-09-20.
+    def OQ(i, req="2026-09-20T19:00:00Z", proj="turbo-carnival"):
+        return {"id": i, "project": proj, "requested_at": req}
+
+    oq_now = calendar.timegm(time.strptime("2026-09-20T21:00:00", "%Y-%m-%dT%H:%M:%S"))
+    oq_cases = [
+        ("no-queue", [], "idle", False, None),
+        ("foreign-only", [OQ("x", proj="prx-tg-pixel-posttrain")], "idle", False, None),
+        ("flood", [OQ("a"), OQ("b", req="2026-09-20T20:00:00Z")], "busy", False, "warn"),
+        ("own-head-idle", [OQ("a")], "idle", False, "warn"),
+        ("own-head-ours", [OQ("a")], "busy", True, None),
+        ("behind-foreign",
+         [OQ("x", req="2026-09-20T18:00:00Z", proj="prx-tg-pixel-posttrain"), OQ("a")],
+         "busy", False, None),
+        ("fresh-grace", [OQ("a", req="2026-09-20T20:55:00Z")], "idle", False, None),
+    ]
+    for name, rows, st, ours, want in oq_cases:
+        v = own_queue_verdict(rows, st, ours, now=oq_now)
+        expect(f"own_queue_verdict[{name}]", v[2] if v else None, want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -3158,7 +3243,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

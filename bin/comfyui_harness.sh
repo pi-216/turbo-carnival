@@ -30,6 +30,12 @@ set -u
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEDULER_PY=/mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py
 SCHED="python3 $SCHEDULER_PY"
+SCHED_DIR=/mnt/nas-ai-models/gpu-scheduler
+# The scheduler's queue is DERIVED from jobs/*.json (state.json's per-GPU `queue`
+# field is vestigial and reads [] even while jobs wait). Overridable so the
+# reconciliation logic can be exercised against a fixture directory without
+# touching the live queue.
+SCHED_JOBS_DIR="${TC_SCHED_JOBS_DIR:-$SCHED_DIR/jobs}"
 PY3="$(command -v python3)"
 # NO artificial memory cap on ComfyUI (Tim, 2026-09-19): "if you have the GPU,
 # there is no one else in the blast radius — that's what the scheduler is for."
@@ -51,7 +57,7 @@ COMFY_DIR=/mnt/fscache/essdee/ComfyUI
 COMFY_VENV=.venv
 COMFY_PORT=8188
 STATE_FILE="$APP_DIR/log/comfyui_claim.json"
-HARNESS_LOG="$APP_DIR/log/comfyui_harness.log"
+HARNESS_LOG="${TC_HARNESS_LOG:-$APP_DIR/log/comfyui_harness.log}"
 HARNESS_LOG_MAX_LINES=1200   # rotate past this (probe flags >1500)
 HARNESS_LOG_KEEP_LINES=600   # retention window kept after rotation
 HEARTBEAT_INTERVAL=300   # 5 min
@@ -81,8 +87,61 @@ cleanup_job() {
   local jid="$1"
   [ -n "$jid" ] || return 0
   sched release --gpu "$GPU" --job-id "$jid" --status failed >/dev/null 2>&1 || true
-  rm -f "/mnt/nas-ai-models/gpu-scheduler/jobs/${jid}.json" 2>/dev/null || true
+  rm -f "${SCHED_JOBS_DIR}/${jid}.json" 2>/dev/null || true
   log "cleanup: removed queued request $jid"
+}
+
+# Our own queued (never-granted) entries on this GPU, oldest first.
+own_queued_jobs() {
+  python3 - "$SCHED_JOBS_DIR" "$GPU" "$PROJECT" <<'PY'
+import json, os, sys
+jobs_dir, gpu, project = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    names = os.listdir(jobs_dir)
+except FileNotFoundError:
+    names = []
+rows = []
+for n in names:
+    if not n.endswith(".json"):
+        continue
+    try:
+        d = json.load(open(os.path.join(jobs_dir, n)))
+    except Exception:
+        continue
+    if d.get("status") == "queued" and d.get("gpu") == gpu and d.get("project") == project:
+        rows.append((d.get("requested_at", ""), d.get("id", n[:-5])))
+rows.sort()
+for _, jid in rows:
+    print(jid)
+PY
+}
+
+# Reconcile our own queue entries and echo the one to ADOPT (empty if none).
+#
+# Root cause this closes (measured 2026-09-20): `poll` refuses with
+# `not_my_turn` whenever ANY queued entry has requested_at <= ours, so a queued
+# entry nobody polls blocks its own project AND every project behind it until
+# the 24h expire window -- and if the co-tenant releases meanwhile the card sits
+# physically idle. This harness leaked exactly such entries: it mints a fresh
+# comfyui-<ts>-<pid> per tick, and when the tick was SIGKILLed mid-wait (the
+# caller's tool budget is 180s, the default wait 300s) cleanup_job never ran, so
+# the entry stayed queued; the next tick then requested ANOTHER id behind its own
+# leaked predecessor and read `not_my_turn` -- from itself (live: 19:01Z and
+# 21:00Z entries leaked, 20:04Z refusal caused by our own 19:01Z entry).
+# Adopt the OLDEST own entry (best FIFO position) and cancel newer duplicates, so
+# at most ONE outstanding request exists per project.
+reconcile_own_queue() {
+  local own=() jid
+  mapfile -t own < <(own_queued_jobs)
+  if [ "${#own[@]}" -eq 0 ]; then
+    echo ""
+    return 0
+  fi
+  for jid in "${own[@]:1}"; do
+    log "reconcile: cancelling duplicate queued request $jid (one outstanding request per project)"
+    cleanup_job "$jid"
+  done
+  echo "${own[0]}"
 }
 
 log() {
@@ -422,27 +481,67 @@ cmd_ensure() {
     fi
   fi
 
-  # GPU held by another agent (or we never had a job): acquire fresh.
-  local job="comfyui-$(date +%s)-$$"
-  log "ensure: requesting claim $job (vram ${VRAM}GB, duration ${DURATION})"
-  sched request --gpu "$GPU" --project "$PROJECT" --vram "$VRAM" --duration "$DURATION" --job-id "$job" >/dev/null 2>&1 || { log "ensure: request failed"; return 2; }
-
-  local waited=0 result
-  while [ "$waited" -lt "$wait_s" ]; do
-    result="$(sched poll --gpu "$GPU" --job-id "$job" 2>/dev/null | tr -d '[:space:]')"
-    if [ "$result" = "claimed" ]; then
-      log "ensure: CLAIMED $job (after ${waited}s)"
-      sched activate --gpu "$GPU" --job-id "$job" --progress-unit render >/dev/null 2>&1 || true
-      local hb
-      start_heartbeat_loop "$job"
-      hb="$(read_state | sed -n '2p')"
-      write_state "$job" "$hb"
-      launch_comfyui "$job"
-      echo "job_id=$job"
-      return 0
+  # GPU held by another agent (or we never had a job): adopt our own queued
+  # entry if we have one (it holds the best FIFO position), else request fresh.
+  local job="" attempts=0 result=""
+  while [ "$attempts" -lt 2 ]; do
+    attempts=$((attempts + 1))
+    job="$(reconcile_own_queue)"
+    if [ -z "$job" ]; then
+      job="comfyui-$(date +%s)-$$"
+      log "ensure: requesting claim $job (vram ${VRAM}GB, duration ${DURATION})"
+      sched request --gpu "$GPU" --project "$PROJECT" --vram "$VRAM" --duration "$DURATION" --job-id "$job" >/dev/null 2>&1 || { log "ensure: request failed"; return 2; }
+    else
+      log "ensure: adopting our own queued entry $job (keeps the best FIFO position)"
+      # A granted record keeps status "queued", so a claim that is already OURS
+      # with the state file lost (tmpfs wipe) is recoverable here instead of
+      # being re-requested behind ourselves.
+      local sl cj st
+      sl="$(sched status --gpu "$GPU" 2>/dev/null)"
+      cj="$(echo "$sl" | sed -n 's/^  current_job: *//p' | tr -d ' ')"
+      st="$(echo "$sl" | sed -n 's/^  status: *//p' | tr -d ' ')"
+      if [ "$cj" = "$job" ] && [ "$st" != "idle" ]; then
+        log "ensure: entry $job is already GRANTED to us (state file lost) — recovering the claim"
+        if ! hb_alive "$job"; then start_heartbeat_loop "$job"; fi
+        write_state "$job" "$(read_state | sed -n '2p')"
+        launch_comfyui "$job"
+        echo "job_id=$job"
+        return 0
+      fi
     fi
-    sleep "$POLL_INTERVAL"
-    waited=$((waited + POLL_INTERVAL))
+
+    result=""
+    local waited=0
+    while [ "$waited" -lt "$wait_s" ]; do
+      result="$(sched poll --gpu "$GPU" --job-id "$job" 2>/dev/null | tr -d '[:space:]')"
+      if [ "$result" = "claimed" ]; then
+        log "ensure: CLAIMED $job (after ${waited}s)"
+        sched activate --gpu "$GPU" --job-id "$job" --progress-unit render >/dev/null 2>&1 || true
+        local hb
+        start_heartbeat_loop "$job"
+        hb="$(read_state | sed -n '2p')"
+        write_state "$job" "$hb"
+        launch_comfyui "$job"
+        echo "job_id=$job"
+        return 0
+      fi
+      # not_my_turn cannot resolve inside this tick: poll only claims when NO
+      # queued entry is at or ahead of ours, so waiting just burns the caller's
+      # budget -- and when the caller is killed mid-wait the entry is leaked,
+      # which is the failure this block exists to prevent.
+      if [ "$result" = "not_my_turn" ]; then
+        log "ensure: NOT claimed — $job is behind another queued job (not_my_turn after ${waited}s); entry stays queued for the next tick"
+        return 2
+      fi
+      sleep "$POLL_INTERVAL"
+      waited=$((waited + POLL_INTERVAL))
+    done
+
+    if [ "$result" = "not_queued" ]; then
+      log "ensure: $job is no longer queued (expired or released under us) — re-requesting once"
+      continue
+    fi
+    break
   done
 
   log "ensure: NOT claimed within ${wait_s}s (last result: ${result:-unknown}) — GPU unavailable, skipping this tick"
@@ -450,7 +549,19 @@ cmd_ensure() {
     log "ensure: why — free=$(vram_free_mib)MiB vs requested ${VRAM}GiB; holders: $(vram_holders)"
     log "ensure: note — the ${VRAM}GiB reservation is MEASURED (ComfyUI peaks ~23.2GiB on this card), so a co-tenant holding >3GiB outside the scheduler starves renders; do not lower it to fit"
   fi
-  cleanup_job "$job"
+  # Keep the entry ONLY while we are waiting our turn behind an earlier queued
+  # job: that is normal FIFO waiting and deleting it would only lose our place
+  # (and re-mint a fresh id behind ourselves next tick -- the flood). When we are
+  # at the HEAD and still cannot take the card (idle but short of VRAM, a
+  # co-tenant holding memory outside the scheduler, thermal, unhealthy), holding
+  # the head would block SMALLER jobs behind us that could run, so give the place
+  # up and let the next tick re-request.
+  if [ "${result:-}" != "not_my_turn" ]; then
+    cleanup_job "$job"
+    log "ensure: gave up the FIFO head (last result: ${result:-unknown}) so a job behind us can take the card"
+  else
+    log "ensure: keeping queued entry ${job:-none} for the next tick (waiting our turn behind another job)"
+  fi
   return 2
 }
 
@@ -612,7 +723,9 @@ case "${1:-}" in
   heartbeat) cmd_heartbeat ;;
   telemetry) shift; cmd_telemetry "$@" ;;
   shutdown)  cmd_shutdown ;;
+  ownqueue)  own_queued_jobs ;;
+  reconcile) reconcile_own_queue ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|shutdown}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|shutdown|ownqueue|reconcile}" >&2
     exit 1 ;;
 esac
