@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T07:42:38-0400",
-      "note": "2026-09-20 11:3xZ ops-triage: unchanged and still not a repo defect. Live: 21 queued (next due 15:15Z), 2 posted in 24h, 0 post failures and 0 stuck PipelineRuns, followers 157 (flat), caption service up (gemma3:4b resident), media path unchanged. Volume lever is already at the configured 3/day cap and the follower rate is a market outcome; next review 2026-09-23. This run's fix work was on the photo corpus instead (photo-corpus-bytes-gone closed, photo-corpus-single-copy filed)."
-    },
-    {
       "ts": "2026-09-20T09:33:52-0400",
       "note": "2026-09-20 13:3xZ ops-triage: unchanged, still not a repo defect. Live: 157 followers (newest snapshot 13:01Z, flat), 21 scheduled / 0 draft, next due 2026-09-20 15:15Z, 2 posted in 24h, 0 open PipelineRuns (24h: 9 completed / 8 failed, all pre-16:40Z 09-19), ComfyuiJobs 24h 15 completed / 9 failed with nothing new failing. Volume lever is already at the configured 3/day cap and the review brain is interval-gated to 09-23; per-post reach collapse (1-4 accounts on 09-18/19 posts) is the signal the 09-23 review now has. Tim's call: content/format/audience vs volume."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T13:45:21-0400",
       "note": "2026-09-20 17:4xZ ops-triage: unchanged, not a repo defect. Live: 157 followers flat across four snapshots (15:01/16:01/16:28/17:04Z), 18 future scheduled / 0 draft, posted=200 / failed=65, posts_per_day already at the configured 3/day cap, review brain interval-gated to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim, not something this loop can move."
+    },
+    {
+      "ts": "2026-09-20T14:38:15-0400",
+      "note": "2026-09-20 18:3xZ ops-triage: unchanged, not a repo defect. Live: followers 157 (flat), 19 scheduled / 0 draft, 4 posted in 24h, 1 failed in 24h, posts_per_day already at the configured 3/day cap, review brain interval-gated to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim; the loop can move nothing here without changing live publish behaviour or the goal's own parameters."
     }
   ]
 }
