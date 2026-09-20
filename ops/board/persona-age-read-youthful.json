@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-19T20:49:31-0400",
-      "note": "2026-09-20 00:5xZ: unchanged, still blocked on the same two things. (1) Tim's intended persona age (identity decision). (2) A 4090 window: re-checked live, claim=busy job=prx-tg-latent-first-v34 ours=no, so no claim was taken, no renders run, no prompt/identity text touched. Pre-scoped fix unchanged: drop 'adult, mature_face' from the node-79 negative in pipeline 21 turbo-one-step-clean."
-    },
-    {
       "ts": "2026-09-19T23:55:47-0400",
       "note": "2026-09-20 03:5xZ: unchanged, blocked on the same two things. (1) Tim: what age should Sarah read as - the pre-scoped prompt fix (drop \"adult, mature_face\" from the node-79 negative in pipeline 21 turbo-one-step-clean) stays unapplied, because guessing changes who she is. (2) A 4090 window to re-measure with a vision read: re-checked live, claim=claimed job=prx-tg-topup-val-v1 ours=no, so no claim was taken, no renders run, no prompt/identity text touched."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T04:49:34-0400",
       "note": "2026-09-20 08:5xZ ops-triage: still blocked, but the SECOND blocker has lifted -- re-sampled the 4090 live this run (5 samples over 10s): scheduler idle, no compute apps, 468 MiB used, 23.6 GiB free, 0% util, ~25 W, and the BT-Net co-tenant that held 4588 MiB at 02:03 EDT is gone. So a render window exists. It buys nothing yet: the primary blocker is Tim's statement of the intended persona age (editing Growth::PillarPrompt::SAFE_BASE or the node-79 negative tokens changes who Sarah IS), and re-measuring WITHOUT a prompt change only re-derives the three existing reads. No renders run and no identity text touched -- the queue is at target (21/21) so no tick requests a claim, and this agent holds none."
+    },
+    {
+      "ts": "2026-09-20T05:45:08-0400",
+      "note": "2026-09-20 09:4xZ ops-triage: unchanged, still blocked on Tim intended age. Re-verified live this run: 4090 sampled 5x over 10s = 468 MiB used, 23.6 GiB free, 0 percent, ~25 W, no compute apps, power cap 350 W, 38 C; scheduler idle with an empty derived queue, so the measurement window is open. The pre-scoped fix direction is now confirmed from the live workflow: node 79 negative ends with ..., adult, mature_face, sunken_eyes -- the pipeline is actively suppressing adult features, so dropping those two tokens is what lets her read older. Not applied: guessing changes who Sarah is. No claim taken, no renders run."
     }
   ]
 }
