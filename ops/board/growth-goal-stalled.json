@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T03:52:04-0400",
-      "note": "2026-09-20 07:5xZ ops-triage: the strategy layer's BLINDNESS is fixed this run (root cause found, not the metric). Growth::WeeklyReview aggregates engagement_rate per pillar to steer hashtags/content, but insights had not been collected since 2026-05-27 -- nothing invoked CollectPostInsights (no rake task, no cron) and its selection had no ORDER BY, so even manual runs re-refreshed the same 25 oldest rows. Fixed and verified in production: newest insights write 2026-05-27 -> 2026-09-20 07:45Z, and the FIRST real numbers for recent posts are now visible: 09-18/09-19 posts reach=1-4 (0 likes, 0 comments, 0 saves), 09-06..09-09 posts reach=11-13 (0 likes). So the flat 157 followers is not only a volume ceiling (3/day already at cap) -- per-post REACH has collapsed to 1-4 accounts. That is a new, measurable content/audience signal for the 09-23 review, and a candidate explanation the board could not previously see. Still Tim's call: which lever (content/format/audience vs volume). The insights path now has a probe check (insights-stale) so it can never go silent for months again."
-    },
-    {
       "ts": "2026-09-20T04:49:23-0400",
       "note": "2026-09-20 08:5xZ ops-triage: unchanged, and still not a technical defect -- every sub-system is green this run (queue 21/21 through 09-26 at the configured 3/day cap, publisher pacing one post per tick, media 200, captions real, and the engagement feedback path now draining: 100 of 134 provider-posts carry insights vs 25 when it was fixed yesterday, 25/hour). The lever is the configured cadence cap and the review brain's own interval (next review 2026-09-23), so nothing here is actionable from this repo: raising posts_per_day or changing content direction is Tim's call. Kept open because the terminal metric is genuinely behind (0.08x trajectory), not because work is pending."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T09:33:52-0400",
       "note": "2026-09-20 13:3xZ ops-triage: unchanged, still not a repo defect. Live: 157 followers (newest snapshot 13:01Z, flat), 21 scheduled / 0 draft, next due 2026-09-20 15:15Z, 2 posted in 24h, 0 open PipelineRuns (24h: 9 completed / 8 failed, all pre-16:40Z 09-19), ComfyuiJobs 24h 15 completed / 9 failed with nothing new failing. Volume lever is already at the configured 3/day cap and the review brain is interval-gated to 09-23; per-post reach collapse (1-4 accounts on 09-18/19 posts) is the signal the 09-23 review now has. Tim's call: content/format/audience vs volume."
+    },
+    {
+      "ts": "2026-09-20T10:42:24-0400",
+      "note": "2026-09-20 14:4xZ ops-triage: unchanged, and still not a repo defect. Live: 21 scheduled / 0 draft (next due 15:15Z), publisher ran 10:00 EDT 'Completed successfully' with salvage skipped (queue at target), 0 post failures and 0 stuck PipelineRuns/ComfyuiJobs, growth_snapshots fresh, insights 121/134 with the newest write 14:00:16Z. Volume is already at the configured 3/day cap and the review brain is interval-gated to 09-23, so the follower rate remains a market outcome. Per-post reach is the signal the 09-23 review now has (09-18/19 posts reach 1-4, 0 likes). Kept open because the terminal metric is genuinely behind, not because work is pending."
     }
   ]
 }

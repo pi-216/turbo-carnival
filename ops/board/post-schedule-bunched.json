@@ -5,14 +5,10 @@
   "evidence": "2 day(s) over the 3/day cap: 09-20=4, 09-21=4; 21 future post(s) queued [9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 2 of them (09-20, 09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T09:37:40-0400",
-  "seen_count": 45,
+  "last_seen": "2026-09-20T10:25:39-0400",
+  "seen_count": 47,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T02:36:25-0400",
-      "note": "2026-09-20 06:4xZ ops-triage: measured the live queue again. 21 queued (19 -> 21: two paid-for renders recovered GPU-free this run, see render-starved). Over-cap residue is now 2 days: 09-20=4 (333 15:15Z, 334 16:01Z, 335 16:25Z, 336 17:10Z) and 09-21=4 (315 04:22Z, 320 05:17Z, 328 05:31Z, 337 17:15Z); from 09-22 the queue is 3/day with >=90min spacing (PostSlotPlanner output). Release pacing verified live (one post per tick: 05:00->314, 06:00->327), so the 4-post days leave as 4 hourly-spaced posts rather than a burst -- deferred, not dropped. Enforcing the 3/day cap at RELEASE time is deliberately NOT done: it would defer a post past its day and cascade into the 09-21+ residue, and the cap is already enforced at CREATION by PostSlotPlanner. Self-clears by 09-22."
-    },
     {
       "ts": "2026-09-20T03:52:04-0400",
       "note": "2026-09-20 07:5xZ ops-triage: unchanged, pre-fix residue only. Live queue: 21 queued, 2 over-cap days left (09-20=4, 09-21=4); from 09-22 the shape is 3/day with >=90min spacing (PostSlotPlanner output). Release pacing still holds on real traffic (09-20: 314 @05:00Z, 327 @06:00Z -- one per hourly tick). No row edits: re-spacing already-scheduled posts is a live-publishing edit, and the cap is enforced at CREATION, not at release."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T09:33:58-0400",
       "note": "2026-09-20 13:3xZ ops-triage: unchanged pre-fix residue only (seen 44): 2 future days over the 3/day cap (09-20=4, 09-21=4), no live over-cap days. Self-clears as those days pass; deliberately no live-publishing edits."
+    },
+    {
+      "ts": "2026-09-20T10:42:24-0400",
+      "note": "2026-09-20 14:4xZ ops-triage: residue only, unchanged -- 09-20=4 and 09-21=4 over the 3/day cap, every row predating Growth::PostSlotPlanner (511afaf), no LIVE over-cap day. Release pacing still holds (21 scheduled, 2 posted in 24h, one post per tick). Self-clears as each day passes; deliberately no live-publishing edits."
     }
   ]
 }

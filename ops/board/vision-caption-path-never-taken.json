@@ -10,10 +10,6 @@
   "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
   "notes": [
     {
-      "ts": "2026-09-20T00:40:26-0400",
-      "note": "2026-09-20 04:5xZ ops-triage: the interaction noted earlier is now stale, and the decision is cheaper than it looked. The earlier note said switching GenerateCaption to the vision path 'would not by itself restore captions until max395 can load any model' -- measured now: a cold load of the multimodal fallback gemma3:4b completes in 29.2s (pinned resident, keep_alive=21600s), and the app now sends keep_alive so it stays warm. So the one-line routing change (branch on photo.servable_file_path instead of photo.image.attached?, VisionGenerator already prefers the path-only file) is no longer blocked by max395. Still a product decision for Tim: captions would start describing the actual image instead of a text-only prompt built from ContextBuilder, which changes caption style across the whole queue."
-    },
-    {
       "ts": "2026-09-20T01:40:10-0400",
       "note": "2026-09-20 05:4xZ ops-triage: unchanged product decision, and cheaper than when filed -- no photo since 2026-05-28 has an ActiveStorage image, so every caption is generated from text metadata only and CaptionGeneration::VisionGenerator is dead code in production. The captioner is warm on max395 (gemma3:4b cold-loads in 29.2s, pinned by keep_alive), so routing captions through the vision path is now a one-line change whenever Tim wants captions to actually look at the photo."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T09:33:58-0400",
       "note": "2026-09-20 13:3xZ ops-triage: unchanged, product config outside this repo -- no photo since 2026-05-28 has an ActiveStorage image, so CaptionGeneration::VisionGenerator never runs in production (captions come from the text path). Needs Tim: wire the vision path on or accept text-only captions."
+    },
+    {
+      "ts": "2026-09-20T10:42:24-0400",
+      "note": "2026-09-20 14:4xZ ops-triage: unchanged, and this run found WHY it is a design decision rather than a stale predicate: CaptionGeneration::VisionGenerator both DOCUMENTS the current behaviour ('this path is only taken when the photo has an ActiveStorage attachment ... renders imported by the growth harness are path-only, so they take CaptionGeneration::Generator') and ENFORCES it (generate raises 'Photo must have attached image' unless image.attached?). Routing path-only renders through it therefore means changing that designed contract (guard + docstring), and every caption in the queue would start describing the image instead of text metadata. Needs Tim: wire the vision path on or accept text-only captions."
     }
   ]
 }
