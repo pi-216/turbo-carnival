@@ -2,11 +2,11 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-latent-first-v34)",
   "severity": "info",
-  "evidence": "we hold no claim; held 6.8h; our queue entries=0",
-  "status": "open",
+  "evidence": "we hold no claim; held 7.4h; our queue entries=0",
+  "status": "closed",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-19T20:50:09-0400",
-  "seen_count": 4,
+  "last_seen": "2026-09-19T21:26:43-0400",
+  "seen_count": 5,
   "source": "probe",
   "notes": [
     {
@@ -16,6 +16,15 @@
     {
       "ts": "2026-09-19T20:49:31-0400",
       "note": "2026-09-20 00:5xZ: by-design capacity record, not a work item -- the probe keeps it while a foreign hold exceeds 6h. Held 6.6h+ by prx-tg-latent-first-v34, our queue entries=0, render queue at target (need=no). Rules forbid touching another project's job; nothing to action."
+    },
+    {
+      "ts": "2026-09-19T21:35:58-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T21:37:33-0400",
+      "note": "Closed as an accepted condition AND the check that filed it is fixed. A co-tenant holding the 4090 is normal sharing and our rules forbid touching its job, so a record filed on hold duration alone could never be actioned -- this one sat open through 5 probes and two ops-triage runs that both concluded 'nothing to action'. bin/tc_ops.py check_slot now files it only when one of OUR jobs is queued on that GPU. Verified 2026-09-20 01:45Z: the foreign hold is still live (prx-tg-latent-first-v34, current_since 15:00:28Z = 10.8h) and the probe returned 0 info; real starvation stays covered by check_render_starved (refusals + no output). Commit f40f08c."
     }
-  ]
+  ],
+  "closed_at": "2026-09-19T21:37:33-0400"
 }
