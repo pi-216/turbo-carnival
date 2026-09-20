@@ -78,6 +78,10 @@ RELEASE_PLAN_SRC = (APP / "packs" / "scheduling" / "app" / "services"
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
 CAPTION_ALERT_RATIO = 0.3
+# Post candidates are photos whose bytes we can serve. Below this many servable
+# unposted photos the corpus cannot sustain the configured cadence (3/day), and
+# the shortfall surfaces only as an empty queue -- i.e. silence, not an error.
+POOL_FLOOR = 10
 # Publisher liveness (bin/scheduled_posting.sh, hourly from the user crontab):
 # its worst case delay is one tick, so 3h absorbs a single missed run.
 PUBLISH_GRACE_H = 3
@@ -1544,6 +1548,106 @@ def check_probe_inputs():
     )
 
 
+def photo_pool_verdict(stats):
+    """Decide the candidate-pool issue from MEASURED counts (pure, testable).
+
+    stats: pool / union / unposted / dead_in_pool / dead_ids / missed_ids, all as
+    strings from the rails probe. Returns an issue tuple or None.
+    """
+    if not stats:
+        return None
+    try:
+        pool = int(stats["pool"])
+        union = int(stats["union"])
+        dead = int(stats["dead_in_pool"])
+    except (KeyError, ValueError, TypeError):
+        return None
+    missed = union - pool
+
+    if dead > 0:
+        return (
+            "photo-pool-unservable",
+            f"{dead} post candidate(s) have no servable bytes -- they fail at PUBLISH time, not here",
+            "warn",
+            f"pool={pool} of {union} servable-or-attached unposted photos; dead "
+            f"candidate ids: {stats.get('dead_ids') or '?'}; a dead candidate does "
+            "not raise where it is picked -- GeneratePublicPhotoUrl stops with "
+            "'Photo has no servable file and no attached image' and the post lands "
+            "in status=failed (58 of 64 historical post failures reference a photo "
+            "whose bytes are gone). Fix the selector predicate, not the row",
+        )
+
+    if missed > 0:
+        return (
+            "photo-pool-unservable",
+            f"the candidate pool hides {missed} servable photo(s) from the producers",
+            "warn",
+            f"pool={pool} but {union} unposted photos are servable-or-attached; "
+            f"missed ids: {stats.get('missed_ids') or '?'}; the selector must use "
+            "the publish path's own precedence (`servable? || image.attached?`) -- "
+            "a stale proxy silently withholds postable renders, which reads as a "
+            "queue shortfall, never as an error",
+        )
+
+    if union < POOL_FLOOR:
+        return (
+            "photo-pool-unservable",
+            f"only {union} servable unposted photo(s) left -- the corpus is draining",
+            "warn",
+            f"pool={pool} union={union} unposted={stats.get('unposted')} "
+            f"(floor {POOL_FLOOR}); each photo can back exactly one post per "
+            "persona (unique index photo_id+persona_id), so this is the hard "
+            "ceiling on how many posts the queue can still be filled with; below "
+            "the floor the shortfall shows up only as an empty queue",
+        )
+
+    return None
+
+
+def check_photo_pool():
+    """Measure the REAL selector against ground truth: can we serve what it offers?
+
+    `Photos::ListAvailable` filtered candidates on `image.attached?`, a proxy for
+    "we have bytes" that stopped holding when the local ComfyUI mounts moved
+    (measured 2026-09-20: 101 of 141 attached photos have no file at `path` and
+    no NAS fallback -- NAS_OUTPUT_BASE points at a tree that does not exist --
+    while 23 servable renders carry no ActiveStorage blob and were invisible to
+    the producers). Nothing detected it: the pipeline still posted, the queue
+    still filled from the render path, and the loss showed only as 58 of 64
+    historical post failures referencing dead photos.
+
+    So this runs the command itself rather than reimplementing `servable?` in
+    SQL, and compares the pool to the set the publish path can serve.
+    """
+    script = (
+        "persona = Persona.first;"
+        "has = lambda { |x| (x.servable_file_path.present? ||"
+        " (x.image.attached? && x.image.blob.service.exist?(x.image.blob.key))) rescue false };"
+        "unposted = ContentPillars::Photo.where(persona_id: persona.id)"
+        ".where.not(id: Scheduling::Post.where(persona_id: persona.id)"
+        ".select(:photo_id)).to_a;"
+        "servable = unposted.select { |x| has.call(x) };"
+        "pool = Photos::ListAvailable.call(persona: persona).photos;"
+        "dead = pool.reject { |x| has.call(x) };"
+        "puts ['pool=' + pool.size.to_s,"
+        " 'union=' + servable.size.to_s,"
+        " 'unposted=' + unposted.size.to_s,"
+        " 'dead_in_pool=' + dead.size.to_s,"
+        " 'dead_ids=' + dead.map(&:id).first(5).join(','),"
+        " 'missed_ids=' + (servable.map(&:id) - pool.map(&:id)).first(5).join(',')"
+        "].join(' ')"
+    )
+    out, rc = run(["bin/rails", "runner", script], timeout=180)
+    if rc != 0 or not out:
+        return None
+    stats = {}
+    for tok in out.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            stats[k] = v
+    return photo_pool_verdict(stats)
+
+
 CHECKS = [
     check_probe_inputs,
     check_worker_running,
@@ -1560,6 +1664,7 @@ CHECKS = [
     check_caption_path_cold,
     check_placeholder_caption_queued,
     check_render_acceptance,
+    check_photo_pool,
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
@@ -1977,6 +2082,27 @@ def cmd_selftest(_argv):
         v = cron_delivery_verdict(rows)
         expect(f"cron_delivery_verdict[{name}]", v[0] if v else None, want)
 
+    # photo_pool_verdict: (measured counts, expected severity or None). The pool
+    # must EQUAL the servable-or-attached set: dead candidates fail at publish
+    # time, missed ones never post, and a drained corpus reads as an empty queue.
+    def P(pool, union, unposted, dead, dead_ids="", missed=""):
+        return {"pool": str(pool), "union": str(union), "unposted": str(unposted),
+                "dead_in_pool": str(dead), "dead_ids": dead_ids,
+                "missed_ids": missed}
+
+    pool_cases = [
+        ("healthy", P(51, 51, 51, 0), None),
+        ("dead-candidate", P(30, 51, 51, 2, dead_ids="8,9"), "warn"),
+        ("missed-servable", P(28, 51, 51, 0, missed="339,340"), "warn"),
+        ("draining", P(3, 3, 3, 0), "warn"),
+        ("empty-corpus", P(0, 0, 0, 0), "warn"),
+        ("unreadable", {}, None),
+        ("garbage", {"pool": "x", "union": "y", "dead_in_pool": "z"}, None),
+    ]
+    for name, stats, want in pool_cases:
+        v = photo_pool_verdict(stats)
+        expect(f"photo_pool_verdict[{name}]", v[2] if v else None, want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -2030,7 +2156,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + 14} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(pool_cases) + 14} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

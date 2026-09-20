@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T05:45:09-0400",
-  "seen_count": 3,
+  "last_seen": "2026-09-20T06:40:18-0400",
+  "seen_count": 10,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-19T23:55:47-0400",
-      "note": "2026-09-20 03:5xZ: re-verified from ~/.hermes/profiles/turbo-carnival/cron/jobs.json - tc-growth-harness-brain (last run 09-19 23:05 EDT), tc-weekly-persona-review and tc-ops-triage (23:01 EDT, this job) all deliver=origin with last_status=delivery_failed; only tc-overnight-watchdog is deliver=local / last_status=ok. So this triage run report reaches nobody through cron: the board files and the git commits are the only durable channel. Tim: set deliver=local (or name a real target) for those three jobs."
-    },
     {
       "ts": "2026-09-20T00:40:26-0400",
       "note": "2026-09-20 04:5xZ ops-triage: diagnosed further -- this is NOT a turbo-carnival config error and there is no working chat target to point at, so it stays a human decision. The three failing jobs (tc-growth-harness-brain, tc-weekly-persona-review, tc-ops-triage) are deliver=origin with origin={\\\"platform\\\": \\\"webui\\\", \\\"chat_id\\\": b5fec27f2fa1 / b42cbe0fbc72} -- i.e. they were created from a WebUI chat and want to deliver BACK INTO that chat. The delivery layer rejects the platform NAME ('unknown platform webui'), it is not a stale chat id. Only tc-overnight-watchdog works, and only because it is deliver=local. hermes cron doctor flags exactly these three. Workarounds and their costs: (a) --deliver local makes the error go away but delivers to nobody (result stays in ~/.hermes/profiles/turbo-carnival/cron/output/<job>/<ts>.md, which is what the triage agent reads) -- this would also HIDE the failure rather than fix it; (b) telegram/discord/slack are all unconfigured for this profile (auth.json holds only LLM provider credentials: copilot/custom:max395/gemini/huggingface/openrouter), so pointing the jobs there fails with 'platform not configured'; (c) the real fix is upstream: register/support the webui platform as a cron delivery target in Hermes, or configure a chat platform for this profile. Not changed here: the destination of Tim's reports is his call and the correct destination is a WebUI chat, which I cannot test from a cron tick."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T05:45:08-0400",
       "note": "2026-09-20 09:4xZ ops-triage: this record is now PROBE-OWNED rather than a manual filing. bin/tc_ops.py gained check_cron_delivery (this run): it reads the profile cron jobs.json and files/refreshes this key whenever any job last_status says the delivery failed, so the record auto-closes the moment a working target is set instead of sitting open forever. Verified both ways: against a store whose jobs are ok/local the check returns None (probe: 0 critical, 0 warn, 1 info) and against the live store it fires (probe: 0 critical, 1 warn) naming all three jobs with error=unknown platform webui. Unchanged otherwise: still a Hermes cron config edit outside this repo."
+    },
+    {
+      "ts": "2026-09-20T06:40:41-0400",
+      "note": "2026-09-20 10:4xZ ops-triage: re-verified from the profile job store -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage are all deliver=origin with origin.platform='webui' and last_status=delivery_failed ('unknown platform webui'); tc-overnight-watchdog is deliver=local and last_status=ok. Hermes cron config, outside this repo: no in-repo fix exists, and a working target needs a platform decision (deliver=local matches the watchdog and is the only target that works with no chat platform configured)."
     }
   ]
 }

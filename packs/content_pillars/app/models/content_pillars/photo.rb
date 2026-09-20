@@ -48,6 +48,24 @@ module ContentPillars
       servable_file_path.present?
     end
 
+    # Does this photo have BYTES we can serve, by either source the publish path
+    # knows? `image.attached?` is a RECORD that once pointed at bytes, not
+    # evidence they are still there: measured 2026-09-20, all 101 attached photos
+    # whose local file is gone also have a missing blob file on the :local Disk
+    # service (storage/ holds 116K in total). Anything selecting candidates on
+    # `attached?` alone therefore offers photos that can only fail at publish
+    # time. Local file first, ActiveStorage second -- the same precedence as
+    # Scheduling::Commands::GeneratePublicPhotoUrl.
+    def servable_bytes?
+      return true if servable?
+      return false unless image.attached?
+
+      blob = image.blob
+      blob.present? && blob.service.exist?(blob.key)
+    rescue StandardError
+      false
+    end
+
     def posted?
       # Will be true when scheduling pack exists
       # For now, always false

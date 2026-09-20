@@ -5,14 +5,10 @@
   "evidence": "2 day(s) over the 3/day cap: 09-20=4, 09-21=4; 21 future post(s) queued [9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 2 of them (09-20, 09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T05:45:09-0400",
-  "seen_count": 26,
+  "last_seen": "2026-09-20T06:40:18-0400",
+  "seen_count": 33,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-19T23:55:21-0400",
-      "note": "2026-09-20 03:5xZ: unchanged; 09-20=6 and 09-21=4 over the 3/day cap, 9 pairs inside 60 min, all pre-fix rows. Self-clears as the queue publishes (09-20 drops out tomorrow). Same pacing proposal as post-slots-collide. No row edits: re-spacing is a live-publishing edit = Tim."
-    },
     {
       "ts": "2026-09-20T00:40:09-0400",
       "note": "2026-09-20 04:4xZ ops-triage: measured the live queue instead of the entry's summary. 21 queued; the whole residue is 6 rows on 09-20 (314 due 04:20Z, 327 05:29Z, 333 15:15Z, 334 16:01Z, 335 16:25Z, 336 17:10Z) and 4 on 09-21 (315 04:22Z, 320 05:17Z, 328 05:31Z, 337 17:15Z); from 09-22 on the queue is 3/day and well spaced (17:2xZ + 05:2xZ pairs), i.e. the PostSlotPlanner output. The producer fix is therefore working and this drains by 09-22 with no intervention. What is NOT fixed in-repo is the RELEASE side: packs/scheduling/lib/tasks/scheduled_posting.rake publishes EVERY due post in one run (no per-day cap, no minimum spacing), and bin/scheduled_posting.sh runs hourly from the user crontab (0 * * * *), so 314+327 release together at the 05:00Z tick and 334+335 together at 17:00Z -- that is the 09-19 04:38-06:00Z four-in-90min burst (posted_24h=4, all of them). Two candidate fixes, both Tim's call because they change public posting behaviour: (a) enforce growth max_posts_per_day in the publisher, or (b) release at most one due post per tick. I did NOT change the publisher: a defect there stalls publishing silently, which is the worst failure class on this board. Do not close this by re-spacing rows -- the rows are fine, the releaser is the mechanism."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T04:49:23-0400",
       "note": "2026-09-20 08:5xZ ops-triage: reframed, not repaired -- this is RESIDUE and it is now reported at info. Root cause of the burst was two independent defects (producers stamped Time.current+offset_days; the publisher released EVERY due post in one pass) and both are fixed. What this check still saw was pre-fix rows only: every over-cap row (09-20=4, 09-21=4) was created 09-17/09-19, i.e. before Growth::PostSlotPlanner landed (511afaf, 2026-09-20 01:36Z), and the proximity pairs are paced by Scheduling::PostReleasePlan (MAX_PER_RUN=1), so they cannot leave as a burst. Commit 7df4c22 splits every finding into LIVE (a row created at/after the planner landed => a producer is bypassing it) and RESIDUE (all rows predate it): live gates, residue is context, and a purely-residue over-cap day is info. Verified this run: probe 0 critical / 0 warn / 1 info, and over_cap_split is covered by 12 selftest assertions. Deliberately NO row edits -- re-spacing already-scheduled posts is a live-publishing edit, not a root-cause fix; the residue clears as each day passes."
+    },
+    {
+      "ts": "2026-09-20T06:40:41-0400",
+      "note": "2026-09-20 10:4xZ ops-triage: residue only, unchanged -- 09-20=4 and 09-21=4 over the 3/day cap, all rows predating PostSlotPlanner; self-clears as each day publishes. No live-publishing edits made (that is Tim's call)."
     }
   ]
 }

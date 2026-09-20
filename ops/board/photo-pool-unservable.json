@@ -1,0 +1,17 @@
+{
+  "key": "photo-pool-unservable",
+  "title": "only 51 servable unposted photo(s) left -- the corpus is draining",
+  "severity": "warn",
+  "evidence": "pool=51 union=51 unposted=51 (floor 9999); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
+  "status": "auto-closed",
+  "first_seen": "2026-09-20T06:36:46-0400",
+  "last_seen": "2026-09-20T06:36:46-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-20T06:36:48-0400",
+      "note": "condition no longer reproduces"
+    }
+  ]
+}
