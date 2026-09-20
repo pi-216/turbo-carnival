@@ -10,10 +10,6 @@
   "evidence": "cron/jobs.json: tc-growth-harness-brain (43b0d5c4446d, hourly) and tc-weekly-persona-review (8d3ac21799d5, Mon 09:00) both report last_status=delivery_failed. The overnight watchdog logged the same thing twice: \"result not delivered \u2014 unknown platform 'webui'\". Every hourly growth report and the weekly persona review are therefore written to disk and thrown away.",
   "notes": [
     {
-      "ts": "2026-09-19T20:49:31-0400",
-      "note": "2026-09-20 00:5xZ: re-verified in ~/.hermes/profiles/turbo-carnival/cron/jobs.json -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage all deliver=origin with last_status=delivery_failed; tc-overnight-watchdog deliver=local last_status=ok. Needs Tim to name a delivery target (Hermes config, outside this repo)."
-    },
-    {
       "ts": "2026-09-19T21:37:39-0400",
       "note": "Re-verified 2026-09-20 01:30Z from ~/.hermes/profiles/turbo-carnival/cron/jobs.json: tc-growth-harness-brain, tc-weekly-persona-review AND tc-ops-triage all carry last_status=delivery_failed (deliver=origin -> platform 'webui' unknown), while tc-overnight-watchdog is last_status=ok with deliver=local. This is now the TOP blocker of the whole ops loop: the triage run's own findings -- including every item in this file -- are written to cron/output/<id>/*.md and never delivered, so the only durable channel is this board plus the repo commits. One-line fix per job (set deliver=local, or repair the webui target), but the destination is Tim's call, so it stays open."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T03:52:04-0400",
       "note": "2026-09-20 07:5xZ ops-triage: unchanged, outside this repo (Hermes cron config). Confirmed again from jobs.json: tc-growth-harness-brain (43b0d5c4446d), tc-weekly-persona-review (8d3ac21799d5) and tc-ops-triage (9c05f60f5fef) all carry last_status=delivery_failed ('unknown platform webui'); only tc-overnight-watchdog is ok. Nothing these jobs report reaches the operator -- the ops board is currently the only durable record. Remediation is a config edit outside this repo: hermes cron edit <id> --deliver <valid target>."
+    },
+    {
+      "ts": "2026-09-20T04:49:23-0400",
+      "note": "2026-09-20 08:5xZ ops-triage: re-verified unchanged in ~/.hermes/profiles/turbo-carnival/cron/jobs.json -- tc-growth-harness-brain (last run 04:01, delivery_failed), tc-weekly-persona-review (09-14, delivery_failed) and tc-ops-triage itself (03:56, delivery_failed) all deliver=origin; only tc-overnight-watchdog (deliver=local) reports ok. So three jobs' results are silently dropped, including the one that owns this fix loop. Outside this repo: needs Tim to name a delivery target (hermes cron edit <id> --deliver <target>)."
     }
   ]
 }

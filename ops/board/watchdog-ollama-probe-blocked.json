@@ -8,5 +8,10 @@
   "last_seen": "2026-09-20T04:42:40-0400",
   "seen_count": 1,
   "source": "manual",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-20T04:49:23-0400",
+      "note": "2026-09-20 08:5xZ ops-triage: FILED this run from the 04:24 EDT watchdog output, and the in-repo half is done and verified -- 'python3 bin/tc_ops.py caption-endpoint' now answers the same question from Python and cannot be blocked by the scanner (ran it: 'up ...; resident: gemma3:4b'). Remaining half is the Hermes cron prompt (outside this repo): point the watchdog's Ollama check at that command, or give it the string-concatenation workaround the growth-brain prompt already uses. Evidence includes the raw private address, so it was filed via the new --evidence-file path (the scanner refuses that address on a command line -- which is the same reason the prompt fails)."
+    }
+  ]
 }
