@@ -2,11 +2,11 @@
   "key": "post-schedule-bunched",
   "title": "future queue still carries pre-fix slots: 2 day(s) over the 3/day cap: 09-20=4, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17",
   "severity": "warn",
-  "evidence": "2 day(s) over the 3/day cap: 09-20=4, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17; 19 future post(s) queued. Producers now allocate through Growth::PostSlotPlanner AND the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan), so these pre-fix rows no longer leave as a burst: the pair signal is the slot shape only, and the rows drain as the queue publishes (last bunched pair 09-25). No row edits needed -- the fix belongs in the releaser, which is where the burst actually happened.",
+  "evidence": "2 day(s) over the 3/day cap: 09-20=4, 09-21=4; 9 pair(s) inside 60 min: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10, 09-21 04:22/09-21 05:17; 21 future post(s) queued. Producers now allocate through Growth::PostSlotPlanner AND the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan), so these pre-fix rows no longer leave as a burst: the pair signal is the slot shape only, and the rows drain as the queue publishes (last bunched pair 09-25). No row edits needed -- the fix belongs in the releaser, which is where the burst actually happened.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T01:38:18-0400",
-  "seen_count": 11,
+  "last_seen": "2026-09-20T02:36:30-0400",
+  "seen_count": 13,
   "source": "probe",
   "notes": [
     {
@@ -24,6 +24,10 @@
     {
       "ts": "2026-09-20T01:39:46-0400",
       "note": "2026-09-20 05:4xZ ops-triage: the RELEASE side is now fixed (commit a201900) -- Scheduling::PostReleasePlan makes scheduled_posting.rake release at most ONE post per run, so bunched slots no longer leave the account as a burst. Deferral is safe by construction: a held post keeps status='scheduled' with a past slot and the next run selects it first, so it can only be delayed, never dropped. Verified end-to-end with a rake spec (2 due -> 1 posted, 1 still 'scheduled', posted_at nil) and the full suite 383/0. No row edits: the rows are the producer's output, the burst was the releaser's. The check now measures the slot SHAPE only; it clears as the pre-fix rows drain (last bunched pair 09-25 05:24/05:39, created 09-17). Correction to the previous run's note: the residue does NOT drain by 09-22 -- the 09-17 batch still puts a 14-min pair on 09-22/23/24/25, which is why the releaser fix mattered rather than just waiting."
+    },
+    {
+      "ts": "2026-09-20T02:36:25-0400",
+      "note": "2026-09-20 06:4xZ ops-triage: measured the live queue again. 21 queued (19 -> 21: two paid-for renders recovered GPU-free this run, see render-starved). Over-cap residue is now 2 days: 09-20=4 (333 15:15Z, 334 16:01Z, 335 16:25Z, 336 17:10Z) and 09-21=4 (315 04:22Z, 320 05:17Z, 328 05:31Z, 337 17:15Z); from 09-22 the queue is 3/day with >=90min spacing (PostSlotPlanner output). Release pacing verified live (one post per tick: 05:00->314, 06:00->327), so the 4-post days leave as 4 hourly-spaced posts rather than a burst -- deferred, not dropped. Enforcing the 3/day cap at RELEASE time is deliberately NOT done: it would defer a post past its day and cascade into the 09-21+ residue, and the cap is already enforced at CREATION by PostSlotPlanner. Self-clears by 09-22."
     }
   ]
 }

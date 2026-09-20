@@ -53,6 +53,28 @@ namespace :growth do
     end
   end
 
+  desc 'Recover abandoned renders into the queue (GPU-free; bounded by the cadence shortfall)'
+  task :salvage_abandoned, [:persona_name] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    goal = Growth::Goal.active.for_persona(persona).first
+    if goal.nil?
+      puts 'Salvage: no active goal — nothing to recover into.'
+      next
+    end
+
+    outcome = Growth::CadenceEngine.new(goal: goal).recover_abandoned
+    if outcome[:result].nil?
+      puts "Salvage: skipped — queue at target (existing=#{outcome[:existing]} " \
+           "target=#{outcome[:target]}); nothing to recover into"
+      next
+    end
+
+    result = outcome[:result]
+    puts "Salvage: examined=#{result.examined} recovered=#{result.recovered} " \
+         "rejected=#{result.rejected} skipped=#{result.skipped} " \
+         "posts=#{result.post_ids.inspect} (shortfall=#{outcome[:shortfall]})"
+  end
+
   desc 'Capture a follower-count snapshot for the active goal'
   task :snapshot_followers, [:persona_name] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first

@@ -83,6 +83,28 @@ module Growth
       }
     end
 
+    # Recover abandoned renders WITHOUT rendering and WITHOUT the GPU/scheduler.
+    #
+    # WHY THIS IS A SEPARATE ENTRY POINT (root cause, 2026-09-20): the recovery
+    # lives at the top of #sync, and the growth tick skips its whole cadence step
+    # when it cannot acquire the 4090 — the right call for RENDERING, but it also
+    # gated the ONE path that needs no GPU at all. While a foreign claim held the
+    # card, every hourly tick was refused (comfyui_unclaimed) and three renders
+    # that had already been PAID FOR (runs 457/463/471, 2026-09-19) sat unposted
+    # on disk for 13h+ while the queue drained 21 -> 19.
+    #
+    # Bounded by the shortfall exactly like the in-sync path, and idempotent (a
+    # Photo row for the path is the marker), so an hourly caller can never
+    # over-fill the queue or double-post. `result` is nil when the queue is
+    # already at target — there is nothing to recover INTO.
+    def recover_abandoned
+      target = posts_target
+      existing = scheduled_posts_count
+      shortfall = [target - existing, 0].max
+      result = shortfall.zero? ? nil : Growth::RenderSalvage.new(goal: goal).call(limit: shortfall)
+      { target: target, existing: existing, shortfall: shortfall, result: result }
+    end
+
     private
 
     # Recover renders whose sync producer was killed before the post-actions ran.

@@ -64,4 +64,32 @@ RSpec.describe Growth::CadenceEngine do
       expect(Growth::Decision.where(action: 'cadence_blocked').count).to eq(1)
     end
   end
+
+  describe '#recover_abandoned' do
+    # The GPU-free path: it must never render, and it must stay bounded by the
+    # shortfall so an hourly caller cannot over-fill the queue.
+    it 'recovers abandoned renders without rendering and bounds the budget by the shortfall' do
+      expect(engine).not_to receive(:generate_fresh)
+      salvage = Growth::RenderSalvage::Result.new(
+        recovered: 1, rejected: 0, skipped: 0, post_ids: [42], examined: 1
+      )
+      expect(Growth::RenderSalvage).to receive(:new).with(goal: goal)
+                                                   .and_return(double(call: salvage))
+
+      outcome = engine.recover_abandoned
+
+      expect(outcome[:shortfall]).to eq(1)
+      expect(outcome[:result]).to eq(salvage)
+    end
+
+    it 'does nothing when the queue is already at target — there is nothing to recover into' do
+      allow(engine).to receive(:scheduled_posts_count).and_return(7)
+      expect(Growth::RenderSalvage).not_to receive(:new)
+
+      outcome = engine.recover_abandoned
+
+      expect(outcome[:shortfall]).to eq(0)
+      expect(outcome[:result]).to be_nil
+    end
+  end
 end

@@ -54,6 +54,21 @@ if [ "$REPAIR_CODE" -ne 0 ]; then
     log "WARN: placeholder caption repair exited $REPAIR_CODE — publishing anyway"
 fi
 
+# Recover PAID-FOR renders that no post was ever made from (2026-09-20). The
+# growth tick's recovery path lives inside CadenceEngine#sync, and the tick skips
+# the whole cadence step when it cannot acquire the 4090 -- so the one recovery
+# path that needs no GPU at all was gated behind the GPU, and abandoned renders
+# sat on disk for 13h+ while a foreign claim held the card and the queue drained.
+# This runs hourly, GPU-free, bounded by the cadence shortfall and idempotent
+# (a Photo row is the marker), so it can only ever finish work already paid for.
+# Deliberately NON-FATAL -- a recovery failure must never stall publishing.
+log "Recovering abandoned renders (GPU-free)..."
+bundle exec rails growth:salvage_abandoned 2>&1 | tee -a "$LOG_FILE"
+SALVAGE_CODE=${PIPESTATUS[0]}
+if [ "$SALVAGE_CODE" -ne 0 ]; then
+    log "WARN: render salvage exited $SALVAGE_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}
