@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T05:45:08-0400",
-      "note": "2026-09-20 09:4xZ ops-triage: unchanged, still not a technical defect. Live this run: 21 scheduled (next due 2026-09-20 15:15Z), publisher ran 05:00 EDT Completed successfully with salvage skipped (queue at target) and insights refreshed 25 of 25 candidates; zero PipelineRun or ComfyuiJob failures since 16:40Z 09-19 (about 17h clean); growth_snapshots fresh (912 rows, newest 09:00Z). Volume lever is already at the configured cap and follower rate is a market outcome, so nothing here is actionable from this repo. The hourly report that names this anomaly is now auto-monitored by the new check_cron_delivery."
-    },
-    {
       "ts": "2026-09-20T06:40:41-0400",
       "note": "2026-09-20 10:4xZ ops-triage: unchanged and not a repo defect. Live: 21 scheduled posts (next due 15:15Z), publisher ran 05:00 EDT 'Completed successfully', 0 PipelineRun/ComfyuiJob failures since 16:40Z 09-19, growth_snapshots fresh (913 rows, newest 10:00Z). Volume lever already at the configured cap; follower rate is a market outcome. Next review 2026-09-23."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T11:37:37-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, not a repo defect. Live: followers 157 flat across the last 3 snapshots (13:01, 14:00, 15:01Z), 21 scheduled / 0 draft, next due 15:15Z, volume already at the configured 3/day cap (posts_per_day=max=3), review interval gated to 2026-09-23."
+    },
+    {
+      "ts": "2026-09-20T12:47:25-0400",
+      "note": "2026-09-20 16:5xZ ops-triage: unchanged, not a repo defect. Live: followers 157 across all four snapshots in the last 3h (14:00/15:01/16:01/16:28Z), 21 scheduled / 0 draft, 2 posted in 24h, 2 rows past due (16:01Z, 16:25Z) that the 17:00Z tick releases. posts_per_day=3/3 (already at the configured cap) and the review interval gates the next escalation to 2026-09-23. The 0.08x trajectory is a strategy/volume decision for Tim, not something this loop can edit."
     }
   ]
 }

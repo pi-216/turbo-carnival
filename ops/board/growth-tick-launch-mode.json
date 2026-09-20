@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T03:52:04-0400",
-      "note": "2026-09-20 07:5xZ ops-triage: unchanged, outside this repo (Hermes cron config): the growth-brain tick still runs growth:sync_cadence in the foreground under a fixed timeout, so a killed tick can leave its own debris behind. Repo-side the debris is already reaped (the GPU-free salvage runs from the publisher) and the publisher's new insights step is non-fatal; the launch mode itself needs the cron config changed."
-    },
-    {
       "ts": "2026-09-20T07:42:38-0400",
       "note": "2026-09-20 11:3xZ ops-triage: unchanged, Hermes cron config outside this repo (the growth tick still runs growth:sync_cadence in the foreground under a fixed tool budget). Repo-side debris handling is still in place and clean: 0 stuck PipelineRuns and 0 stuck ComfyuiJobs live this run. Needs Tim: run the producer detached, or raise the tick budget."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T11:37:49-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean this run (0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 21 scheduled). Options for Tim unchanged: (a) detach growth:sync_cadence and defer the tick end-of-tick shutdown/release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
+    },
+    {
+      "ts": "2026-09-20T12:47:25-0400",
+      "note": "2026-09-20 16:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean this run: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 0 non-terminal runs, 21 scheduled, 7 ComfyuiJobs completed in 24h with 0 failures; decisions 24h = comfyui_unclaimed 2 / salvage_recovered 3, so the GPU-free salvage is carrying top-ups while prx-tg holds the 4090. Options for Tim unchanged: (a) detach growth:sync_cadence in the tick and defer the end-of-tick release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
     }
   ]
 }

@@ -97,6 +97,13 @@ PUBLISH_CRITICAL_H = 12
 # 2026-09-10 -> 09-17: eight silent days with every report green).
 PUBLISH_GAP_WARN_H = 36
 PUBLISH_GAP_CRITICAL_H = 96
+# REJECTED-PUBLISH: Instagram accepts the container, then refuses the publish
+# (400 code 9007 "the media is not ready for publishing"), the rake task marks
+# the row failed with NO requeue path, and the slot is gone -- while the
+# publisher still exits 0. Lifetime occurrences: 3 (post 37, post 246, post 333),
+# so a hit is rare and always worth reading; the 24h window keeps the signal
+# while it is actionable and lets the entry self-close once failures age out.
+PUBLISH_FAILED_WINDOW_H = 24
 # EXPECTED-EVENT ABSENCE, second case: the engagement feedback path. The insights
 # command refreshes posts older than 24h on every run of the hourly publisher, so
 # a live path is always well inside a day; a day of silence means nothing invoked
@@ -736,6 +743,66 @@ def check_publish_gap():
         f"queue={queued}. check_publish_liveness only counts rows that were DUE, so "
         "a drained queue is invisible to it -- this is the expected-event absence "
         "it cannot see (2026-09-10 -> 09-17: eight silent days).",
+    )
+
+
+def publish_failed_verdict(n_failed, newest_h):
+    """Pure: rejected posts inside the window -> severity (None when none)."""
+    if not n_failed or n_failed <= 0:
+        return None
+    return "warn"
+
+
+def check_publish_failed_silent():
+    """A post Instagram REJECTED is marked failed with no retry and no alarm.
+
+    check_publish_liveness counts only rows that were DUE and still unpublished,
+    and check_publish_gap measures the newest POSTED post -- so a rejected post
+    is invisible to both while its slot is lost for good: the rake task calls
+    mark_as_failed! with no requeue path, the row stores no reason, and the
+    publisher still exits 0 ("Completed successfully"), so the run reads clean.
+    Measured 2026-09-20: post 333 (photo 339, slot 15:15Z) -> 400 code 9007
+    "Media ID is not available -- the media is not ready for publishing"
+    (container-readiness race); 3rd such loss in the account's history.
+    """
+    row = psql(
+        "select count(*) || '|' || coalesce(round(extract(epoch from "
+        "(now() at time zone 'UTC') - max(updated_at)) / 3600.0, 1)::text, 'na') "
+        "from scheduling_posts where status = 'failed' and updated_at > "
+        f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours'"
+    )
+    if row is None:
+        return None
+    n_str, _, h_str = row.rpartition("|")
+    try:
+        n_failed = int(n_str)
+        newest_h = None if h_str == "na" else float(h_str)
+    except ValueError:
+        return None
+    sev = publish_failed_verdict(n_failed, newest_h)
+    if not sev:
+        return None
+    rows = psql_lines(
+        "select 'post ' || id || ' photo ' || coalesce(photo_id::text, '-') || "
+        "' slot ' || coalesce(scheduled_at::text, '-') || ' failed ' || updated_at "
+        "from scheduling_posts where status = 'failed' and updated_at > "
+        f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours' "
+        "order by updated_at desc limit 5"
+    ) or []
+    age = "age unknown" if newest_h is None else f"newest {newest_h:.1f}h ago"
+    return (
+        "post-publish-failed-no-retry",
+        "a post Instagram rejected is marked failed with no retry and no alarm "
+        "-- the slot is lost silently",
+        sev,
+        f"{n_failed} post(s) marked failed in the last {PUBLISH_FAILED_WINDOW_H}h "
+        f"({age}): {'; '.join(rows)}. packs/scheduling/lib/tasks/scheduled_posting.rake "
+        "calls mark_as_failed! with no requeue, and the row stores no reason (grep "
+        "the post id in log/scheduled_posting.log). Nothing else can see it: "
+        "check_publish_liveness counts only scheduled/draft rows past due, and "
+        "check_publish_gap measures the newest POSTED post. Known cause: Instagram "
+        "400 code 9007 'media not ready for publishing'. Suggested fix -- one "
+        "bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
     )
 
 
@@ -2142,6 +2209,7 @@ CHECKS = [
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
+    check_publish_failed_silent,
     check_insights_stale,
     check_future_queue_empty,
     check_post_slot_bursts,
@@ -2486,6 +2554,18 @@ def cmd_selftest(_argv):
     for name, age, want in gap_cases:
         expect(f"publish_gap_verdict[{name}]", publish_gap_verdict(age), want)
 
+    # publish_failed_verdict: rejected posts inside the window -> severity. The
+    # window is what makes the entry self-close once failures age out, so zero
+    # must be None and any live rejection must be a warn.
+    failed_cases = [
+        ("none", 0, None, None),
+        ("none-unknown-age", 0, None, None),
+        ("one-just-failed", 1, 0.4, "warn"),
+        ("several-in-window", 3, 20.0, "warn"),
+    ]
+    for name, n, age, want in failed_cases:
+        expect(f"publish_failed_verdict[{name}]", publish_failed_verdict(n, age), want)
+
     # insights_verdict: hours since the newest insights write -> severity. None
     # means no posted item has insights at all (the ~4-month case this exists for).
     insights_cases = [
@@ -2784,7 +2864,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

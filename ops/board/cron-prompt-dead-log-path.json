@@ -2,16 +2,25 @@
   "key": "cron-prompt-dead-log-path",
   "title": "a cron prompt reads a log file that nothing writes any more",
   "severity": "warn",
-  "evidence": "2 cron prompt log reference(s) point at a file nothing writes, so the step that reads it cannot tell 'no errors' from 'no signal': tc-weekly-persona-review (8d3ac21799d5) reads log/growth_harness.log -- unwritten for 30.6d; tc-overnight-watchdog (31c2d0bc8261) reads log/growth_harness.log -- unwritten for 30.6d -- replace the path with the repo-owned command (`python3 bin/tc_ops.py log-health` prints every live log's age and recent error lines, so it cannot rot when a writer moves)",
-  "status": "open",
+  "evidence": "2 cron prompt log reference(s) point at a file nothing writes, so the step that reads it cannot tell 'no errors' from 'no signal': tc-weekly-persona-review (8d3ac21799d5) reads log/growth_harness.log -- unwritten for 30.7d; tc-overnight-watchdog (31c2d0bc8261) reads log/growth_harness.log -- unwritten for 30.7d -- replace the path with the repo-owned command (`python3 bin/tc_ops.py log-health` prints every live log's age and recent error lines, so it cannot rot when a writer moves)",
+  "status": "closed",
   "first_seen": "2026-09-20T11:36:12-0400",
-  "last_seen": "2026-09-20T11:36:12-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-20T12:25:37-0400",
+  "seen_count": 2,
   "source": "probe",
   "notes": [
     {
       "ts": "2026-09-20T11:37:37-0400",
       "note": "2026-09-20 15:5xZ ops-triage: filed by the new check (this run). Measured: log/growth_harness.log mtime 2026-08-20 (30.6d) while tc-overnight-watchdog and tc-weekly-persona-review both still instruct runs to tail it. In-repo half DONE and verified: check_cron_prompt_log_paths + a repo-owned command, python3 bin/tc_ops.py log-health, which prints each live log age and error lines and names the deprecated path (live: scheduled_posting 0.6h/0 errors, development 0.0h/0, comfyui_harness 9.5h/0, growth_harness DEPRECATED 30.6d). Remaining half is one line in jobs.json (outside this repo): replace \"tail -40 log/growth_harness.log\" with \"python3 bin/tc_ops.py log-health\" in both prompts."
+    },
+    {
+      "ts": "2026-09-20T12:37:04-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-20T12:47:25-0400",
+      "note": "2026-09-20 16:5xZ ops-triage: FIXED. Root cause was prompt text in the profile cron store (~/.hermes/profiles/turbo-carnival/cron/jobs.json): two monitoring prompts still told every run to tail log/growth_harness.log, dead since 2026-08-20 because its wrapper bin/growth_harness.sh is retired. Applied the repo's own recommended replacement with hermes cron edit after backing the store up (cache/scratch/jobs.json.bak-20260920T123635): tc-overnight-watchdog (31c2d0bc8261) now runs 'python3 bin/tc_ops.py log-health' and tails log/development.log; tc-weekly-persona-review (8d3ac21799d5) now points at log/development.log plus log-health. VERIFIED: field-level diff of the store shows ONLY the prompt field changed on those two jobs (one line each, nothing else touched), 0 remaining growth_harness.log references in any prompt, and 'python3 bin/tc_ops.py probe' no longer fires this check -- the record auto-closed on the next probe run. Both jobs run with workdir=/home/tim/source/activity/turbo-carnival, so the repo-relative command resolves."
     }
-  ]
+  ],
+  "closed_at": "2026-09-20T12:47:25-0400"
 }

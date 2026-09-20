@@ -5,14 +5,10 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T11:36:12-0400",
-  "seen_count": 27,
+  "last_seen": "2026-09-20T12:45:55-0400",
+  "seen_count": 31,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
-    {
-      "ts": "2026-09-20T06:40:41-0400",
-      "note": "2026-09-20 10:4xZ ops-triage: re-verified from the profile job store -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage are all deliver=origin with origin.platform='webui' and last_status=delivery_failed ('unknown platform webui'); tc-overnight-watchdog is deliver=local and last_status=ok. Hermes cron config, outside this repo: no in-repo fix exists, and a working target needs a platform decision (deliver=local matches the watchdog and is the only target that works with no chat platform configured)."
-    },
     {
       "ts": "2026-09-20T07:42:47-0400",
       "note": "2026-09-20 11:3xZ ops-triage: re-verified unchanged -- still the loop's top blocker, and this report is in the same class (deliver=origin, origin.platform=webui, last_status=delivery_failed: 'unknown platform webui'). Only tc-overnight-watchdog reports ok, and only because it is deliver=local. Hermes cron config, outside this repo: no chat platform is configured for this profile, so the only target that works today is --deliver local (which matches the watchdog but reaches nobody), and reaching a chat needs a platform decision from Tim."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T11:37:37-0400",
       "note": "2026-09-20 15:5xZ ops-triage: unchanged, re-read live. 3 jobs delivery_failed with deliver=origin origin.platform=webui: tc-growth-harness-brain (last run 11:02), tc-weekly-persona-review (09-14), tc-ops-triage itself (10:44); tc-overnight-watchdog (deliver=local) reports ok. Needs Tim: configure a chat platform for this profile or accept deliver=local."
+    },
+    {
+      "ts": "2026-09-20T12:47:25-0400",
+      "note": "2026-09-20 16:5xZ ops-triage: unchanged, re-read live (16:39Z): tc-growth-harness-brain (last run 12:02), tc-weekly-persona-review (09-14) and tc-ops-triage (11:38) are deliver=origin with origin.platform=webui and last_status=delivery_failed; tc-overnight-watchdog (deliver=local) is ok and ran again at 12:36, proving the local target works. No chat platform is configured for this profile (channel_directory lists homeassistant and email, both empty), so there is no valid target to point at; needs Tim to configure one (then hermes cron edit <id> --deliver <platform>:<chat_id>) or to accept deliver=local, which reaches nobody. Probe-owned: it self-closes the moment a working target is set."
     }
   ]
 }
