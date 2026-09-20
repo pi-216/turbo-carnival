@@ -8,7 +8,7 @@ require 'rails_helper'
 # the assertion is also that the DEFERRED row is untouched (still 'scheduled',
 # not failed, still selected by the next run).
 RSpec.describe 'scheduling:post_scheduled release pacing' do
-  before(:all) { Rails.application.load_tasks }
+  before(:all) { load_rake_tasks! }
 
   let(:persona) { create(:persona) }
   let(:pillar) { create(:content_pillar, persona: persona) }

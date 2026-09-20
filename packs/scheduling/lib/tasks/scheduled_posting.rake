@@ -142,4 +142,28 @@ namespace :scheduling do
     puts "Completed at: #{Time.current.strftime('%Y-%m-%d %H:%M:%S %Z')}"
     puts "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   end
+
+  desc 'Collect engagement insights for posted items (Growth::WeeklyReview reads them)'
+  task collect_insights: :environment do
+    # WHY THIS EXISTS
+    # The insights columns (likes/comments/reach/saved/engagement_rate) are what
+    # Growth::WeeklyReview aggregates per content pillar to steer hashtags and
+    # content direction ("warmer"/"bolder", pillar keep/drop). The command that
+    # fills them has existed since May and worked when called by hand, but nothing
+    # invoked it: no rake task, no cron -- so the newest insights write was
+    # 2026-05-27 and every strategy decision since was made with engagement_rate
+    # reading 0.0 for every pillar. Its query also had no ORDER BY, so even a
+    # manual run re-refreshed the same 25 oldest rows and never reached the 107
+    # posted items that have no insights at all (fixed alongside this task).
+    # Deliberately NON-FATAL for the publisher (bin/scheduled_posting.sh logs a
+    # WARN and publishes anyway); a sustained failure surfaces on the ops board as
+    # `insights-stale` (bin/tc_ops.py check_insights_stale).
+    result = Scheduling::Commands::CollectPostInsights.call
+    puts "CollectPostInsights: refreshed #{result.collected} of #{result.pending} candidate post(s)"
+    if result.pending.to_i.positive? && result.collected.to_i.zero?
+      warn 'CollectPostInsights: candidates existed but none were refreshed ' \
+           '(Instagram API/permission failure?) — insights stay stale'
+      exit 1
+    end
+  end
 end

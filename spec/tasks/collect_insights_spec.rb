@@ -1,0 +1,95 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+# The engagement feedback path had TWO defects at once, and both are asserted here
+# because either one alone leaves the columns empty:
+#   1. nothing invoked CollectPostInsights (no rake task, no cron), so the newest
+#      insights write was 2026-05-27 while 107 posted items had none at all;
+#   2. its selection had no ORDER BY, so even a manual run re-refreshed the same 25
+#      OLDEST rows and never reached the posts with no insights.
+# Growth::WeeklyReview aggregates engagement_rate per pillar to steer hashtags and
+# content direction, so both defects zeroed the strategy layer's only content signal
+# -- silently, with no error, no log line and no overdue row.
+RSpec.describe 'scheduling:collect_insights' do
+  before(:all) { load_rake_tasks! }
+
+  let(:persona) { create(:persona, name: 'Sarah') }
+  let(:pillar) { create(:content_pillar, persona: persona) }
+
+  def posted(at:, insights_at: nil)
+    photo = ContentPillars::Photo.create!(persona: persona, path: "spec-#{SecureRandom.hex(4)}.png",
+                                          content_pillar: pillar)
+    Scheduling::Post.create!(persona: persona, photo: photo, caption: 'a real caption',
+                             status: 'posted', posted_at: at,
+                             provider_post_id: "ig-#{SecureRandom.hex(6)}",
+                             insights_updated_at: insights_at)
+  end
+
+  def stub_insights_api(status: 200)
+    body = { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 7 }] },
+                        { 'name' => 'comments', 'values' => [{ 'value' => 1 }] },
+                        { 'name' => 'reach', 'values' => [{ 'value' => 100 }] },
+                        { 'name' => 'saved', 'values' => [{ 'value' => 2 }] },
+                        { 'name' => 'shares', 'values' => [{ 'value' => 1 }] }] }
+    connection = double('faraday')
+    allow(connection).to receive(:get).and_return(double('response', status: status, body: body))
+    allow(Faraday).to receive(:new).and_return(connection)
+    allow(Rails.application.credentials).to receive(:dig).and_call_original
+    allow(Rails.application.credentials).to receive(:dig)
+      .with(:instagram, :access_token).and_return('test-token')
+  end
+
+  def run_task
+    Rake::Task['scheduling:collect_insights'].reenable
+    Rake::Task['scheduling:collect_insights'].invoke
+  end
+
+  it 'spends its 25-row budget on never-collected posts, newest first' do
+    stale = Array.new(3) { posted(at: 3.days.ago, insights_at: 10.hours.ago) }
+    never = Array.new(30) { |i| posted(at: (30 + i).days.ago) } # first == newest
+    stub_insights_api
+
+    run_task
+
+    # Already-collected rows keep their timestamp: with no ORDER BY these oldest
+    # rows were the ones re-refreshed on every run, which is exactly how the newest
+    # write stayed at 2026-05-27 while everything since stayed NULL.
+    stale.each do |p|
+      expect(p.reload.insights_updated_at).to be_within(5.seconds).of(10.hours.ago)
+    end
+
+    # The newest never-collected post is collected, with the API's numbers parsed
+    # into the columns the growth review reads.
+    newest = never.first.reload
+    expect(newest.insights_updated_at).to be_present
+    expect(newest.reach).to eq(100)
+    expect(newest.likes_count).to eq(7)
+    expect(newest.comments_count).to eq(1)
+    expect(newest.saved_count).to eq(3) # saved + shares
+    expect(newest.engagement_rate).to eq(11.0) # (7 + 1 + 3) / 100 * 100
+
+    # The budget is finite (Instagram rate limit): the oldest never-collected rows
+    # wait for the next run rather than being silently skipped forever.
+    expect(never.last.reload.insights_updated_at).to be_nil
+  end
+
+  it 'loads the rake tasks exactly once (a second load duplicates every task body)' do
+    # Rails.application.load_tasks APPENDS an action to an already-defined task, so
+    # a second load in the same process makes every rake task run its body twice --
+    # which is how this suite briefly made scheduling:post_scheduled publish two
+    # posts per invoke and broke the release-pacing spec. See spec/support/rake_tasks.rb.
+    expect(Rake::Task['scheduling:post_scheduled'].actions.size).to eq(1)
+    expect(Rake::Task['scheduling:collect_insights'].actions.size).to eq(1)
+  end
+
+  it 'exits non-zero when candidates exist but the API returns nothing' do
+    posted(at: 3.days.ago)
+    stub_insights_api(status: 500)
+
+    # A silent no-op is the failure mode this task exists to end: the publisher
+    # logs a WARN and publishes anyway, and the ops board's insights-stale check
+    # catches a sustained failure.
+    expect { run_task }.to raise_error(SystemExit)
+  end
+end

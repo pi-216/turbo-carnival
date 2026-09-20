@@ -69,6 +69,22 @@ if [ "$SALVAGE_CODE" -ne 0 ]; then
     log "WARN: render salvage exited $SALVAGE_CODE — publishing anyway"
 fi
 
+# Collect engagement insights for posted items (2026-09-20). The insights columns
+# are what Growth::WeeklyReview aggregates per pillar to steer hashtags/content,
+# and the command that fills them existed since May -- but nothing invoked it (no
+# rake task, no cron), so the newest write was 2026-05-27 and 107 posted items had
+# no insights at all: every pillar's engagement read 0.0. The publisher is the only
+# in-repo hook that runs on a schedule regardless of the GPU gate. Deliberately
+# NON-FATAL (same pattern as the steps above): an Instagram API failure must never
+# stall publishing, and a sustained failure stays visible on the ops board
+# (bin/tc_ops.py check_insights_stale -> `insights-stale`).
+log "Collecting engagement insights for posted items..."
+bundle exec rails scheduling:collect_insights 2>&1 | tee -a "$LOG_FILE"
+INSIGHTS_CODE=${PIPESTATUS[0]}
+if [ "$INSIGHTS_CODE" -ne 0 ]; then
+    log "WARN: insights collection exited $INSIGHTS_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

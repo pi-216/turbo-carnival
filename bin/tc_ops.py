@@ -71,6 +71,11 @@ PUBLISH_CRITICAL_H = 12
 # 2026-09-10 -> 09-17: eight silent days with every report green).
 PUBLISH_GAP_WARN_H = 36
 PUBLISH_GAP_CRITICAL_H = 96
+# EXPECTED-EVENT ABSENCE, second case: the engagement feedback path. The insights
+# command refreshes posts older than 24h on every run of the hourly publisher, so
+# a live path is always well inside a day; a day of silence means nothing invoked
+# it (measured 2026-09-20: newest insights write 2026-05-27, i.e. ~4 months).
+INSIGHTS_STALE_WARN_H = 24
 # The caption model server. /api/ps answers "is a caption model warm" without
 # paying a cold load; the WARM-UP below is the only honest way to answer "can a
 # cold load complete", because that is the failure mode that shipped the
@@ -718,6 +723,69 @@ def check_future_queue_empty():
     )
 
 
+def insights_verdict(age_h):
+    """Pure: hours since the newest insights write -> severity (None when fresh).
+
+    age_h is None when NO posted item has insights at all -- that is a warn, not
+    "unknown": the columns exist, the command that fills them works, so zero
+    writes over a populated history means nothing is calling it.
+    """
+    if age_h is None:
+        return "warn"
+    if age_h >= INSIGHTS_STALE_WARN_H:
+        return "warn"
+    return None
+
+
+def check_insights_stale():
+    """EXPECTED-EVENT ABSENCE: the engagement feedback path exists but never runs.
+
+    Scheduling::Commands::CollectPostInsights is implemented, its columns are read
+    by Growth::WeeklyReview (per-pillar engagement steers hashtags and content
+    direction), and it works when called by hand -- but nothing invoked it: no rake
+    task, no cron, and its own selection had no ORDER BY, so even a manual run
+    re-refreshed the same 25 oldest rows and never reached the posts with no
+    insights at all. Measured 2026-09-20: newest insights write 2026-05-27, 107
+    posted items with a provider id and NULL insights (newest id 327) while ids
+    29-57 were re-collected -- every pillar's engagement read 0.0 for ~4 months,
+    with no error, no log line and no overdue row to notice it by. The age of the
+    newest insights write is the only signal such a path emits.
+    """
+    row = psql(
+        "select (select count(*) from scheduling_posts where status = 'posted' "
+        "and provider_post_id is not null "
+        "and posted_at < (now() at time zone 'UTC') - interval '24 hours') || '|' || "
+        "coalesce((select round(extract(epoch from (now() at time zone 'UTC') "
+        "- max(insights_updated_at)) / 3600.0, 1)::text from scheduling_posts "
+        "where status = 'posted' and provider_post_id is not null), 'na')"
+    )
+    if row is None:
+        return None
+    try:
+        n_str, _, age_str = row.rpartition("|")
+        candidates = int(n_str)
+        age = None if age_str == "na" else float(age_str)
+    except ValueError:
+        return None
+    if candidates <= 0:
+        return None
+    sev = insights_verdict(age)
+    if not sev:
+        return None
+    age_txt = "never collected" if age is None else f"{age:.0f}h old"
+    return (
+        "insights-stale",
+        f"engagement insights are {age_txt} ({candidates} posted item(s) older than 24h)",
+        sev,
+        f"newest insights_updated_at is {age_txt}; posted items older than 24h with "
+        f"a provider id={candidates}. Growth::WeeklyReview aggregates "
+        "engagement_rate per pillar to steer hashtags and content, so a stale "
+        "insights column silently zeroes its only content signal. Producer: "
+        "scheduling:collect_insights (bin/scheduled_posting.sh, hourly). Measured "
+        "2026-09-20: newest write 2026-05-27 with 107 items NULL.",
+    )
+
+
 def colliding_pairs(times, window_min=BURST_WINDOW_MINUTES):
     """Pure: sorted epoch times -> the consecutive pairs inside the burst window."""
     return [
@@ -1292,6 +1360,7 @@ CHECKS = [
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
+    check_insights_stale,
     check_future_queue_empty,
     check_post_slot_bursts,
     check_post_schedule_shape,
@@ -1546,6 +1615,19 @@ def cmd_selftest(_argv):
     for name, age, want in gap_cases:
         expect(f"publish_gap_verdict[{name}]", publish_gap_verdict(age), want)
 
+    # insights_verdict: hours since the newest insights write -> severity. None
+    # means no posted item has insights at all (the ~4-month case this exists for).
+    insights_cases = [
+        ("fresh", 1.5, None),
+        ("same-day", 20.0, None),
+        ("just-under-warn", INSIGHTS_STALE_WARN_H - 0.1, None),
+        ("at-warn", float(INSIGHTS_STALE_WARN_H), "warn"),
+        ("four-months", 2760.0, "warn"),
+        ("never-collected", None, "warn"),
+    ]
+    for name, age, want in insights_cases:
+        expect(f"insights_verdict[{name}]", insights_verdict(age), want)
+
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [
         ("empty", [], 0),
@@ -1617,7 +1699,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
