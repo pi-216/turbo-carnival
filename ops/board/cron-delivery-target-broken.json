@@ -5,8 +5,8 @@
   "source": "probe",
   "status": "open",
   "first_seen": "2026-09-19T12:58:00-0400",
-  "last_seen": "2026-09-20T07:40:09-0400",
-  "seen_count": 14,
+  "last_seen": "2026-09-20T07:45:39-0400",
+  "seen_count": 15,
   "evidence": "3 turbo-carnival cron job(s) whose last result was never delivered: tc-growth-harness-brain (43b0d5c4446d, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-weekly-persona-review (8d3ac21799d5, deliver=origin, origin=webui, error=unknown platform 'webui'); tc-ops-triage (9c05f60f5fef, deliver=origin, origin=webui, error=unknown platform 'webui') \u2014 the fix is the delivery target on those jobs (`hermes cron edit <id> --deliver <target>`), not this repo.",
   "notes": [
     {
