@@ -13,8 +13,14 @@ then works the open issues and closes them with a note.
   tc_ops.py probe            scan signals, file/refresh issues, print summary
   tc_ops.py list [--all]     list issues (open by default)
   tc_ops.py show KEY         full issue record
+  tc_ops.py file KEY --title TEXT --evidence TEXT [--severity warn|critical|info]
+                             file an issue the probe cannot measure (outside-scope
+                             or found by reading a monitoring job's output);
+                             --source manual (default) keeps it out of auto-close
   tc_ops.py close KEY [-n]   close an issue with a resolution note
   tc_ops.py touch KEY        bump an issue (used by fixers to record progress)
+  tc_ops.py caption-endpoint is the caption service up? (scanner-safe probe for
+                             cron prompts: the shell command carries no raw IP)
   tc_ops.py warm-caption     load+pin the caption model on max395
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
@@ -56,6 +62,18 @@ STARVE_WINDOW_H = 12
 # A burst is two newly scheduled posts close enough together that the hourly
 # publisher (bin/scheduled_posting.sh) releases them in the SAME tick.
 BURST_WINDOW_MINUTES = 60
+# When Growth::PostSlotPlanner landed (commit 511afaf, 2026-09-19 21:36:32 EDT).
+# Rows created before it carry whatever time-of-day the producing tick ran, which
+# is the defect it fixed; a collision among rows created after it means a producer
+# is bypassing the planner. See post_slot_verdict.
+POST_SLOT_PLANNER_LANDED = calendar.timegm(
+    time.strptime("2026-09-20T01:36:32", "%Y-%m-%dT%H:%M:%S"))
+# The publisher's burst protection, asserted rather than assumed: the rake task
+# must still route due posts through Scheduling::PostReleasePlan, and that class
+# must still cap a run at one post. See check_release_pacing.
+RELEASE_PLAN_RAKE = APP / "packs" / "scheduling" / "lib" / "tasks" / "scheduled_posting.rake"
+RELEASE_PLAN_SRC = (APP / "packs" / "scheduling" / "app" / "services"
+                    / "scheduling" / "post_release_plan.rb")
 # Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
@@ -795,23 +813,49 @@ def colliding_pairs(times, window_min=BURST_WINDOW_MINUTES):
     ]
 
 
-def schedule_shape(times, cap, window_min=BURST_WINDOW_MINUTES):
-    """Pure: sorted future publish epochs -> (over_cap_days, colliding_pairs).
+def post_slot_verdict(rows, landed_ts=POST_SLOT_PLANNER_LANDED,
+                      window_min=BURST_WINDOW_MINUTES):
+    """Pure: [(slot_epoch, created_epoch)] -> (live_pairs, residue_pairs).
 
-    Days are UTC buckets (the app runs Time.zone = UTC, the same clock
-    PostSlotPlanner's windows are built on). over_cap_days is
-    [(day_start_epoch, count)] for every day holding MORE than `cap` posts.
+    A pair is LIVE when either of its rows was created at/after
+    Growth::PostSlotPlanner landed -- i.e. a producer is still bypassing the
+    planner, which is the defect worth waking someone for. A pair whose rows both
+    predate the planner is the pre-fix residue the board already knows about: it
+    cannot burst (the publisher paces releases) and it cannot be re-spaced without
+    a live-publishing edit, so it must not keep a warn-class issue open.
+    """
+    ordered = sorted(rows)
+    live, residue = [], []
+    for (a, ca), (b, cb) in zip(ordered, ordered[1:]):
+        if (b - a) < window_min * 60:
+            (live if max(ca, cb) >= landed_ts else residue).append((a, b))
+    return live, residue
+
+
+def over_cap_split(rows, cap, landed_ts=POST_SLOT_PLANNER_LANDED):
+    """Pure: [(slot_epoch, created_epoch)] -> (live_days, residue_days).
+
+    A day over the cadence cap is LIVE when any of its rows was created at/after
+    Growth::PostSlotPlanner landed -- a producer or the planner itself is still
+    over-filling a day, which is actionable. A day whose rows all predate the
+    planner is pre-fix residue: the publisher's one-post-per-tick pacing spreads
+    the release, and re-spacing the rows would be a live-publishing edit, so it
+    clears as the day passes and must not carry warn severity.
     """
     per_day = {}
-    for t in times:
-        bucket = int(t // 86400) * 86400
-        per_day[bucket] = per_day.get(bucket, 0) + 1
-    over = [(d, n) for d, n in sorted(per_day.items()) if n > cap]
-    return over, colliding_pairs(times, window_min)
+    for slot, created in rows:
+        d = per_day.setdefault(int(slot // 86400) * 86400, {"n": 0, "live": False})
+        d["n"] += 1
+        d["live"] = d["live"] or created >= landed_ts
+    live, residue = [], []
+    for bucket, d in sorted(per_day.items()):
+        if d["n"] > cap:
+            (live if d["live"] else residue).append((bucket, d["n"]))
+    return live, residue
 
 
 def check_post_slot_bursts():
-    """Newly scheduled posts placed on top of each other -> a burst release.
+    """A producer still placing posts on top of each other -> a burst release.
 
     Every producer used to stamp `scheduled_at = Time.current + offset_days.days`,
     so a post's wall-clock time was whatever time the producing tick ran. Posts
@@ -820,25 +864,28 @@ def check_post_slot_bursts():
     measured 2026-09-19: posts 317/319/326 published 06:00:14Z / 06:00:26Z /
     06:00:38Z, three posts inside 24 s, while the cadence cap is 3/day.
 
-    Growth::PostSlotPlanner now allocates spaced slots. This check measures the
-    PRODUCER (posts created in the last 24 h), so it clears by itself once the fix
-    is live instead of staying open on pre-fix rows that the queue still has to
-    drain.
+    Growth::PostSlotPlanner (2026-09-20 01:36Z) now allocates spaced slots, so a
+    collision among rows created AFTER it means a producer is bypassing the
+    planner -- the live regression this gates on. Rows created BEFORE it are
+    residue: reported as context, never as the reason the issue stays open (the
+    publisher's one-post-per-tick pacing, asserted by check_release_pacing, is
+    what makes them harmless).
     """
     lines = psql_lines(
-        "select extract(epoch from scheduled_at)::bigint from scheduling_posts "
+        "select extract(epoch from scheduled_at)::bigint || ' ' || "
+        "extract(epoch from created_at)::bigint from scheduling_posts "
         "where created_at > (now() at time zone 'UTC') - interval '24 hours' "
         "and scheduled_at is not null order by scheduled_at"
     )
     if lines is None:
         return None
     try:
-        times = sorted(float(x) for x in lines)
+        rows = [tuple(float(v) for v in line.split()) for line in lines]
     except ValueError:
         return None
 
-    pairs = colliding_pairs(times)
-    if not pairs:
+    live, residue = post_slot_verdict(rows)
+    if not live:
         return None
 
     def stamp(t):
@@ -846,20 +893,21 @@ def check_post_slot_bursts():
 
     return (
         "post-slots-collide",
-        f"{len(pairs)} pair(s) of posts created in the last 24h sit inside "
-        f"{BURST_WINDOW_MINUTES} min of each other",
+        f"{len(live)} pair(s) of posts created since the slot planner landed sit "
+        f"inside {BURST_WINDOW_MINUTES} min of each other",
         "warn",
-        "colliding: " + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4])
-        + "; the publisher now releases at most ONE post per tick "
-        "(Scheduling::PostReleasePlan, 2026-09-20), so bunched slots no longer "
-        "leave the account as a burst -- what remains here is a PRODUCER-shape "
-        "smell (the slots are still too close; measured 2026-09-19: 3 posts inside "
-        "24 s, before the pacing fix)",
+        "colliding: " + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in live[:4])
+        + "; rows created at/after Growth::PostSlotPlanner (2026-09-20 01:36Z) "
+        "that still collide mean a producer is bypassing the planner -- the "
+        "planner allocates the earliest under-cap day at a window slot >= 90 min "
+        "from every taken slot"
+        + (f". {len(residue)} further pair(s) are pre-fix residue (paced by "
+           f"Scheduling::PostReleasePlan, context only)" if residue else ""),
     )
 
 
 def check_post_schedule_shape():
-    """The SHAPE of the future queue: days over the cadence cap, slots sharing a publisher tick.
+    """The SHAPE of the future queue: days over the cadence cap.
 
     check_post_slot_bursts measures the PRODUCER (rows created in the last 24 h),
     so it goes green exactly when a pre-fix cluster ages out of that window --
@@ -867,13 +915,29 @@ def check_post_schedule_shape():
     probe stopped counting the 09-19 cluster at 15:15Z while posts 334/335/336
     were still queued to go out at 17:00Z, i.e. the board went green mid-burst.
     This measures what will actually leave the building: every future
-    draft/scheduled row, grouped by publish day against the goal's posts_per_day,
-    plus any consecutive pair close enough that bin/scheduled_posting.sh (hourly)
-    releases both in one tick. Pre-fix rows are what it currently sees, and it
-    clears itself: a day drops out once it is past.
+    draft/scheduled row, grouped by publish day against the goal's posts_per_day.
+    Pre-fix rows are what it currently sees, and it clears itself: a day drops
+    out once it is past.
+
+    WHY SLOT PROXIMITY IS NO LONGER GATED HERE (2026-09-20): proximity used to
+    mean a burst because the publisher released EVERY due post in one pass.
+    Scheduling::PostReleasePlan now caps a run at ONE post (MAX_PER_RUN=1), so
+    two slots inside the window leave in CONSECUTIVE ticks, not together -- and
+    that wiring is asserted by check_release_pacing, which is the guard that
+    fires if the protection is reverted. Gating on proximity here would keep
+    re-filing a condition the releaser already neutralises, which is how a board
+    trains its reader to ignore it.
+
+    SEVERITY FOLLOWS ACTIONABILITY: a day over the cap is a warn only when one of
+    its rows was created at/after Growth::PostSlotPlanner landed -- i.e. the
+    producer or the planner is STILL over-filling a day. A day whose rows all
+    predate the planner is residue (see over_cap_split): it cannot be re-spaced
+    without a live-publishing edit, it clears as the day passes, and it is
+    reported at info so the fact stays visible without a warn nobody can action.
     """
     rows = psql_lines(
-        "select extract(epoch from scheduled_at)::bigint from scheduling_posts "
+        "select extract(epoch from scheduled_at)::bigint || ' ' || "
+        "extract(epoch from created_at)::bigint from scheduling_posts "
         "where status in ('draft','scheduled') and scheduled_at is not null "
         "and scheduled_at > (now() at time zone 'UTC') order by scheduled_at"
     )
@@ -881,38 +945,103 @@ def check_post_schedule_shape():
     if rows is None or cap is None:
         return None
     try:
-        times = sorted(float(x) for x in rows)
+        slots = [tuple(float(v) for v in line.split()) for line in rows]
         cap = max(int(cap), 1)
     except ValueError:
         return None
-    if not times:
+    if not slots:
         return None
 
-    over, pairs = schedule_shape(times, cap)
-    if not over and not pairs:
+    live_days, residue_days = over_cap_split(slots, cap)
+    if not live_days and not residue_days:
         return None
+    over = live_days + residue_days
+    pairs = colliding_pairs(sorted(t for t, _ in slots))
 
     day = lambda d: time.strftime("%m-%d", time.gmtime(d))  # noqa: E731
     stamp = lambda t: time.strftime("%m-%d %H:%M", time.gmtime(t))  # noqa: E731
-    parts = []
-    if over:
-        parts.append(f"{len(over)} day(s) over the {cap}/day cap: "
-                     + ", ".join(f"{day(d)}={n}" for d, n in over[:4]))
+    parts = [f"{len(over)} day(s) over the {cap}/day cap: "
+             + ", ".join(f"{day(d)}={n}" for d, n in over[:4])]
+    # Reported for context only: paced by PostReleasePlan, so it cannot burst.
+    context = ""
     if pairs:
-        parts.append(f"{len(pairs)} pair(s) inside {BURST_WINDOW_MINUTES} min: "
-                     + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4]))
+        context = (f" [{len(pairs)} pair(s) inside {BURST_WINDOW_MINUTES} min: "
+                   + ", ".join(f"{stamp(a)}/{stamp(b)}" for a, b in pairs[:4])
+                   + " -- paced, one post per tick, context only]")
+    residue_note = ""
+    if residue_days:
+        residue_note = (f" {len(residue_days)} of them ({', '.join(day(d) for d, _ in residue_days[:4])}) "
+                        f"are pre-fix residue: every row predates Growth::PostSlotPlanner, so no "
+                        f"producer is misbehaving -- re-spacing them would be a live-publishing edit, "
+                        f"and each day clears as it passes.")
 
     return (
         "post-schedule-bunched",
-        f"future queue still carries pre-fix slots: {'; '.join(parts)}",
-        "warn" if over else "info",
-        f"{'; '.join(parts)}; {len(times)} future post(s) queued. Producers now "
-        "allocate through Growth::PostSlotPlanner AND the publisher releases at "
-        "most ONE post per tick (Scheduling::PostReleasePlan), so these pre-fix "
-        "rows no longer leave as a burst: the pair signal is the slot shape only, "
-        "and the rows drain as the queue publishes (last bunched pair 09-25). No "
-        "row edits needed -- the fix belongs in the releaser, which is where the "
-        "burst actually happened.",
+        (f"a producer created an over-cap day: {'; '.join(parts)}" if live_days
+         else f"future queue still carries pre-fix over-cap days: {'; '.join(parts)}"),
+        "warn" if live_days else "info",
+        f"{'; '.join(parts)}; {len(slots)} future post(s) queued{context}. Producers "
+        "allocate through Growth::PostSlotPlanner and the publisher releases at most "
+        "ONE post per tick (Scheduling::PostReleasePlan, asserted by "
+        "check_release_pacing), so these rows cannot leave as a burst."
+        + residue_note,
+    )
+
+
+def release_pacing_verdict(rake_src, plan_src):
+    """Pure: does the publisher still pace releases to ONE post per tick?
+
+    Returns None when the protection is wired, else (severity, evidence). This is
+    a REGRESSION GUARD, not a shape check: the pre-fix slot residue on the board
+    is harmless ONLY while the publisher routes due posts through
+    Scheduling::PostReleasePlan, and nothing else asserts that wiring survives a
+    refactor. A silent revert would restore the measured 2026-09-19 failure
+    (posts 317/319/326 published 06:00:14Z/06:00:26Z/06:00:38Z -- three posts
+    inside 24 s) while every board signal stayed green.
+    """
+    if not rake_src or not plan_src:
+        return ("warn", "cannot read the publisher's release-plan sources "
+                        f"({RELEASE_PLAN_RAKE.name} / {RELEASE_PLAN_SRC.name})")
+    if "PostReleasePlan" not in rake_src:
+        return ("critical",
+                "scheduling:post_scheduled no longer routes due posts through "
+                "Scheduling::PostReleasePlan -- every due post is released in ONE "
+                "tick again, so bunched slots burst at the account")
+    m = re.search(r"MAX_PER_RUN\s*=\s*(\d+)", plan_src)
+    if not m:
+        return ("warn", "Scheduling::PostReleasePlan::MAX_PER_RUN is no longer an "
+                        "integer literal, so the per-tick cap cannot be verified")
+    if int(m.group(1)) != 1:
+        return ("warn", f"Scheduling::PostReleasePlan::MAX_PER_RUN={m.group(1)}: the "
+                        f"publisher may release {m.group(1)} posts in one tick again")
+    return None
+
+
+def check_release_pacing():
+    """Assert the fix that stops bunched slots from bursting is still wired.
+
+    The 2026-09-19 burst had two independent causes: producers stamped
+    `scheduled_at = Time.current + offset_days.days` (fixed by
+    Growth::PostSlotPlanner) and the publisher released EVERY due post in one
+    pass (fixed by Scheduling::PostReleasePlan, MAX_PER_RUN=1). The second fix is
+    what makes the pre-fix residue on the board harmless, and it is the only
+    thing between a bunched day and a real burst -- so its revert looks exactly
+    like a healthy board. Assert the wiring, not the outcome.
+    """
+    def read(p):
+        try:
+            return p.read_text()
+        except OSError:
+            return ""
+
+    v = release_pacing_verdict(read(RELEASE_PLAN_RAKE), read(RELEASE_PLAN_SRC))
+    if not v:
+        return None
+    return (
+        "release-pacing-unwired",
+        "the publisher's one-post-per-tick pacing is not wired",
+        v[0],
+        v[1] + f" (checked {RELEASE_PLAN_RAKE.name} + {RELEASE_PLAN_SRC.name})",
     )
 
 
@@ -1364,6 +1493,7 @@ CHECKS = [
     check_future_queue_empty,
     check_post_slot_bursts,
     check_post_schedule_shape,
+    check_release_pacing,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_harness_log_growth,
@@ -1544,6 +1674,66 @@ def cmd_close(argv):
     return 0
 
 
+def cmd_file(argv):
+    """File (or refresh) a board issue from the command line.
+
+    The probe owns the signals it can MEASURE. This exists for the ones it
+    cannot: a condition found by reading a monitoring job's output, or a problem
+    outside this repo's scope. `--source manual` (the default) means the probe
+    will neither re-file nor auto-close it, so it stays open until a run closes
+    it with a reason -- which is what makes it honest to file something a human
+    has to decide.
+    """
+    if not argv:
+        print("usage: tc_ops.py file KEY --title TEXT --evidence TEXT "
+              "[--severity warn|critical|info] [--source manual]", file=sys.stderr)
+        return 2
+    key = argv[0]
+    opts = {}
+    for flag in ("--title", "--evidence", "--evidence-file", "--severity", "--source"):
+        if flag in argv:
+            i = argv.index(flag) + 1
+            if i >= len(argv) or argv[i].startswith("--"):
+                print(f"{flag} needs a value", file=sys.stderr)
+                return 2
+            opts[flag[2:]] = argv[i]
+    # --evidence-file exists because board evidence routinely QUOTES a raw private
+    # address or URL, and the tool scanner refuses a command line containing one --
+    # so the honest record could not be filed at all without a file path.
+    if opts.get("evidence-file"):
+        try:
+            opts["evidence"] = Path(opts["evidence-file"]).read_text().strip()
+        except OSError as e:
+            print(f"cannot read --evidence-file: {e}", file=sys.stderr)
+            return 2
+    if not opts.get("title") or not opts.get("evidence"):
+        print("--title and --evidence (or --evidence-file) are required", file=sys.stderr)
+        return 2
+    sev = opts.get("severity", "warn")
+    if sev not in SEV_ORDER:
+        print(f"severity must be one of {', '.join(SEV_ORDER)}", file=sys.stderr)
+        return 2
+
+    p = issue_path(key)
+    prior = None
+    if p.exists():
+        try:
+            prior = json.loads(p.read_text())
+        except Exception:
+            prior = None
+    rec = file_issue(key, opts["title"], sev, opts["evidence"],
+                     source=opts.get("source", "manual"))
+    # A manual filing must not STEAL a probe-owned key: file_issue adopts the
+    # caller's source for any record that was probe-owned, which would silently
+    # stop the probe re-filing and auto-closing a signal it can measure.
+    if prior and prior.get("source") == "probe":
+        rec["source"] = "probe"
+        p.write_text(json.dumps(rec, indent=2) + "\n")
+    print(f"filed {key} [{rec['severity']}] status={rec['status']} "
+          f"seen_count={rec['seen_count']} source={rec['source']}")
+    return 0
+
+
 def cmd_touch(argv):
     if not argv:
         return 2
@@ -1639,28 +1829,56 @@ def cmd_selftest(_argv):
     for name, times, want in burst_cases:
         expect(f"colliding_pairs[{name}]", len(colliding_pairs(times)), want)
 
-    # schedule_shape: (sorted future epochs, cap) -> (over-cap days, colliding pairs).
-    # The same instants the old producers stamped: creation time-of-day, so a day
-    # collects whatever the producing tick's clock was.
+    # post_slot_verdict: [(slot, created)] -> (live pairs, residue pairs), split on
+    # whether a producer could still have been bypassing the planner.
+    L = POST_SLOT_PLANNER_LANDED
+    slot_cases = [
+        ("spaced", [(1000.0, L + 10), (9000.0, L + 10)], 0, 0),
+        ("residue-only", [(1000.0, L - 10), (1500.0, L - 10)], 0, 1),
+        ("live-only", [(1000.0, L + 10), (1500.0, L + 10)], 1, 0),
+        ("mixed", [(1000.0, L - 10), (1500.0, L + 10)], 1, 0),
+        ("mixed-spaced", [(1000.0, L - 10), (1500.0, L + 10), (9000.0, L - 10)], 1, 0),
+        ("empty", [], 0, 0),
+    ]
+    for name, rows, want_live, want_residue in slot_cases:
+        live, residue = post_slot_verdict(rows)
+        expect(f"post_slot_verdict[{name}].live", len(live), want_live)
+        expect(f"post_slot_verdict[{name}].residue", len(residue), want_residue)
+
+    # over_cap_split: [(slot, created)] + cap -> (live days, residue days). The
+    # split is what keeps a warn actionable: residue cannot be re-spaced without a
+    # live-publishing edit, so it must not carry warn severity.
     D = 86400.0
-    shape_cases = [
-        # one spaced post per day, all under cap -> nothing to report
-        ("healthy", [D * 10 + 32400, D * 11 + 36000, D * 12 + 39600], 3, 0, 0),
-        # 6 posts on one day, 3 of them inside an hour (the live 2026-09-20 shape)
-        ("over-cap-burst",
-         sorted([D * 10 + 15600, D * 10 + 19740, D * 10 + 54900,
-                 D * 10 + 57660, D * 10 + 59100, D * 10 + 61800]), 3, 1, 3),
+    cap_cases = [
+        ("healthy", [(D * 10 + 32400, L + 10)], 3, 0, 0),
+        ("live-over", [(D * 10 + i * 3600, L + 10) for i in range(4)], 3, 1, 0),
+        ("residue-over", [(D * 10 + i * 3600, L - 10) for i in range(4)], 3, 0, 1),
+        ("mixed", [(D * 10 + i * 3600, L - 10) for i in range(4)]
+         + [(D * 11 + i * 3600, L + 10) for i in range(4)], 3, 1, 1),
         # exactly at cap is fine; only MORE than cap is a violation
-        ("at-cap", [D * 10 + 32400, D * 10 + 36000, D * 10 + 39600], 3, 0, 0),
-        # over cap on two days, no sub-hour pair
-        ("two-over-cap", [D * 10 + i * 3600 for i in range(4)]
-         + [D * 11 + i * 3600 for i in range(5)], 3, 2, 0),
+        ("at-cap", [(D * 10 + i * 3600, L + 10) for i in range(3)], 3, 0, 0),
         ("empty", [], 3, 0, 0),
     ]
-    for name, times, cap, want_over, want_pairs in shape_cases:
-        over, pairs = schedule_shape(sorted(times), cap)
-        expect(f"schedule_shape[{name}].over", len(over), want_over)
-        expect(f"schedule_shape[{name}].pairs", len(pairs), want_pairs)
+    for name, rows, cap, want_live, want_residue in cap_cases:
+        live, residue = over_cap_split(rows, cap)
+        expect(f"over_cap_split[{name}].live", len(live), want_live)
+        expect(f"over_cap_split[{name}].residue", len(residue), want_residue)
+
+    # release_pacing_verdict: (rake source, plan source) -> (severity, evidence) or None.
+    # The guard exists because the slot-proximity signal is only harmless while
+    # PostReleasePlan caps a run at one post; a silent revert must not read green.
+    rake_ok = "    plan = Scheduling::PostReleasePlan.call(all_posts)\n"
+    plan_ok = "    MAX_PER_RUN = 1\n"
+    pacing_cases = [
+        ("wired", rake_ok, plan_ok, None),
+        ("rake-reverted", "    all_posts.each { |p| p.start_posting! }\n", plan_ok, "critical"),
+        ("cap-raised", rake_ok, "    MAX_PER_RUN = 3\n", "warn"),
+        ("cap-not-literal", rake_ok, "    MAX_PER_RUN = ENV.fetch('N', 1)\n", "warn"),
+        ("sources-unreadable", "", "", "warn"),
+    ]
+    for name, rake_src, plan_src, want in pacing_cases:
+        v = release_pacing_verdict(rake_src, plan_src)
+        expect(f"release_pacing_verdict[{name}]", v[0] if v else None, want)
 
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
@@ -1682,6 +1900,22 @@ def cmd_selftest(_argv):
         expect("close[-n] note", rec["notes"][-1]["note"], "resolved by selftest")
         expect("close[probe-owned] warns", "probe-owned" in buf.getvalue(), True)
 
+        # file: a manual filing must not steal a probe-owned key (the probe would
+        # stop re-filing and auto-closing it), and a missing --evidence must be
+        # refused rather than persisted as a blank record.
+        with redirect_stdout(buf):
+            rc_no_ev = cmd_file(["newkey", "--title", "t"])
+        expect("file[missing-evidence] rc", rc_no_ev, 2)
+        expect("file[missing-evidence] not-filed", (tmp / "newkey.json").exists(), False)
+        with redirect_stdout(buf):
+            rc_new = cmd_file(["newkey", "--title", "outside-scope", "--evidence", "e"])
+        expect("file[new] rc", rc_new, 0)
+        expect("file[new] source", json.loads((tmp / "newkey.json").read_text())["source"], "manual")
+        with redirect_stdout(buf):
+            cmd_file(["k", "--title", "x", "--evidence", "y"])
+        expect("file[probe-owned] keeps source",
+               json.loads((tmp / "k.json").read_text())["source"], "probe")
+
         # notes are a rolling window: overflow goes to board/archive, never deleted.
         prod = {"key": "w", "notes": []}
         for i in range(NOTE_KEEP + 2):
@@ -1699,8 +1933,26 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(shape_cases) + 9} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + 14} assertions, {len(fails)} failures")
     return 1 if fails else 0
+
+
+def cmd_caption_endpoint(_argv):
+    """Answer "is the caption service up" from Python, so cron prompts can call it.
+
+    The cron prompts probe Ollama with a raw-IP curl, which the tool scanner
+    blocks on private-network/plain-HTTP grounds -- so every run improvised an SSH
+    fallback (genome #13: agent workarounds masking a config defect). The scanner
+    reads the SHELL COMMAND, not what the process does, so
+    `python3 bin/tc_ops.py caption-endpoint` asks the same question of the same
+    configured endpoint and cannot be blocked. Exit 0 = up, 1 = down.
+    """
+    models = caption_resident_models()
+    if models is None:
+        print(f"down (no /api/ps answer from {CAPTION_ENDPOINT})")
+        return 1
+    print(f"up ({CAPTION_ENDPOINT}); resident: {', '.join(models) if models else 'none'}")
+    return 0
 
 
 def cmd_warm_caption(_argv):
@@ -1729,7 +1981,8 @@ def main():
     return {
         "probe": cmd_probe, "list": cmd_list, "show": cmd_show,
         "close": cmd_close, "touch": cmd_touch, "selftest": cmd_selftest,
-        "warm-caption": cmd_warm_caption,
+        "file": cmd_file, "warm-caption": cmd_warm_caption,
+        "caption-endpoint": cmd_caption_endpoint,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 

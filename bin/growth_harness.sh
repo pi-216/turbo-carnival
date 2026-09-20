@@ -1,6 +1,24 @@
 #!/bin/bash
 
-# Turbo Carnival - Growth Harness
+# DEPRECATED 2026-09-20 -- DO NOT RE-ENABLE. The live publisher is
+# bin/scheduled_posting.sh, driven hourly from the user crontab (`0 * * * *`).
+#
+# Why this file must stay dead: it runs the SAME `scheduling:post_scheduled` task
+# on the SAME hourly cadence, so re-adding it to cron would put TWO drivers on the
+# publisher -- the exact two-driver race the ops board warns about elsewhere (they
+# interleave read-modify-write on shared state and double-release due posts). It
+# also predates the burst fix: `scheduling:post_scheduled` now paces releases
+# through Scheduling::PostReleasePlan (one post per tick), and it repairs
+# placeholder captions, salvages abandoned renders and collects insights first --
+# none of which this wrapper does, because it calls the bare rake task.
+#
+# Evidence it is dead: nothing in the repo or the crontab invokes it, and
+# log/growth_harness.log has not been written since 2026-08-20 (it ends on the
+# then-unfixed `TypeError: no implicit conversion of Hash into String` from the
+# content_strategy initializer). Kept for history only; the openspec change
+# add-growth-harness documents what it was meant to be.
+#
+# Turbo Carnival - Growth Harness (HISTORICAL)
 # Single autonomous loop for the follower-growth pipeline, run on an hourly
 # schedule:
 #   1. growth:sync_cadence       - top up scheduled posts to meet cadence

@@ -3,16 +3,12 @@
   "title": "3 pair(s) of posts created in the last 24h sit inside 60 min of each other",
   "severity": "warn",
   "evidence": "colliding: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10; the publisher now releases at most ONE post per tick (Scheduling::PostReleasePlan, 2026-09-20), so bunched slots no longer leave the account as a burst -- what remains here is a PRODUCER-shape smell (the slots are still too close; measured 2026-09-19: 3 posts inside 24 s, before the pacing fix)",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T21:35:37-0400",
-  "last_seen": "2026-09-20T03:50:02-0400",
-  "seen_count": 18,
+  "last_seen": "2026-09-20T04:41:47-0400",
+  "seen_count": 21,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-19T22:48:55-0400",
-      "note": "2026-09-20 02:5xZ: producer fix re-verified live -- Growth::PostSlotPlanner.next_slot on live data returns 2026-09-25 09:00Z (earliest under-cap day, window slot >= 90 min clear), and no post created since 511afaf collides (none has been created at all: queue at target 21/21, so no producer has run). The residue this entry counts is now measured where it matters by the new post-schedule-bunched check, because this producer-window check goes green at ~15:15Z today -- i.e. mid-burst, while 334/335/336 are still queued. No action on the pre-fix rows: re-spacing is a live-publishing edit."
-    },
     {
       "ts": "2026-09-19T23:55:20-0400",
       "note": "2026-09-20 03:5xZ: unchanged residue; the producer fix (511afaf) still holds and no post has been created since (queue at target 21/21). The 4 pre-fix rows release today 15:15-17:10Z and this entry self-clears as they age out of the 24h window. NEW: proposal recorded for Tim rather than applied - bin/scheduled_posting.sh releases EVERY due post in one tick, so any backlog (not just this residue) burst-publishes; a max-1-per-tick guard in packs/scheduling/lib/tasks/scheduled_posting.rake would pace it without editing any row. Not applied: it changes live publish timing, which is the same class of edit Tim reserved."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T03:52:04-0400",
       "note": "2026-09-20 07:5xZ ops-triage: unchanged, ages out of the 24h creation window by itself. The 3 counted pairs are all pre-fix rows (333/334/335/336, due 09-20 15:15-17:10Z, created before 511afaf); nothing created since collides, and no post has been created since (queue at target 21/21). No repo action left."
+    },
+    {
+      "ts": "2026-09-20T04:44:33-0400",
+      "note": "condition no longer reproduces"
     }
   ]
 }
