@@ -179,9 +179,14 @@ module Growth
 
     def schedule_post(run, photo, nsfw, realism)
       pillar = run.content_pillar || fallback_pillar
-      offset = offset_days
       cap = caption_result_for(photo, pillar)
       captioned = CaptionGeneration::CaptionMetadata.success?(cap)
+      # Allocated slot, not a stamped clock time -- a salvage batch must not stack
+      # onto one publishing tick any more than a fresh sync does.
+      slot = Growth::PostSlotPlanner.next_slot(
+        persona: goal.persona,
+        posts_per_day: goal.effective_posts_per_day
+      )
       Scheduling::Post.create!(
         persona: goal.persona,
         photo: photo,
@@ -190,18 +195,13 @@ module Growth
         hashtags: hashtags_for(photo, pillar),
         caption_metadata: CaptionGeneration::CaptionMetadata.for_result(cap, placeholder: !captioned),
         status: 'scheduled',
-        scheduled_at: Time.current + offset.days,
-        optimal_time_calculated: Time.current + offset.days,
+        scheduled_at: slot,
+        optimal_time_calculated: slot,
         strategy_name: STRATEGY_NAME
       )
     rescue StandardError => e
       @logger.warn("Growth::RenderSalvage could not schedule recovered render: #{e.class} - #{e.message}")
       nil
-    end
-
-    # Space recovered posts out so a salvage batch does not stack onto one day.
-    def offset_days
-      1 + Scheduling::Post.where(strategy_name: STRATEGY_NAME).count
     end
 
     # The caption result is kept (not just its text) so the model that answered

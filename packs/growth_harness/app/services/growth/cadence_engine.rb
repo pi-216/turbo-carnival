@@ -12,6 +12,11 @@ module Growth
   # pillar in the pool has been exhausted.
   class CadenceEngine
     LOOKAHEAD_DAYS = 7
+    # Minimum lead for a freshly generated post. The exact slot is allocated by
+    # Growth::PostSlotPlanner (earliest under-cap day, spaced inside the posting
+    # window) -- passing an INCREMENTING lead here is what used to push each
+    # successive post a day further out and break the 7-day target window.
+    MIN_LEAD_DAYS = 1
 
     attr_reader :goal
 
@@ -36,11 +41,9 @@ module Growth
       created = 0
       failures = []
       config = pillar_candidates.to_a.shuffle
-      offset = 1
 
       while shortfall > 0 && config.any?
-        result = generate_fresh(offset, config.shift)
-        offset += 1
+        result = generate_fresh(MIN_LEAD_DAYS, config.shift)
 
         if result[:success]
           created += 1
@@ -50,8 +53,7 @@ module Growth
           # NEXT pillar, and retry this slot. Only give up when the pool empties.
           record_pillar_shift(result)
           if config.any?
-            moved = generate_fresh(offset, config.shift)
-            offset += 1
+            moved = generate_fresh(MIN_LEAD_DAYS, config.shift)
             if moved[:success]
               created += 1
               shortfall -= 1
@@ -109,8 +111,9 @@ module Growth
 
     # Generate one FRESH image via turbo-one-step and schedule it (replaces
     # stale-library reuse). pillar shifts which scene bank the prompt uses.
-    def generate_fresh(offset_days, pillar = nil)
-      Growth::ContentGenerator.new(goal: goal, pillar: pillar).generate_one(offset_days: offset_days)
+    # min_lead_days is a floor; the slot itself comes from PostSlotPlanner.
+    def generate_fresh(min_lead_days, pillar = nil)
+      Growth::ContentGenerator.new(goal: goal, pillar: pillar).generate_one(offset_days: min_lead_days)
     end
 
     # Non-expired pillars to rotate through, heaviest first (so cadence favors

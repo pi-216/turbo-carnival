@@ -71,5 +71,29 @@ RSpec.describe Growth::ContentGenerator do
       expect(post.caption_metadata['placeholder']).to be(true)
       expect(post.caption_metadata['error']).to eq('Caption generation failed: timeout')
     end
+
+    # The producer used to stamp every post with `Time.current + offset_days.days`,
+    # so posts made by successive ticks for the same day shared a publishing hour
+    # and the hourly publisher released them in one tick (three posts in 24 s on
+    # 2026-09-19). The slot must be allocated, and spaced.
+    it 'allocates a spaced slot rather than stamping the producing tick clock time' do
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      # A photo can carry only one post (unique index on photo_id+persona_id), so
+      # each generation needs its own render output.
+      paths = Array.new(2) { Rails.root.join('tmp', "gen_spec_slot_#{SecureRandom.hex(4)}.png").to_s }
+      paths.each { |p| File.binwrite(p, 'not-really-a-png') }
+      allow(generator).to receive(:poll_for_image) { paths.shift }
+
+      first = Scheduling::Post.find(generator.generate_one(offset_days: 1)[:post_id])
+      second = Scheduling::Post.find(generator.generate_one(offset_days: 1)[:post_id])
+
+      expect(first.optimal_time_calculated).to eq(first.scheduled_at)
+      expect(second.scheduled_at - first.scheduled_at)
+        .to be >= Growth::PostSlotPlanner::SLOT_GAP_MINUTES.minutes
+      expect(first.scheduled_at).to be > Time.current
+    ensure
+      FileUtils.rm_f(paths)
+    end
   end
 end

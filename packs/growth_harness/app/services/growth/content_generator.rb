@@ -27,6 +27,10 @@ module Growth
     end
 
     # Generate one fresh render + caption + scheduled post.
+    #
+    # offset_days is the MINIMUM lead in days; the exact slot is allocated by
+    # Growth::PostSlotPlanner so two posts can never share a publishing tick
+    # (see that class for the measured burst this replaced).
     def generate_one(offset_days: 1)
       # GPU GATE (2026-09-01): never submit a render without a live scheduler
       # claim — an unclaimed ComfyUI makes the scheduler report "idle" while
@@ -115,7 +119,15 @@ module Growth
       captioned = CaptionGeneration::CaptionMetadata.success?(cap)
       caption = captioned ? cap.caption : "Fresh look ✨"
 
-      # Schedule it
+      # Schedule it. The slot is ALLOCATED, not stamped with "now + N days":
+      # stamping every post with the producing tick's clock time put multiple
+      # posts on one publishing hour, and the hourly publisher released them in a
+      # single tick (measured 2026-09-19: three posts inside 24 s).
+      slot = Growth::PostSlotPlanner.next_slot(
+        persona: persona,
+        posts_per_day: goal.effective_posts_per_day,
+        min_lead_days: offset_days
+      )
       # Hashtags: scheduling_posts has always had a hashtags column and
       # ContentStrategy::HashtagEngine has always been able to fill it, but this
       # path created every post without one -- all 197 posted items went out with
@@ -127,8 +139,8 @@ module Growth
         hashtags: hashtags_for(photo),
         caption_metadata: CaptionGeneration::CaptionMetadata.for_result(cap, placeholder: !captioned),
         status: 'scheduled',
-        scheduled_at: Time.current + offset_days.days,
-        optimal_time_calculated: Time.current + offset_days.days,
+        scheduled_at: slot,
+        optimal_time_calculated: slot,
         strategy_name: 'turbo-one-step'
       )
 
