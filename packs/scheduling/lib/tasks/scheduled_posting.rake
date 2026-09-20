@@ -119,17 +119,17 @@ namespace :scheduling do
             puts "   ✅ Posted successfully!"
             puts "   Instagram ID: #{instagram_result.instagram_post_id}"
           else
-            post.mark_as_failed!
+            post.record_failure!("instagram: #{instagram_result.errors.join(', ')}")
             puts "   ❌ Instagram posting failed: #{instagram_result.errors.join(', ')}"
             Rails.logger.error("Instagram posting failed for post #{post.id}: #{instagram_result.errors}")
           end
         else
-          post.mark_as_failed!
+          post.record_failure!("url_generation: #{public_url_result.errors.join(', ')}")
           puts "   ❌ URL generation failed: #{public_url_result.errors}"
           Rails.logger.error("URL generation failed for post #{post.id}: #{public_url_result.errors}")
         end
       rescue StandardError => e
-        post.mark_as_failed! if post.status != 'draft'
+        post.record_failure!("#{e.class}: #{e.message}") if post.status != 'draft'
         puts "   ❌ Error: #{e.message}"
         Rails.logger.error("Scheduled posting error for post #{post.id}: #{e.message}")
         Rails.logger.error(e.backtrace.join("\n"))

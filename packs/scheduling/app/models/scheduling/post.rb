@@ -54,6 +54,23 @@ module Scheduling
       %w[scheduled posting posted].include?(status)
     end
 
+    # Transition to :failed AND persist why.
+    #
+    # The publisher used to call mark_as_failed! with no argument, so a rejected
+    # post stored no reason at all: the cause (e.g. Instagram 400 code 9007
+    # "media not ready for publishing", a container-readiness race) survived only
+    # as a line in log/scheduled_posting.log. That made the ops board's
+    # silent-failure detector (bin/tc_ops.py check_publish_failed_silent) able to
+    # say a slot was lost but never why, and left the retry decision with no data
+    # behind it. Truncated because the reason is an upstream API message, not a
+    # document.
+    FAILURE_REASON_MAX = 500
+
+    def record_failure!(reason)
+      mark_as_failed!
+      update_columns(failure_reason: reason.to_s.strip.truncate(FAILURE_REASON_MAX))
+    end
+
     def image_promise_fulfilled?
       photo_id.present?
     end

@@ -785,6 +785,7 @@ def check_publish_failed_silent():
     rows = psql_lines(
         "select 'post ' || id || ' photo ' || coalesce(photo_id::text, '-') || "
         "' slot ' || coalesce(scheduled_at::text, '-') || ' failed ' || updated_at "
+        "|| ' reason: ' || coalesce(failure_reason, '(none stored)') "
         "from scheduling_posts where status = 'failed' and updated_at > "
         f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours' "
         "order by updated_at desc limit 5"
@@ -797,8 +798,9 @@ def check_publish_failed_silent():
         sev,
         f"{n_failed} post(s) marked failed in the last {PUBLISH_FAILED_WINDOW_H}h "
         f"({age}): {'; '.join(rows)}. packs/scheduling/lib/tasks/scheduled_posting.rake "
-        "calls mark_as_failed! with no requeue, and the row stores no reason (grep "
-        "the post id in log/scheduled_posting.log). Nothing else can see it: "
+        "calls record_failure! with no requeue (the row's failure_reason carries the "
+        "cause; rows written before 2026-09-20 have none, so grep the post id in "
+        "log/scheduled_posting.log for those). Nothing else can see it: "
         "check_publish_liveness counts only scheduled/draft rows past due, and "
         "check_publish_gap measures the newest POSTED post. Known cause: Instagram "
         "400 code 9007 'media not ready for publishing'. Suggested fix -- one "
