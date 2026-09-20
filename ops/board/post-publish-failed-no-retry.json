@@ -2,11 +2,11 @@
   "key": "post-publish-failed-no-retry",
   "title": "a post Instagram rejected is marked failed with no retry and no alarm -- the slot is lost silently",
   "severity": "warn",
-  "evidence": "1 post(s) marked failed in the last 24h (newest 1.7h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029. packs/scheduling/lib/tasks/scheduled_posting.rake calls mark_as_failed! with no requeue, and the row stores no reason (grep the post id in log/scheduled_posting.log). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
+  "evidence": "1 post(s) marked failed in the last 24h (newest 1.8h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029. packs/scheduling/lib/tasks/scheduled_posting.rake calls mark_as_failed! with no requeue, and the row stores no reason (grep the post id in log/scheduled_posting.log). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. Known cause: Instagram 400 code 9007 'media not ready for publishing'. Suggested fix -- one bounded retry on 9007 -- changes live publish behaviour, so it is Tim's call.",
   "status": "open",
   "first_seen": "2026-09-20T12:35:53-0400",
-  "last_seen": "2026-09-20T13:43:07-0400",
-  "seen_count": 8,
+  "last_seen": "2026-09-20T13:46:26-0400",
+  "seen_count": 9,
   "source": "probe",
   "notes": [
     {
