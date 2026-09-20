@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-19T19:40:36-0400",
       "note": "Unchanged 2026-09-19 23:5xZ: still a product decision (describe the render, or keep captions text-only from the pillar/context). New fact that makes it cheaper to take: the caption ladder now falls back to gemma3:4b, which is multimodal, so routing GenerateCaption on photo.servable_file_path instead of image.attached? would work without the 27B ever being resident -- the only cost is caption CONTENT changing from pillar text to an image description. Not actioned: Tim's call."
+    },
+    {
+      "ts": "2026-09-19T20:49:31-0400",
+      "note": "2026-09-20 00:5xZ: unchanged product decision for Tim. Mechanical fix is still one line (route GenerateCaption on servable_file_path instead of photo.image.attached?; VisionGenerator already reads path-only photos first). No photo since 2026-05-28 has an ActiveStorage attachment, so the vision path stays dead until that call is made."
     }
   ]
 }

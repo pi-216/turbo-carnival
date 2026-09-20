@@ -135,6 +135,25 @@ comfyui_ours() {
   [ -n "$pid" ] && [ "$pid" = "$want" ]
 }
 
+# Who is actually serving port 8188: ours (pid recorded in our state file) or a
+# foreign instance started outside this harness (a byobu/tmux shell, another
+# agent). WHY: `comfyui=up` on its own cannot be attributed, so a co-tenant's
+# instance and our own orphan look identical -- and the watchdog prompt calls any
+# up-instance-while-ours=no an "orphaned leak", which is wrong while another
+# project holds the claim and runs the shared install (observed 2026-09-19
+# 20:15: pid 2585253, cgroup tmux-spawn-*.scope, 386 MiB, prx-tg held the claim).
+# pid + cgroup + start time are the discriminators; the tokens are appended so
+# the existing `claim=/job=/ours=/comfyui=` parse is untouched.
+comfyui_attribution() {
+  local pid cg started who=foreign
+  pid="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
+  [ -n "$pid" ] || { echo "owner=unknown"; return 0; }
+  comfyui_ours && who=ours
+  cg="$(sed -n 's/^0:://p' "/proc/$pid/cgroup" 2>/dev/null)"
+  started="$(ps -o lstart= -p "$pid" 2>/dev/null | xargs)"
+  echo "owner=$who pid=$pid cgroup=${cg:-?} started=${started// /_}"
+}
+
 # Discover the running ComfyUI's pid and record it in the state file as ours.
 # This is also the instrumentation hook: every path that ends with a live
 # ComfyUI (fresh launch AND adoption of an orphan) passes through here, so the
@@ -318,9 +337,12 @@ cmd_status() {
     ours=yes
   fi
 
-  local cu=down
-  comfyui_up && cu=up
-  echo "claim=$status job=${current_job:-none} ours=$ours comfyui=$cu"
+  local cu=down owner=""
+  if comfyui_up; then
+    cu=up
+    owner=" $(comfyui_attribution)"
+  fi
+  echo "claim=$status job=${current_job:-none} ours=$ours comfyui=$cu$owner"
 }
 
 cmd_ensure() {

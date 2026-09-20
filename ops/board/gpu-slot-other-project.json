@@ -2,16 +2,20 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-latent-first-v34)",
   "severity": "info",
-  "evidence": "we hold no claim; our queue entries=0",
-  "status": "auto-closed",
+  "evidence": "we hold no claim; held 6.8h; our queue entries=0",
+  "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-19T14:26:35-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-19T20:50:09-0400",
+  "seen_count": 4,
   "source": "probe",
   "notes": [
     {
       "ts": "2026-09-19T14:33:34-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T20:49:31-0400",
+      "note": "2026-09-20 00:5xZ: by-design capacity record, not a work item -- the probe keeps it while a foreign hold exceeds 6h. Held 6.6h+ by prx-tg-latent-first-v34, our queue entries=0, render queue at target (need=no). Rules forbid touching another project's job; nothing to action."
     }
   ]
 }

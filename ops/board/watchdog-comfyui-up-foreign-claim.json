@@ -1,0 +1,17 @@
+{
+  "key": "watchdog-comfyui-up-foreign-claim",
+  "title": "Watchdog calls any up ComfyUI with ours=no an 'orphaned GPU leak' (false CRITICAL) while a co-tenant holds the claim",
+  "severity": "warn",
+  "evidence": "live 2026-09-20 00:45Z: port 8188 served by pid 2585253 (cgroup tmux-spawn-b351cc73-*.scope, started 2026-09-19 20:15:05 EDT, 386 MiB) = FOREIGN instance; scheduler claim held by prx-tg-latent-first-v34 (ours=no, 10.6 GB, 100% util). Harness status now prints owner=foreign for it.",
+  "status": "open",
+  "first_seen": "2026-09-20T00:52:00+0000",
+  "last_seen": "2026-09-20T00:52:00+0000",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-20T00:52:00+0000",
+      "note": "Filed by the ops-triage run. The tc-overnight-watchdog prompt (Hermes cron config, outside this repo) says: 'comfyui=up while claim=idle or (claim=other + ours=no) -> ORPHANED GPU LEAK ... This is the LOUDEST finding of the run ... the scheduler thinks the GPU is idle (double-book risk)'. Both halves of that sentence are wrong once the GPU is shared: another project holding the claim AND running the shared ComfyUI install is normal, and the scheduler does NOT think the GPU is idle (claim=busy by that project). Observed exactly this state at 00:45Z. Consequence: a loud, wrong CRITICAL report every 4h while any co-tenant runs ComfyUI, which is the alarm-fatigue failure the board exists to prevent. Repo side already has the right rule (bin/comfyui_harness.sh comfyui_ours(): never kill what we did not spawn; foreign instances are adopted, not killed), so there is nothing to fix in the repo beyond making the state attributable: cmd_status now appends 'owner=ours|foreign pid=N cgroup=... started=...' to the existing claim=/job=/ours=/comfyui= line (verified: scheduler_gate_spec 7 examples, 0 failures; bin/comfyui_harness.sh status prints owner=foreign pid=2585253 cgroup=.../tmux-spawn-*.scope). Needs Tim: narrow the watchdog rule to 'comfyui=up AND claim=idle' (a real orphan) or gate it on owner=ours, since the prompt lives in the Hermes cron config."
+    }
+  ]
+}

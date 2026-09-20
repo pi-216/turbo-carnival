@@ -51,6 +51,15 @@ STARVE_WINDOW_H = 12
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
 CAPTION_ALERT_RATIO = 0.3
+# Publisher liveness (bin/scheduled_posting.sh, hourly from the user crontab):
+# its worst case delay is one tick, so 3h absorbs a single missed run.
+PUBLISH_GRACE_H = 3
+PUBLISH_CRITICAL_H = 12
+# Board notes are a rolling window: keep the newest N per issue, archive the rest.
+NOTE_KEEP = 6
+# An up ComfyUI with no claim only matters for the VRAM it pins: an empty server
+# is ~0.4 GB, a resident render pipeline is 12-24 GB.
+UNCLAIMED_COMFYUI_VRAM_MIB = 8192
 
 
 # ---------------------------------------------------------------- utilities
@@ -468,6 +477,100 @@ def check_render_starved():
     return None
 
 
+def publish_verdict(due, oldest_h):
+    """Pure: due-but-unpublished posts -> severity (or None when nothing is due)."""
+    if due is None or due <= 0:
+        return None
+    if oldest_h is not None and oldest_h >= PUBLISH_CRITICAL_H:
+        return "critical"
+    return "warn"
+
+
+def check_publish_liveness():
+    """Posts that were DUE and never went out -- the publisher's absence, not the queue's size.
+
+    Every other acceptance check counts what is SCHEDULED; nothing counted what
+    actually leaves the building. The publisher is bin/scheduled_posting.sh, run
+    hourly from the USER crontab (outside this repo and outside Hermes), so if it
+    dies -- RVM/ruby drift, an expired Instagram token (code 190), a crash -- the
+    queue keeps its scheduled rows, the watchdog keeps reporting "queue NOT
+    starved", and the account silently stops posting. Measured from the
+    authoritative predicate the publisher itself selects on (status='scheduled'
+    + scheduled_at, status='draft' + optimal_time_calculated), so it does not
+    depend on the publisher's own log or on any heartbeat.
+    """
+    row = psql(
+        "select count(*) || '|' || coalesce(round(extract(epoch from "
+        "(now() at time zone 'UTC') - min(due_at)) / 3600.0, 1), 0) from ("
+        "  select scheduled_at as due_at from scheduling_posts "
+        "   where status = 'scheduled' and scheduled_at is not null "
+        f"    and scheduled_at < (now() at time zone 'UTC') - interval '{PUBLISH_GRACE_H} hours'"
+        "  union all "
+        "  select optimal_time_calculated as due_at from scheduling_posts "
+        "   where status = 'draft' and optimal_time_calculated is not null "
+        f"    and optimal_time_calculated < (now() at time zone 'UTC') - interval '{PUBLISH_GRACE_H} hours'"
+        ") t"
+    )
+    if row is None:
+        return None
+    try:
+        n_str, _, h_str = row.rpartition("|")
+        due, oldest_h = int(n_str), float(h_str)
+    except ValueError:
+        return None
+    sev = publish_verdict(due, oldest_h)
+    if not sev:
+        return None
+    last = psql("select coalesce(max(posted_at)::text, 'never') from scheduling_posts "
+                "where status = 'posted'")
+    return (
+        "publish-overdue",
+        f"{due} scheduled post(s) are past their publish time and still unpublished",
+        sev,
+        f"oldest overdue {oldest_h:.1f}h (grace {PUBLISH_GRACE_H}h, critical at "
+        f"{PUBLISH_CRITICAL_H}h); newest published={last}; "
+        "publisher=bin/scheduled_posting.sh (user crontab, hourly)",
+    )
+
+
+def gpu_vram_used_mib():
+    out, rc = run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"])
+    if rc != 0 or not out:
+        return None
+    try:
+        return int(out.splitlines()[0].strip())
+    except ValueError:
+        return None
+
+
+def check_comfyui_vram_unclaimed():
+    """ComfyUI is up while NOBODY holds the GPU, pinning VRAM.
+
+    The harm of an orphaned instance is the memory it holds on a shared card, not
+    the open port -- a warm instance with no claim is what the next claimant OOMs
+    against. Deliberately NOT fired when a claim exists (another project holding
+    the slot and running the shared install is normal sharing, and the harness
+    adopts foreign instances rather than killing them, so there is nothing to
+    action). Sampled from hardware, not inferred from the port being open.
+    """
+    if not comfyui_up():
+        return None
+    g = (sched_state().get("gpus") or {}).get(GPU) or {}
+    if g.get("status") in ("busy", "claimed"):
+        return None
+    used = gpu_vram_used_mib()
+    if used is None or used < UNCLAIMED_COMFYUI_VRAM_MIB:
+        return None
+    return (
+        "comfyui-vram-unclaimed",
+        f"ComfyUI is up with no claim on the {GPU} while holding {used / 1024:.1f} GB",
+        "warn",
+        f"port 8188 answering, state={g.get('status')}, vram_used={used}MiB "
+        f"(threshold {UNCLAIMED_COMFYUI_VRAM_MIB}MiB); the next claimant renders "
+        "against this residue",
+    )
+
+
 def check_telemetry_oom():
     rec = last_telemetry()
     if not rec:
@@ -781,6 +884,8 @@ CHECKS = [
     check_caption_fallback,
     check_render_acceptance,
     check_render_starved,
+    check_publish_liveness,
+    check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_harness_log_growth,
     check_queue_growth,
@@ -819,6 +924,30 @@ def file_issue(key, title, severity, evidence, source="probe"):
     return rec
 
 
+def append_note(rec, note):
+    """Append a status note, keeping the board file a ROLLING WINDOW.
+
+    Every run appends a note per open issue and nothing ever pruned, so the board
+    -- the only durable record while cron delivery is broken -- grew by a note
+    per issue per run, inflating the file every later run must read. Keep the
+    newest NOTE_KEEP notes in the issue file and archive the overflow to
+    ops/board/archive/<key>.jsonl: archived, never deleted.
+    """
+    notes = rec.setdefault("notes", [])
+    notes.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "note": note})
+    if len(notes) > NOTE_KEEP:
+        overflow, rec["notes"] = notes[:-NOTE_KEEP], notes[-NOTE_KEEP:]
+        archive_notes(rec.get("key", "unknown"), overflow)
+
+
+def archive_notes(key, notes):
+    d = BOARD / "archive"
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / f"{key}.jsonl", "a") as fh:
+        for n in notes:
+            fh.write(json.dumps(n) + "\n")
+
+
 def cmd_probe(_argv):
     found, quiet = [], []
     for chk in CHECKS:
@@ -843,9 +972,7 @@ def cmd_probe(_argv):
         if rec.get("status") == "open" and rec.get("key") not in live \
                 and rec.get("source", "probe") == "probe":
             rec["status"] = "auto-closed"
-            rec["notes"] = rec.get("notes", []) + [
-                {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-                 "note": "condition no longer reproduces"}]
+            append_note(rec, "condition no longer reproduces")
             p.write_text(json.dumps(rec, indent=2) + "\n")
 
     crit = [r for r in found]
@@ -924,7 +1051,8 @@ def cmd_close(argv):
     rec = json.loads(p.read_text())
     rec["status"] = "closed"
     rec["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    rec.setdefault("notes", []).append({"ts": rec["closed_at"], "note": note})
+    rec.setdefault("notes", [])
+    append_note(rec, note)
     p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"closed {key}: {note}")
     # A probe-owned key is re-filed from live signals on the next tick unless the
@@ -945,8 +1073,7 @@ def cmd_touch(argv):
         return 2
     rec = json.loads(p.read_text())
     note = argv[1] if len(argv) > 1 else "progress"
-    rec.setdefault("notes", []).append(
-        {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "note": note})
+    append_note(rec, note)
     p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"noted on {argv[0]}: {note}")
     return 0
@@ -984,6 +1111,17 @@ def cmd_selftest(_argv):
         v = caption_verdict(rows)
         expect(f"caption_verdict[{name}]", v[0] if v else None, want)
 
+    # publish_verdict: (due count, oldest overdue hours, expected severity or None)
+    publish_cases = [
+        ("nothing-due", 0, 0.0, None),
+        ("one-recent", 1, 1.5, "warn"),
+        ("few-recent", 5, 4.0, "warn"),
+        ("long-overdue", 1, 13.0, "critical"),
+        ("age-unknown", 2, None, "warn"),
+    ]
+    for name, due, oldest, want in publish_cases:
+        expect(f"publish_verdict[{name}]", publish_verdict(due, oldest), want)
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -1003,15 +1141,25 @@ def cmd_selftest(_argv):
         expect("close[-n] rc", rc_ok, 0)
         expect("close[-n] note", rec["notes"][-1]["note"], "resolved by selftest")
         expect("close[probe-owned] warns", "probe-owned" in buf.getvalue(), True)
+
+        # notes are a rolling window: overflow goes to board/archive, never deleted.
+        prod = {"key": "w", "notes": []}
+        for i in range(NOTE_KEEP + 2):
+            append_note(prod, f"n{i}")
+        arch = (tmp / "archive" / "w.jsonl")
+        expect("note-window[kept]", len(prod["notes"]), NOTE_KEEP)
+        expect("note-window[newest-kept]", prod["notes"][-1]["note"], f"n{NOTE_KEEP + 1}")
+        expect("note-window[oldest-kept]", prod["notes"][0]["note"], "n2")
+        expect("note-window[archived-lines]",
+               len(arch.read_text().splitlines()) if arch.exists() else 0, 2)
     finally:
         globals()["BOARD"] = tc_ops_board
-        for f in tmp.glob("*.json"):
-            f.unlink()
-        tmp.rmdir()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + 5} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + 9} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

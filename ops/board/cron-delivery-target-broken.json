@@ -28,6 +28,10 @@
     {
       "ts": "2026-09-19T19:40:36-0400",
       "note": "Re-verified 2026-09-19 23:5xZ against ~/.hermes/profiles/turbo-carnival/cron/jobs.json: ALL FOUR turbo-carnival jobs fail delivery -- tc-growth-harness-brain (deliver=origin, last_status=delivery_failed), tc-weekly-persona-review (origin, delivery_failed), tc-ops-triage (origin, delivery_failed), tc-overnight-watchdog (deliver=local, last_status=ok 16:01). So the failure is exactly deliver=origin resolving to platform 'webui', which the gateway cannot deliver to, while 'local' succeeds. One-line fix per job: hermes cron edit <id> --deliver <target> with a target the gateway serves (local writes the report to the profile cron/output/, where it is already being read; telegram or similar if Tim wants a push). NOT ACTIONED: cron config is outside this repo and the destination is Tim's call -- note this run's own report is subject to the same failure, which is why it is escalated instead of worked around."
+    },
+    {
+      "ts": "2026-09-19T20:49:31-0400",
+      "note": "2026-09-20 00:5xZ: re-verified in ~/.hermes/profiles/turbo-carnival/cron/jobs.json -- tc-growth-harness-brain, tc-weekly-persona-review and tc-ops-triage all deliver=origin with last_status=delivery_failed; tc-overnight-watchdog deliver=local last_status=ok. Needs Tim to name a delivery target (Hermes config, outside this repo)."
     }
   ]
 }
