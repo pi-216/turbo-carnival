@@ -49,7 +49,7 @@ module ContentPillars
       if direct.match?(OUTPUT_PREFIX)
         rel = direct.sub(OUTPUT_PREFIX, '')
         MIRROR_ROOTS.each do |root|
-          [File.join(root, rel), File.join(root, 'output', rel)].each do |cand|
+          [ File.join(root, rel), File.join(root, 'output', rel) ].each do |cand|
             return cand if File.file?(cand)
           end
         end
@@ -92,19 +92,43 @@ module ContentPillars
     # has to live at a single choke point.
     #
     # `synthetic: true` is written explicitly (never defaulted) and `provenance`
-    # records what is known about the render, with `embedded: false` because
-    # nothing is written into the image bytes yet.
+    # records what is known about the render. Since tasks 2.1/2.2 of the same
+    # change, the mark is also written INTO the asset here -- at the same choke
+    # point, so the file Meta will fetch is marked before any post can reference
+    # it -- and `provenance.embedded` is set from that write's result, not from
+    # the intent to make it.
     def self.import_render(path:, persona:, content_pillar:, run: nil)
-      find_by(path: path) || create!(
+      existing = find_by(path: path)
+      return existing if existing
+
+      create!(
         persona: persona,
         path: path,
         content_pillar: content_pillar,
         image_candidate: nil,
         synthetic: true,
-        provenance: PhotoProvenance.for_run(run)
+        provenance: PhotoProvenance.mark_asset(PhotoProvenance.for_run(run), path)
       )
     rescue ActiveRecord::RecordInvalid
       find_by(path: path)
+    end
+
+    # Mark this photo's own asset bytes, on demand. Used by the publish gate for
+    # photos that predate the creation-time mark, and by `photos:embed_provenance`
+    # for the corpus. Returns the marker's verdict (:marked / :already_marked /
+    # :missing / :unsupported / :error).
+    def mark_synthetic_asset!
+      file = servable_file_path
+      return :missing if file.blank?
+
+      result = ContentPillars::PhotoAssetMarker.mark!(file, provenance || {})
+
+      if %i[marked already_marked].include?(result)
+        update_columns(provenance: PhotoProvenance.mark_asset(provenance || {}, file),
+                       synthetic: true)
+      end
+
+      result
     end
 
     def posted?

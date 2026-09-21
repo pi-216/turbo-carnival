@@ -55,6 +55,43 @@ module ContentPillars
       }
     end
 
+    # The mark a photo carries AFTER its asset bytes were verified to carry it
+    # (tasks 2.1/2.2). `embedded` is the one field that is allowed to say the
+    # published asset is machine-readable, so it is only ever flipped from a
+    # read-back of the file we are about to serve -- never from the intention to
+    # write it.
+    def embedded(provenance, method: 'xmp-png')
+      provenance.to_h.merge(
+        'embedded' => true,
+        'embedded_at' => Time.current.utc.iso8601,
+        'embedded_method' => method
+      )
+    end
+
+    # Write the machine-readable mark into the asset the publish path will serve
+    # and return the provenance hash that describes what actually happened.
+    # Non-fatal by design: a render that cannot be marked must still become a
+    # photo (the publish gate -- not the render -- is where a missing mark is
+    # allowed to stop the line).
+    def mark_asset(provenance, path)
+      result = PhotoAssetMarker.mark!(path, provenance)
+
+      case result
+      when :marked, :already_marked
+        embedded(provenance, method: result == :already_marked ? 'xmp-existing' : embed_method_for(path))
+      else
+        provenance.to_h.merge('embed_attempt' => result.to_s)
+      end
+    end
+
+    # Which carrier the mark used -- recorded so a future reader can tell a PNG
+    # iTXt chunk from a JPEG APP1 segment without re-reading the asset.
+    def embed_method_for(path)
+      File.binread(path, 8).start_with?(PhotoAssetMarker::PNG_SIGNATURE) ? 'xmp-png' : 'xmp-jpeg'
+    rescue StandardError
+      'xmp'
+    end
+
     def run_variables(run)
       return {} unless run.respond_to?(:variables)
 

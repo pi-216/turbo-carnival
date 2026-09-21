@@ -4,7 +4,7 @@ module Scheduling
   module Commands
     class CreatePostRecord < GLCommand::Callable
       requires photo: ContentPillars::Photo, persona: Persona, caption: String
-      optional caption_metadata: Hash
+      allows caption_metadata: Hash
       returns post: Scheduling::Post
 
       def call
