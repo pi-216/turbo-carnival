@@ -32,6 +32,10 @@
     {
       "ts": "2026-09-21T09:52:11-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged -- intended age is a fact only Tim can state (nothing in the repo defines it), and a fresh vision read of a post-c016653 render needs the 4090, which a co-tenant holds. No claim taken, no render run."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): the persona is an ADULT, and a render that reads juvenile must not publish. This item no longer waits on Tim for the age fact. Actions in order: (1) HOLD post 345 / photo 353 (publishes 2026-09-27 09:00) until a re-render reads adult -- the reversible write is clearing scheduled_at AND optimal_time_calculated, because status=draft is NOT a hold (the publisher selects due drafts too); proposed, pending Tim go-ahead only because it is a production write; (2) change the persona preset to carry an explicit adult-age cue, drop the juvenile-adjacent tokens (petite face, small nose) and lower the sk1nny LoRA weight; (3) re-render and re-read with the vision model; (4) only then flip the vision caption path. Rationale: the account is adult-oriented, a minor-reading render is a platform and legal risk, and the lever is the stored preset, not the base model (the read was stable across a checkpoint change)."
     }
   ]
 }

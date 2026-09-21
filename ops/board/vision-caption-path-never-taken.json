@@ -5,8 +5,8 @@
   "source": "manual",
   "status": "open",
   "first_seen": "2026-09-19T17:10:00-0400",
-  "last_seen": "2026-09-21T09:25:43-0400",
-  "seen_count": 36,
+  "last_seen": "2026-09-21T10:07:28-0400",
+  "seen_count": 37,
   "evidence": "34 photo(s) imported in the last 7 days have no ActiveStorage attachment, and 0 post(s) in that window were written by the vision path; corpus 339 photos / 141 attached, newest attachment 2026-05-28. Growth::ContentGenerator#import_photo creates photos path-only and PostAutomation::GenerateCaption routes only attached photos to CaptionGeneration::VisionGenerator, so the caption is written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. The class itself no longer requires an attachment (its guard now accepts a readable local file, spec'd in spec/services/caption_generation/vision_generator_spec.rb), so switching this on is a one-line change to the branch in PostAutomation::GenerateCaption. Measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor already stripping the model preamble and hashtags. NOT flipped by this loop: it changes what a live account PUBLISHES, and the persona's age reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes automatically once a post in the window records generator='vision'.",
   "notes": [
     {
@@ -32,6 +32,11 @@
     {
       "ts": "2026-09-21T09:52:11-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged product decision. Live: the caption service is up and the in-repo half landed (f55e8ae); flipping the branch in PostAutomation::GenerateCaption changes what a live account publishes, and the persona age reading is still unresolved, so it was not flipped from here."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): FLIP the branch so path-only photos reach CaptionGeneration::VisionGenerator -- SEQUENCED AFTER persona-age-read-youthful clears. Rationale: captions are written from context text and are measurably wrong (described rain on a windowpane for an autumn street scene the vision path described correctly), and the measured cost is 15.0s per 1.1MB render on the live caption host. The sequencing IS the decision: a vision model describing a minor-reading render makes the persona problem worse, so the persona must read adult first. In-repo half already landed (f55e8ae); the flip is the one-line branch change in PostAutomation::GenerateCaption."
     }
-  ]
+  ],
+  "route": "agent"
 }

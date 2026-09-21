@@ -32,6 +32,10 @@
     {
       "ts": "2026-09-21T09:52:11-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo -- tc-growth-harness-brain still runs growth:sync_cadence inside the tick foreground budget. Repo side re-verified: 17 scheduled, no pending PipelineRuns, 0 failed in 24h. The cheapest fix (run the producer detached, direct >> log 2>&1 &) is a cron-prompt edit and was not made from here."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): FIX the cron config -- run growth:sync_cadence DETACHED from the tick (direct >> log 2>&1 &) instead of inside its foreground budget, and let the next tick render_need top up what is missing (sync_cadence counts existing posts, so a partial run resumes safely). Rationale: the tick timeout SIGKILLs the producer mid-render, leaving the run-level debris class the board already closed at job level. This is agent-owned Hermes cron config, not a Tim ask."
     }
   ]
 }

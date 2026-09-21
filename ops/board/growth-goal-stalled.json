@@ -32,6 +32,10 @@
     {
       "ts": "2026-09-21T09:52:11-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged. Live re-read: followers 156, queue 17 scheduled (not starved), 0 failed in 24h; cadence is at the configured cap and the strategy review gates to 2026-09-23 (review_interval_days 7, last 2026-09-16). The render-side blockers that lived in this repo are now all closed (095ba28 adaptive ask, 81e8c4a poisoned ask, cb0f36d stale adopted ask), so what remains is a cadence/strategy decision the agent owns, with a pre-registered gate, not an ops edit."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): VOLUME IS NOT THE LEVER, and this item is no longer waiting on Tim. Evidence: publishing ran 1-8/day Aug 30 - Sep 9 and produced +6 followers in 30 days while cadence already sits at the configured 3/day cap; and the strategy layer was blind for ~4 months because insights collection was dead until 2026-09-20. Decisions: (1) cadence STAYS at the cap -- raising it adds burst/spam risk with no measured return; (2) the next levers are the now-live insights loop plus image-grounded captions (see vision-caption-path-never-taken and persona-age-read-youthful), which is the signal the strategy layer needed all along; (3) treat 1000-by-2027-08-20 as a direction, not a forecast -- the honest metric is the trajectory ratio, not a catch-up plan built on posting volume. The review-brain cooldown to 2026-09-23 stands; the next review judges the caption/insight levers, not cadence."
     }
   ]
 }
