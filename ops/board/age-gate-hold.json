@@ -1,0 +1,18 @@
+{
+  "key": "age-gate-hold",
+  "title": "1 render(s) held by the age gate in the last 48h",
+  "severity": "info",
+  "evidence": "1 post(s) held in the window; 1 still in the held state (unpublished, both clocks cleared, so never released by the publisher). The gate holds a post whose render's apparent-age read comes back juvenile and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its clock: that publishes the render the gate rejected. A hold drops the post out of the cadence count, so the producer owes a replacement render; check_future_queue_empty only fires once the queue reaches zero, days later. The INPUT half of the fix is the adult age anchor in the persona's positive prompt (PersonaAgeAnchor); >= 3 holds in the window means that anchor is not landing. Held rows: #345 (photo 353): forced: photo 353 had an independent free-form read of early-teens-to-early-twenties while the structured probe said young adult; the prompt carried n",
+  "status": "open",
+  "first_seen": "2026-09-21T13:50:20-0400",
+  "last_seen": "2026-09-21T13:56:33-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-21T13:55:52-0400",
+      "note": "2026-09-21 17:5xZ ops-triage: DECIDED + new machinery. (1) The hold is a DELIBERATE safety action (growth_decisions 636): photo 353's render read juvenile, so Growth::PersonaAgeGate cleared both publisher clocks. Do NOT restore them -- that publishes a minor-reading render on a public adult account; the watchdog's 'set scheduled_at or reclassify' advice was the unsafe direction and is why this check now exists. (2) INPUT half verified APPLIED: pipeline_steps 40, workflow node 88 (Text Multiline -> 73 StringConcatenate -> CLIP text encode) now reads 'adult woman in her late twenties, petite face, small nose, s1_dram, sarah1a3'. (3) Built check_age_gate_holds + age_hold_verdict (bin/tc_ops.py, commit cf282ef): critical iff a juvenile-flagged row is still publishable (live clock or no hold marker = the gate's fail-open risk), warn at >=3 holds/48h (the anchor not landing), info at 1-2. (4) Verified: selftest 254 assertions 0 failures; probe files this item against the live DB naming '#345 (photo 353)'; new 'tc_ops.py queue' prints publishable=16 status_rows=18 held=1. (5) The replacement render the cadence engine owes is queued behind a foreign 4090 claim (prx-tg-pixel-posttrain-v3, 11.0h) -- blocked on slot, NOT a Tim ask. Item self-closes when the hold leaves the 48h window."
+    }
+  ]
+}

@@ -5,8 +5,8 @@
   "evidence": "1 ComfyUI execution error(s) in the last 24h; newest index is out of bounds for dimension with size 0 (09-21 11:16Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. The fault itself is the workflow payload (an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node), not the Rails code. Reconciled orphans are excluded.",
   "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-21T12:58:17-0400",
-  "seen_count": 16,
+  "last_seen": "2026-09-21T13:56:33-0400",
+  "seen_count": 21,
   "source": "probe",
   "notes": [
     {
@@ -28,6 +28,10 @@
     {
       "ts": "2026-09-21T12:51:18-0400",
       "note": "2026-09-21 16:5xZ ops-triage: KEPT OPEN (probe-managed, self-closes 24h after the last error) -- the condition is real, the containment is real, and neither needs a GPU-free fix. New evidence this pass: (1) the containment landed AFTER today's failure. Commit 81e8c4a (retry-once + naming the ComfyUI error) is dated 2026-09-21 08:46:38 -0400 = 12:46Z; run 479 failed at 11:16:30Z with reject_reason 'render timed out or produced no image' and growth_decisions.cadence_blocked at 11:16:35Z -- both ~1.5h BEFORE the fix, which is exactly the pre-fix behaviour the commit describes, so today's row does NOT contradict the containment. (2) Closed a real gap in it, offline: the retry is gated on render_error, which poll_for_image only sets from the client's 'failed' status -- a job that fails AFTER the 20-min poll budget (MAX_POLLS 60 x 20s) was still recorded as a timeout AND silently skipped the retry. The exhausted-poll path now reads the error off the ComfyuiJob row (PollJobStatus writes it) before giving up: packs/growth_harness/app/services/growth/content_generator.rb + spec/services/growth/content_generator_spec.rb (8 examples 0 failures; the new example stubs MAX_POLLS=2/POLL_INTERVAL=0, returns not_found, asserts render_error is populated from the row). (3) The workflow-payload root cause (an EMPTY CLIPSeg head/hand mask reaching WAS 'Bounded Image Crop with Mask') still needs a GPU-owning session to change and verify a render -- blocked-on-slot, NOT a Tim ask. Self-closes 2026-09-22 ~11:16Z if no new execution error lands."
+    },
+    {
+      "ts": "2026-09-21T13:56:03-0400",
+      "note": "2026-09-21 17:5xZ ops-triage: DECIDED -- no in-repo fix; leave the 24h window to age out (11:16Z 09-22). The fault is the DB workflow payload, and the failing crop is on the ACTIVE path: pipeline_steps 40 nodes 16/45 -> 10+11 (Bounded Image Crop with Mask, empty CLIPSeg head mask) -> 20 Image Blend target_bounds / 80 ImageResize+, with node 19 LazySwitchKJ switch=false selecting node 20. Node 46 GetMaskSizeAndCount -> 58 Int To Number is a DEAD END, i.e. no existing guard to wire. A graph-level guard is not safely doable from here: the only verification is a render, and we hold no 4090 claim (foreign prx-tg-pixel-posttrain-v3, 11.0h, our entry next), so an unverified edit to a 75-node production workflow risks the ONLY render path -- strictly worse than a 1-in-260 input-dependent death that now has a bounded retry. Mitigation is committed in source (ContentGenerator names the ComfyUI error + re-submits once with a fresh seed); unexercised since 11:16Z because no render has run."
     }
   ],
   "route": "agent"
