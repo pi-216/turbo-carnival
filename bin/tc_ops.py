@@ -34,6 +34,13 @@ then works the open issues and closes them with a note.
   tc_ops.py escalations      print ONLY the enablement queue (route=tim); empty
                              output when no human is needed, so an escalation job
                              can suppress itself
+  tc_ops.py queue            the AUTHORITATIVE photo-queue count: publishable vs
+                             status_rows vs held (the publisher selects on the
+                             two clocks, so a status count overstates by every
+                             age-gate hold and makes a held row look like a
+                             defect to repair)
+  tc_ops.py selftest         exercise every pure verdict in this file (no DB, no
+                             GPU) -- run it after touching any check
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
 up to TC_CAPTION_WARM_BUDGET seconds (default 240) ONLY when no caption model is
@@ -3106,6 +3113,79 @@ def check_cron_prompt_log_paths():
     )
 
 
+# Fourth shape of the same family (config rot in the prompt text): a prompt that
+# answers "is the photo queue non-empty" with a STATUS count. The publisher selects
+# on the two clocks, not on status, so a status count OVERSTATES by every age-gate
+# hold -- and the difference reads as a broken row to repair. Measured 2026-09-21:
+# the overnight watchdog counted 18 while only 17 could publish, reported post 345
+# as a defect ("set scheduled_at or reclassify"), and that advice would have
+# published a render the age gate had read as a minor on a public adult account.
+# The repo owns the answer (`python3 bin/tc_ops.py queue` prints publishable vs
+# status_rows vs held), so this check requires the prompt to point at it.
+PROMPT_QUEUE_STATUS_COUNT = re.compile(
+    r"status\s*:\s*\[\s*['\"]draft['\"]\s*,\s*['\"]scheduled['\"]\s*\]"
+    r"|status\s+in\s*\(\s*['\"]draft['\"]\s*,\s*['\"]scheduled['\"]\s*\)",
+    re.I)
+PROMPT_QUEUE_OWNED_CMD = re.compile(r"tc_ops\.py\s+queue")
+
+
+def cron_prompt_queue_count_verdict(rows):
+    """Pure: job records -> (severity, evidence) when a prompt counts the queue by
+    status without carrying the repo-owned command that counts it as the publisher does.
+
+    Prompt-scoped, not line-scoped: a prompt may explain the old predicate in prose
+    as long as it also carries the owned command.
+    """
+    hits = []
+    for r in rows:
+        prompt = r.get("prompt") or ""
+        if not PROMPT_QUEUE_STATUS_COUNT.search(prompt):
+            continue
+        if PROMPT_QUEUE_OWNED_CMD.search(prompt):
+            continue
+        hits.append(f"{r.get('name')} ({r.get('id')})")
+    if not hits:
+        return None
+    return (
+        "warn",
+        f"{len(hits)} cron prompt(s) answer the queue question with a STATUS count, "
+        f"which overstates by every age-gate hold and makes a deliberately held row "
+        f"look like a defect to repair: {'; '.join(hits)} -- use the repo-owned "
+        f"command (`python3 bin/tc_ops.py queue` prints publishable vs status_rows vs "
+        f"held; the publisher selects on the two clocks, not on status)",
+    )
+
+
+def check_cron_prompt_queue_counts():
+    """Config rot, fourth shape: a prompt counting the photo queue by status.
+
+    Same reason as check_cron_prompt_probes -- the defect lives in the prompt text,
+    and a run that counts the wrong way still finishes cleanly, so nothing else
+    surfaces it. Measured 2026-09-21: the overnight watchdog's status-only count
+    (18 vs 17 publishable) produced "post 345 can never publish -- set scheduled_at
+    or reclassify", advice that would have published a render the age gate had read
+    as a minor.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "prompt": j.get("prompt")} for j in jobs if isinstance(j, dict)]
+    v = cron_prompt_queue_count_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-prompt-queue-status-count",
+        "a cron prompt counts the photo queue by status, so a held row reads as a defect",
+        v[0],
+        v[1],
+    )
+
+
 def check_probe_inputs():
     """Coverage guard: a probe that cannot measure must not report green.
 
@@ -3555,6 +3635,7 @@ CHECKS = [
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
     check_cron_prompt_log_paths,
+    check_cron_prompt_queue_counts,
     check_corpus_backup,
 ]
 
@@ -4501,6 +4582,36 @@ def cmd_selftest(_argv):
         v = cron_prompt_logpath_verdict(rows, probe=probe)
         expect(f"cron_prompt_logpath_verdict[{name}]", v[0] if v else None, want)
 
+    # cron_prompt_queue_count_verdict: a prompt answering the queue question with a
+    # STATUS count. The 2026-09-21 live case is the watchdog's status-only count
+    # (18 vs 17 publishable) that advised restoring a held row's clock.
+    queue_cases = [
+        ("status-count-unowned",
+         [{"name": "w", "id": "w1",
+           "prompt": "puts Scheduling::Post.where(status:['draft','scheduled']).count"}],
+         "warn"),
+        ("status-count-owned",
+         [{"name": "w", "id": "w1",
+           "prompt": "run python3 bin/tc_ops.py queue -- never the "
+                     "status:['draft','scheduled'] count, which overstates by held rows"}],
+         None),
+        ("status-in-list-unowned",
+         [{"name": "w", "id": "w1",
+           "prompt": "select posts where status in ('draft', 'scheduled')"}],
+         "warn"),
+        ("owned-cmd-only",
+         [{"name": "w", "id": "w1", "prompt": "run python3 bin/tc_ops.py queue"}],
+         None),
+        ("no-prompt", [{"name": "w", "id": "w1", "prompt": None}], None),
+        ("unrelated-status-list",
+         [{"name": "w", "id": "w1",
+           "prompt": "Scheduling::Post.where(status: ['posted','failed']).count"}],
+         None),
+    ]
+    for name, rows, want in queue_cases:
+        v = cron_prompt_queue_count_verdict(rows)
+        expect(f"cron_prompt_queue_count_verdict[{name}]", v[0] if v else None, want)
+
     # prompt_safety_verdict + _blob_violations: stored render text that directs a
     # minor or conditions against adult features. The 2026-09-20 live case is the
     # production negative prompt (", adult, mature_face,") and the legacy face
@@ -4773,7 +4884,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
