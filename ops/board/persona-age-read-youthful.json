@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-20T23:41:18-0400",
-      "note": "2026-09-21 03:5xZ ops-triage: unchanged, blocked on two things outside this run's reach. (a) The intended age is a FACT only Tim can state -- nothing in the repo states Sarah's age, and picking one changes who the persona is. (b) A fresh vision read of a post-c016653 render needs the 4090, which is foreign-held (gpu_scheduler status: busy, current_job prx-tg-pixel-posttrain-v2, ours=no) with our own render entry queued behind it -- no claim taken, no renders, no read. The mechanical driver is already fixed (c016653: the production/fallback negatives no longer condition against adult, mature_face)."
-    },
-    {
       "ts": "2026-09-21T00:34:43-0400",
       "note": "2026-09-21 04:36Z: unchanged, blocked on (a) Sarah's intended age, a fact only Tim can state, and (b) a fresh vision read of a post-c016653 render, which needs the 4090 -- now blocked by the co-tenant VRAM condition (render-starved) rather than by a foreign job."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T07:42:10-0400",
       "note": "2026-09-21 11:4xZ ops-triage: NEW EVIDENCE -- the first independent vision read of a render produced AFTER the c016653 negative-prompt fix, and it still reads young. Render: photo 353 / /mnt/nas-models-resolved path /mnt/nas-ai-models/comfyui-output/gen-1789988655_00001_.png (998812 bytes, mtime 2026-09-21 07:13 EDT), created by run 478 on the current production pipeline (turbo-one-step-clean, pony path: Pornmaster checkpoint + sarah1a3_pony_pornmaster_v1 0.8 + sk1nny_pony_pornmaster_v1 0.8, prompt text carries \"petite face, small nose\"). Vision read: fully dressed (plain t-shirt), and apparent age \"early teens to early twenties\" -- cues cited: rounded soft face, full cheeks, small nose and chin, undefined jawline, smooth skin with freckles, no signs of aging. That is YOUNGER than the three reads this item was filed on (\"a young girl, likely a teenager\" / \"late teens or early twenties\" x2), on a render the pipeline now considers shippable. It is NOT a gate failure: the render passed the NSFW gate, and it is already QUEUED -- post 345, photo 353, scheduled 2026-09-27 09:00 local. The earlier passes were blocked from this read because it needed a fresh render and the 4090 was foreign-held; the render existed on disk this time, so no claim was needed (and none was taken -- the 4090 is currently held by prx-tg-pixel-posttrain-v3, ours=no). Still needs Tim: (a) Sarah intended age is a fact only he can state, nothing in the repo defines it; (b) the mechanical lever is the persona preset / identity LoRA (the workflow prompt still carries \"petite face, small nose\" and the sk1nny LoRA at 0.8), which is a DB pipeline payload, not repo code. Options, cheapest first: hold post 345 (it publishes 09-27) / re-render photo 353 with an explicit adult-age cue and re-read / change the persona preset tokens."
+    },
+    {
+      "ts": "2026-09-21T08:48:23-0400",
+      "note": "2026-09-21 12:3xZ ops-triage: unchanged, still blocked on Tim. No render has been produced since photo 353 (07:13 EDT, the post-c016653 render that still read young), so there is no new vision evidence to read and no mechanical change to verify. Post 345 (photo 353) is still queued to publish 2026-09-27 09:00 -- hold or re-render is Tims call, and the intended age of the persona is a fact only Tim can state."
     }
   ]
 }

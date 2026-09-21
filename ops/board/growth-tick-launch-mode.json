@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T22:47:44-0400",
-      "note": "2026-09-21 02:4xZ ops-triage: unchanged, still needs Tim (Hermes cron config + GPU spend). The repo side is verified fixed this pass: Growth::RenderSalvage (re-run gates, import, caption, schedule) is wired into the hourly publisher and the producer's orphans are bounded by ReconcileStaleRuns, so a SIGKILLed tick truncates the tick but no longer loses the render. Remaining options for Tim, cheapest first: run growth:sync_cadence detached (direct redirect, next tick tops up from render_need, which counts existing posts) / split into per-slot batches / raise the tick's tool timeout above the measured ~45 min worst case."
-    },
-    {
       "ts": "2026-09-20T23:41:18-0400",
       "note": "2026-09-21 03:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 pending PipelineRuns, 0 in-flight ComfyuiJobs, 19 future scheduled, 0 failed in 24h. The tick's claim path no longer burns its 180s budget polling (a29f8bb returns not_my_turn in under 1s), so the tick keeps its window for actual work."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T04:37:05-0400",
       "note": "2026-09-21 08:3xZ ops-triage: unchanged, Hermes cron config outside this repo. Re-read jobs.json: tc-growth-harness-brain (43b0d5c4446d) still invokes 'bundle exec rails growth:sync_cadence[Sarah]' inside the tick's foreground budget, deliver=local. Repo side clean (16 queued, 0 failed/7d, 0 pending runs)."
+    },
+    {
+      "ts": "2026-09-21T08:48:23-0400",
+      "note": "2026-09-21 12:3xZ ops-triage: unchanged. Re-read the cron config: tc-growth-harness-brain (0 * * * *, no_agent=false, last_run 08:06 EDT) still runs \"bundle exec rails growth:sync_cadence[Sarah]\" in the FOREGROUND of the tick, under the job fixed timeout. That is a Hermes cron-config choice outside this repo, and the sync producer can be killed mid-render by it (the run-level debris class the board already tracks). Recorded here, not acted on."
     }
   ]
 }

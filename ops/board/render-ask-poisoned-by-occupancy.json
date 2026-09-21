@@ -1,0 +1,18 @@
+{
+  "key": "render-ask-poisoned-by-occupancy",
+  "title": "The render ask was minted as the FULL 21GiB whenever the card was occupied, poisoning the queued record against the free reading it is later judged by",
+  "severity": "warn",
+  "evidence": "The adaptive-fit ask (095ba28, 2026-09-21) budgeted the render reservation against live free memory, but kept the FULL 21GiB ask whenever the reduced ask fell below the floor. The ask is not a per-tick decision: it is PERSISTED in the queue record (jobs/<id>.json -> vram_gb) and re-checked by the scheduler's `poll` at CLAIM time against a DIFFERENT free reading -- the card as it is once the current occupant has released. So a full ask minted while another project holds the card is a self-inflicted `vram_insufficient` for the entire life of that record.\n\nMeasured 2026-09-21 (read-only): the 08:03:56 tick ran `ensure` while prx-tg-pixel-posttrain-v3 held 16GiB, and `bin/comfyui_harness.sh plan 8192` returns ask=21GiB -- the harness log confirms the request: \"ensure: requesting claim comfyui-1789992236-4075726-1 (vram 21GB, duration 9h)\", and the queue record carries vram_gb 21.0. The refusal that record will earn the moment the occupant releases is the one already in the same log from the 01:04-06:05 ticks: \"ensure: why -- free=18949MiB vs requested 21GiB; holders: ... labeler_spa.py 4588 MiB\". The entry is then given up at the FIFO head (\"gave up the FIFO head (vram_insufficient) so a job behind us can take the card\") and re-requested on the NEXT tick, so every occurrence costs a whole render window -- the exact starvation the adaptive-fit fix was meant to end.\n\nFIX (commit 81e8c4a): below the floor, carry the FLOOR instead of the full ask, in both surfaces (bin/comfyui_harness.sh vram_ask_for_free + bin/tc_ops.py adaptive_ask_gb, whose agreement the selftest cross-checks against the harness's own `plan` output). No invariant changes: `poll` still refuses anything below the ask, so \"nothing is attempted below the floor\" holds exactly as before; the record is simply claimable at the floor the moment the card frees to it.\n\nVERIFIED (no GPU, no claim): plan 8192 -> 16GiB (was 21), 16384 -> 16GiB (was 21), 18939 -> 17GiB unchanged, 24564 -> 21GiB unchanged; selftest 224 assertions / 0 failures; NEGATIVE CONTROL -- restoring `echo \"$full\"` in the harness fails harness-plan-matches-mirror[8192] and [16384] (224 assertions, 2 failures), then restored.",
+  "status": "closed",
+  "first_seen": "2026-09-21T08:46:59-0400",
+  "last_seen": "2026-09-21T08:46:59-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-21T08:47:11-0400",
+      "note": "FIXED IN-REPO (commit 81e8c4a): below the floor the ask now carries the FLOOR (16GiB), not the full 21GiB, in bin/comfyui_harness.sh (vram_ask_for_free) and its mirrored bin/tc_ops.py adaptive_ask_gb. Rationale: the ask is persisted in the queue record and re-checked at CLAIM time against the free reading the card will have once the occupant releases, so a full ask minted under occupancy is a self-inflicted vram_insufficient for the life of the record -- costing a render window per occurrence (the 08:03:56 record comfyui-1789992236-4075726-1 asks 21.0GB while free will be ~18.9GiB). VERIFIED: plan 8192/16384 -> 16GiB (was 21GiB), 18939 -> 17GiB and 24564 -> 21GiB unchanged; selftest 224 assertions / 0 failures; NEGATIVE CONTROL -- restoring echo \"$full\" fails harness-plan-matches-mirror[8192] and [16384] (2 failures), then restored. Nothing was claimed, launched or released: the fix is decision logic only, exercised through the harness plan dry-run."
+    }
+  ],
+  "closed_at": "2026-09-21T08:47:11-0400"
+}

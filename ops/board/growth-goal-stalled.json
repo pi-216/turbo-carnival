@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T22:47:43-0400",
-      "note": "2026-09-21 02:4xZ ops-triage: unchanged, not a repo defect. Live psql: latest Growth::Snapshot followers=156 (goal 151 -> 1000), 19 future scheduled / 0 draft, 5 posted in the last 24h (already at the configured 3/day cap), review brain interval-gated to 2026-09-23. Nothing in this repo can move the trajectory: it is a volume/strategy decision for Tim."
-    },
-    {
       "ts": "2026-09-20T23:41:18-0400",
       "note": "2026-09-21 03:5xZ ops-triage: unchanged, not a repo defect. Live: snapshots 156@03:04Z (flat -- 156/156/156 across the last three hours), goal 156/1000, required 2.53/day, 19 future scheduled (09-21=4 then 3/day), 3 posts created in 24h, 0 failed in 24h. Cadence is already at the configured cap and the review interval gates the next escalation to 09-23, so the lever is the brain's next review, not an ops-triage edit."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T04:37:05-0400",
       "note": "2026-09-21 08:3xZ ops-triage: unchanged, not a repo defect. Fresh: 156 followers (goal 151->1000, required 2.53/day, traj 0.063), 32 posts in 7d, 16 queued, 0 failed in 7d, newest post 2026-09-20T16:00Z. Cadence is at the configured 3/day cap and the next brain review gates to 2026-09-23 -- the lever is strategy, not an ops edit."
+    },
+    {
+      "ts": "2026-09-21T08:48:23-0400",
+      "note": "2026-09-21 12:3xZ ops-triage: unchanged. Re-read the goal: followers 156 / 1000, 333 days left, required 2.53/day, on_track=false, traj_ratio=0.06; queue 17 scheduled (not starved). The render-side blockers that were in this repo are now fixed (adaptive ask + poisoned-ask floor, commits 095ba28 / 81e8c4a); what remains is a strategy decision (cadence is at the configured 3/day cap and the review brain is gated to 2026-09-23). Needs Tim."
     }
   ]
 }
