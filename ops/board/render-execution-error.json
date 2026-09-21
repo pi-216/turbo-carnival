@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-21T09:52:10-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged, blocked on a session holding the 4090 (no claim taken -- prx-tg-pixel-posttrain-v3 holds it). New evidence: ComfyuiJob 7563 (run 479, step 40 / pipeline 21) failed 11:16:30Z at retry_count=0 -- it was created 11:13:32Z, ~2h before the retry-once landed (81e8c4a), so the retry could not fire; the containment cannot be judged until the next post-fix render death. Root cause unchanged and DB-side: node 16 ApplyCLIPSeg+ prompt \"head\" -> node 45 GrowMaskWithBlur -> nodes 10/11 Bounded Image Crop with Mask, which indexes the mask bbox and dies on an empty CLIPSeg mask. The workflow lives only in pipeline_steps.comfy_workflow_json (no repo file), so the payload fix needs a GPU-owning session. Checked this pass: step 40 was rewritten at 11:13:32Z (\"adult, mature_face\" removed -- the pipeline:prompt_safety repair) with no presafety backup for that stamp; diffing it against ops/backups/pipeline_step_40_presafety_20260920T203703Z.json shows ONLY node 79 (negative prompt) changed, so that rewrite did NOT cause the empty mask."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): ACCEPT the containment; do NOT escalate. The single bounded re-submit (81e8c4a) fits the observed rate -- 260 rows all-time in bursts (211 on 2025-12-10, 36 on 12-11, 12 on 2026-05-26, 1 on 2026-09-21) -- and cannot loop because the retry is bounded to one. The deeper fix (pre-empting an empty CLIPSeg mask before the WAS Bounded Image Crop node indexes its bbox) is AGENT work in the DB payload, not a Tim ask; it needs a GPU-owning session to verify, so it stays blocked-on-slot and is not escalated. This entry self-closes 24h after the last execution error."
     }
   ],
   "route": "agent"

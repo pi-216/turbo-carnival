@@ -8,6 +8,7 @@
   "last_seen": "2026-09-20T07:42:05-0400",
   "seen_count": 1,
   "source": "manual",
+  "route": "tim",
   "notes": [
     {
       "ts": "2026-09-21T00:34:52-0400",
@@ -32,6 +33,10 @@
     {
       "ts": "2026-09-21T09:52:11-0400",
       "note": "2026-09-21 13:5xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh still rsyncs /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is mirrored as a dangling symlink and the photo corpus keeps ONE copy on the same NAS volume as its mirror. One flag in a home-dir script; not touched from here."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "ROUTED to Tim 2026-09-21 (operating agent): the ONE genuine ENABLEMENT ask on the board -- it needs a hand outside this repo. The fix is NOT one flag: --copy-links would follow the symlink, but the rsync target (the NAS home backup dir) is on the SAME volume as the source, so it still would not be redundancy against volume loss. The ask: put a second copy of /mnt/nas-ai-models/comfyui-output on a DIFFERENT volume (B2, or another box). The corpus is now mutated in place by the synthetic-mark writer and 66 photos have already been lost this way, so a single copy is a live loss risk, not a theoretical one."
     }
   ]
 }
