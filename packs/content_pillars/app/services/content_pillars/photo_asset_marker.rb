@@ -27,6 +27,12 @@ module ContentPillars
   # rewriting the file) and atomic (temp file in the same directory, then
   # `File.rename`), so a crash mid-write cannot leave a truncated image in the
   # served tree.
+  #
+  # `markable` answers the same question WITHOUT writing, which is what the ops
+  # probe needs: the publish gate is fail-closed (an unmarkable asset stops the
+  # post), so the queue must be checked for unmarkable assets BEFORE a publish
+  # slot reaches them. Both share `rewrite`, so the pre-flight verdict and the
+  # writer cannot drift apart.
   module PhotoAssetMarker
     XMP_KEYWORD = 'XML:com.adobe.xmp'
     # The one substring that is present in the packet itself, in BOTH carriers.
@@ -63,19 +69,50 @@ module ContentPillars
       bytes = File.binread(path)
       return :already_marked if bytes.include?(MARKER)
 
-      packet = xmp_packet(provenance)
-      marked =
-        if bytes.start_with?(PNG_SIGNATURE)
-          with_xmp_png(bytes, packet)
-        elsif bytes.start_with?(JPEG_SIGNATURE)
-          with_xmp_jpeg(bytes, packet)
-        end
+      marked = rewrite(bytes, xmp_packet(provenance))
       return :unsupported if marked.nil?
 
       write_atomically(path, marked)
       :marked
     rescue StandardError
       :error
+    end
+
+    # Would a rewrite succeed? READ-ONLY -- reports what `mark!` would do without
+    # touching the file. Both go through `rewrite`, so a pre-flight probe asking
+    # this question can never disagree with the publish gate that calls `mark!`
+    # (a fail-closed gate whose readiness is only knowable by trying to write is
+    # a gate that strands the queue the first time an asset is unmarkable).
+    #
+    # Returns :already_marked / :markable / :unsupported / :unwritable /
+    # :missing / :error -- the same vocabulary as `mark!`, plus :unwritable,
+    # which `mark!` can only discover by failing.
+    def markable(path)
+      return :missing unless path.present? && File.file?(path)
+
+      bytes = File.binread(path)
+      return :already_marked if bytes.include?(MARKER)
+      return :unsupported if rewrite(bytes, xmp_packet).nil?
+      # `write_atomically` writes a temp file beside the asset and renames it
+      # over, so it is the DIRECTORY that must accept the write, not the file.
+      return :unwritable unless File.writable?(File.dirname(path))
+
+      :markable
+    rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR
+      :missing
+    rescue StandardError
+      :error
+    end
+
+    # The byte surgery alone: the marked bytes, or nil when this container must
+    # not be rewritten. Shared by `mark!` and `markable` so the writer and the
+    # pre-flight probe can never disagree about what is markable.
+    def rewrite(bytes, packet)
+      if bytes.start_with?(PNG_SIGNATURE)
+        with_xmp_png(bytes, packet)
+      elsif bytes.start_with?(JPEG_SIGNATURE)
+        with_xmp_jpeg(bytes, packet)
+      end
     end
 
     # Read the declared digital source type back out of the bytes -- the

@@ -2977,6 +2977,95 @@ def check_photo_provenance():
     )
 
 
+def publish_gate_verdict(stats):
+    """Pure: measured markability of the QUEUED assets -> issue tuple or None.
+
+    The publish gate (`Scheduling::Commands::GeneratePublicPhotoUrl`, tasks
+    3.1/3.2 of add-synthetic-provenance) is FAIL-CLOSED: an asset whose bytes
+    cannot carry the synthetic mark stops the post rather than publishing
+    synthetic media as photography. Nothing measured that readiness before a
+    publish slot reached the asset, so the first unmarkable asset in the queue
+    was discoverable only by the post FAILING -- publishing stalls while the
+    pipeline still looks alive. That is the shape of the 64 historical post
+    failures (58 of which referenced a photo whose bytes were gone), and of the
+    fail-closed gate trap: a probe whose own breakage blocks the resource is
+    worse than no probe.
+
+    stats: queued / unmarked / blocked / noservable / ids, as strings from the
+    rails probe (markability comes from the marker's OWN `markable`, so this
+    verdict cannot drift from what `mark!` will do). Returns None when every
+    queued asset can be marked -- which is the normal state, since renders are
+    complete PNGs.
+    """
+    if not stats:
+        return None
+    try:
+        queued = int(stats.get("queued") or 0)
+        blocked = int(stats.get("blocked") or 0)
+    except (ValueError, TypeError):
+        return None
+    if queued == 0 or blocked == 0:
+        return None
+    return (
+        "publish-gate-unmarkable-asset",
+        f"{blocked} queued post(s) carry an asset the publish gate cannot mark "
+        "-- the post fails at publish time",
+        "warn",
+        f"{blocked} of {queued} scheduled/draft post(s) resolve to a file that "
+        f"ContentPillars::PhotoAssetMarker.markable refuses: {stats.get('ids') or '?'} "
+        f"(unmarked={stats.get('unmarked')}, no-servable-file="
+        f"{stats.get('noservable')}). GeneratePublicPhotoUrl is FAIL-CLOSED, so an "
+        "asset it cannot mark STOPS the post instead of publishing synthetic media "
+        "as photography: publishing stalls while the pipeline looks alive and the "
+        "only symptom is a status=failed post (nothing here raises). Remedies: "
+        "re-render or re-import so the bytes are a complete PNG/JPEG (a truncated "
+        "PNG is the likely case -- ComfyUI killed mid-write, or a partial NAS copy), "
+        "then `bundle exec rails photos:embed_provenance PHOTO_ID=<id>`; if the "
+        "container is genuinely unsupported, the gate's carrier list needs it.",
+    )
+
+
+def check_publish_gate_readiness():
+    """Can every asset the queue will publish still be marked? (pre-flight)
+
+    Read-only: asks `PhotoAssetMarker.markable` for each queued post's asset and
+    never writes (the corpus has exactly one copy -- see photo-corpus-single-copy
+    -- so a probe must not mutate it). The publish gate itself is the authority;
+    this only reports the gate's readiness before a slot reaches the asset.
+    """
+    script = (
+        "persona = Persona.first;"
+        "posts = Scheduling::Post.where(persona_id: persona.id,"
+        " status: %w[draft scheduled]).includes(:photo).to_a;"
+        "marker = ContentPillars::PhotoAssetMarker;"
+        "blocked = []; unmarked = 0; noservable = 0;"
+        "posts.each do |p|;"
+        " ph = p.photo;"
+        " next if ph.nil?;"
+        " file = (ph.servable_file_path rescue nil);"
+        " if file.blank?; noservable += 1; next; end;"
+        " v = marker.markable(file);"
+        " unmarked += 1 unless v == :already_marked;"
+        " blocked << (p.id.to_s + '/' + ph.id.to_s + ':' + v.to_s)"
+        " unless %i[already_marked markable].include?(v);"
+        "end;"
+        "puts ['queued=' + posts.size.to_s,"
+        " 'unmarked=' + unmarked.to_s,"
+        " 'blocked=' + blocked.size.to_s,"
+        " 'noservable=' + noservable.to_s,"
+        " 'ids=' + blocked.first(5).join(',')].join(' ')"
+    )
+    out, rc = run(["bin/rails", "runner", script], timeout=180)
+    if rc != 0 or not out:
+        return None
+    stats = {}
+    for tok in out.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            stats[k] = v
+    return publish_gate_verdict(stats)
+
+
 def _file_mentions(path, needle):
     """Does a source file still reference `needle`? Unreadable -> treated as
     MISSING (the same fail-closed choice the prompt-safety check makes)."""
@@ -3009,6 +3098,7 @@ CHECKS = [
     check_photo_pool,
     check_photo_resolution,
     check_photo_provenance,
+    check_publish_gate_readiness,
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
@@ -3894,6 +3984,30 @@ def cmd_selftest(_argv):
         expect(f"photo_provenance_verdict[{name}]",
                photo_provenance_verdict(unwired, n_unmarked, n_recent), want)
 
+    # publish_gate_verdict: the ASSET-level readiness of the fail-closed publish
+    # gate. A queued asset the marker refuses stops the post, so it must be
+    # reported BEFORE a slot reaches it -- and a queue of markable assets must
+    # stay silent (the gate is not allowed to become board noise).
+    gate_cases = [
+        ("all-markable", {"queued": "16", "unmarked": "0", "blocked": "0",
+                          "noservable": "0", "ids": ""}, None),
+        ("one-truncated-png", {"queued": "16", "unmarked": "3", "blocked": "1",
+                               "noservable": "0", "ids": "328/334:unsupported"},
+         "publish-gate-unmarkable-asset"),
+        ("unwritable-dir", {"queued": "4", "unmarked": "4", "blocked": "4",
+                            "noservable": "0", "ids": "1/1:unwritable"},
+         "publish-gate-unmarkable-asset"),
+        ("empty-queue", {"queued": "0", "unmarked": "0", "blocked": "0",
+                         "noservable": "0", "ids": ""}, None),
+        ("no-servable-file-only", {"queued": "3", "unmarked": "0", "blocked": "0",
+                                   "noservable": "3", "ids": ""}, None),
+        ("unreadable-probe", {}, None),
+        ("garbage-stats", {"queued": "?", "blocked": "?"}, None),
+    ]
+    for name, stats, want in gate_cases:
+        v = publish_gate_verdict(stats)
+        expect(f"publish_gate_verdict[{name}]", v[0] if v else None, want)
+
     # vram_refusal_clause: a refusal is only ACTIONABLE when it names the
     # structural reason. The whole point is that the reader stops re-deriving
     # "renders need a near-empty card" from the telemetry by hand.
@@ -3929,7 +4043,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(refusal_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

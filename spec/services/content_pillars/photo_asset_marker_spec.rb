@@ -165,4 +165,68 @@ RSpec.describe ContentPillars::PhotoAssetMarker do
       expect(described_class.marked?(path('gone.png'))).to be(false)
     end
   end
+
+  # The pre-flight question the ops probe asks before a publish gate can strand
+  # the queue. It must be READ-ONLY (the probe runs hourly against the live
+  # corpus, which has exactly one copy) and it must agree with `mark!` about what
+  # is markable -- both go through `rewrite`.
+  describe '.markable' do
+    it 'reports :markable for a complete, unmarked PNG and writes nothing' do
+      file = path('render.png')
+      original = png
+      File.binwrite(file, original)
+
+      expect(described_class.markable(file)).to eq(:markable)
+      expect(File.binread(file)).to eq(original)
+      expect(Dir.children(dir)).to eq([ 'render.png' ])
+    end
+
+    it 'reports :markable for a JPEG and :already_marked once marked' do
+      file = path('render.jpg')
+      File.binwrite(file, jpeg)
+
+      expect(described_class.markable(file)).to eq(:markable)
+      described_class.mark!(file, {})
+      expect(described_class.markable(file)).to eq(:already_marked)
+    end
+
+    it 'agrees with mark! for every container mark! refuses' do
+      cases = {
+        'render.gif' => 'GIF89a-not-an-image',
+        'broken.png' => "\x89PNG\r\n\x1a\n".b +
+          png_chunk('IHDR', [ 1, 1, 8, 2, 0, 0, 0 ].pack('NNC5')) + 'truncated'
+      }
+      cases.each do |name, bytes|
+        file = path(name)
+        File.binwrite(file, bytes)
+
+        expect(described_class.markable(file)).to eq(:unsupported), "#{name} markable"
+        expect(described_class.mark!(file, {})).to eq(:unsupported), "#{name} mark!"
+        expect(File.binread(file)).to eq(bytes)
+      end
+    end
+
+    it 'reports :missing for an absent file' do
+      expect(described_class.markable(path('nope.png'))).to eq(:missing)
+    end
+
+    it 'reports :unwritable when the containing directory cannot take the temp file' do
+      sub = File.join(dir, 'readonly')
+      Dir.mkdir(sub)
+      file = File.join(sub, 'render.png')
+      File.binwrite(file, png)
+      File.chmod(0o500, sub)
+      begin
+        skip 'directory permissions do not bind for this user' if File.writable?(sub)
+
+        expect(described_class.markable(file)).to eq(:unwritable)
+        # `mark!` can only discover this by failing -- and it must fail WITHOUT
+        # touching the asset.
+        expect(described_class.mark!(file, {})).to eq(:error)
+        expect(File.binread(file)).to eq(png)
+      ensure
+        File.chmod(0o700, sub)
+      end
+    end
+  end
 end

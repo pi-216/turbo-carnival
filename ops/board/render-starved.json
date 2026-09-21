@@ -5,8 +5,8 @@
   "evidence": "photos_12h=0 refusals_12h=11 holder=none; free=18.5GiB vs reservation 21GiB; outside-scheduler holders: 2857312 labeler_spa.py 4.5GiB -- renders need a near-empty card (measured peak 23.2 of 24.0GiB); card 0% busy over 10s (holder resident but idle)",
   "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-09-21T03:03:44-0400",
-  "seen_count": 11,
+  "last_seen": "2026-09-21T03:40:02-0400",
+  "seen_count": 13,
   "source": "probe",
   "notes": [
     {
