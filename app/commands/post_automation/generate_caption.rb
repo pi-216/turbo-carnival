@@ -17,7 +17,21 @@ module PostAutomation
       # the branch that decides whether the caption ever looks at the image.
       load_ollama_client
 
-      result = if photo.image.attached?
+      # Route on whether the photo has BYTES we can send, not on whether an
+      # ActiveStorage attachment row exists.
+      #
+      # WHY (2026-09-21): every render the growth harness imports is path-only
+      # (import_photo never attaches), so branching on `image.attached?` sent
+      # EVERY production caption down the text path and made
+      # CaptionGeneration::VisionGenerator unreachable -- the caption was written
+      # from the photo's context text, not from the image. Measured: the text
+      # path described "rain drumming on the windowpane ... chamomile tea" for a
+      # render showing an autumn street scene with a mug, which the vision path
+      # described correctly, at 15.0s for a 1.1 MB render on the live caption
+      # host. The vision class itself only ever needed readable bytes (its guard
+      # was widened for exactly this), so this branch was the last thing holding
+      # the image path shut.
+      result = if CaptionGeneration::ImageEncoder.readable?(photo)
         CaptionGeneration::VisionGenerator.generate(
           photo: photo,
           persona: persona,
