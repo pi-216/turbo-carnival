@@ -616,7 +616,19 @@ cmd_ensure() {
   log "ensure: NOT claimed within ${wait_s}s (last result: ${result:-unknown}) — GPU unavailable, skipping this tick"
   if [ "${result:-}" = "vram_insufficient" ]; then
     log "ensure: why — free=$(vram_free_mib)MiB vs requested ${VRAM}GiB; holders: $(vram_holders)"
-    log "ensure: note — the ${VRAM}GiB reservation is MEASURED (ComfyUI peaks ~23.2GiB on this card), so a co-tenant holding >3GiB outside the scheduler starves renders; do not lower it to fit"
+    # Provenance (verified 2026-09-21 by git blame + the sampler itself): ${VRAM}
+    # is a FIT value, NOT a measured flux footprint. f0af66a (2026-09-16) set it
+    # to 21 because 22.4GiB was free with the desktop attached, after a 23GiB ask
+    # returned vram_insufficient all day. The "23.2GiB peak" is the SAMPLER's
+    # CARD-level nvidia-smi memory.used high-water mark from 2026-09-19 -- a
+    # session that was ALSO dispatching the deprecated-pipeline pony/SDXL
+    # duplicate renders (the contention OOM, root-caused and fixed that same
+    # day) -- so it overstates our flux footprint and cannot be this value's
+    # source anyway (23.2 > 21). Do NOT lower ${VRAM} to fit on a guess, but do
+    # NOT call it measured either: whether a CLEAN flux render fits in the
+    # ~18.9GiB left by a 4.5GiB co-tenant is UNMEASURED, and that measurement is
+    # the open work on the render-starved board item.
+    log "ensure: note — the ${VRAM}GiB reservation is a FIT to the card with the desktop attached (f0af66a 2026-09-16), NOT a measured flux footprint; the only peak on record (23.2GiB card-level, 2026-09-19) was measured under contention, so a clean render's footprint is unmeasured — do not lower it on a guess, and do not treat it as settled"
   fi
   # Keep the entry ONLY while we are waiting our turn behind an earlier queued
   # job: that is normal FIFO waiting and deleting it would only lose our place

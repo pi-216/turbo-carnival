@@ -1851,6 +1851,18 @@ def telemetry_peak_mib(path=None):
     The render footprint this pipeline actually needs, measured by the harness's
     own sampler -- the number the reservation is sized from, read from the file
     rather than copied, so a copy here cannot drift out of step.
+
+    It is an UPPER BOUND on that footprint, not the footprint: the sampler reads
+    CARD-level `nvidia-smi memory.used`, so it counts every co-tenant, and the
+    only session on record (job comfyui-1789826497-1334030, 2026-09-19) was
+    dispatching the deprecated-pipeline pony/SDXL duplicate renders alongside our
+    flux work -- the contention OOM root-caused and fixed that same day. The
+    flux-only footprint is therefore UNMEASURED, and the reservation was never
+    derived from this number: VRAM=21 came from f0af66a (2026-09-16) as a FIT to
+    the 22.4GiB then free with the desktop attached. Label it as an upper bound
+    and say what it was measured during, because a reader who takes it for "the
+    measured requirement" concludes the conflict is structural and permanent and
+    stops looking for the cheap fix.
     """
     mx = None
     try:
@@ -1870,10 +1882,13 @@ def telemetry_peak_mib(path=None):
     return mx
 
 
-# A pipeline whose measured peak is this share of the card can only run on an
+# A pipeline whose peak ON RECORD is this share of the card can only run on an
 # otherwise-EMPTY GPU: whatever the card has left over is smaller than any
 # co-tenant that matters, so a resident (even idle) process starves it exactly as
 # hard as a training job. Below the ratio a refusal is ordinary contention.
+# Conservative by construction -- the recorded peak is card-level and was sampled
+# under contention, so this fires on the worst session known rather than on a
+# clean render (see telemetry_peak_mib).
 RENDER_PEAK_NEAR_FULL_RATIO = 0.85
 
 
@@ -1893,8 +1908,9 @@ def vram_refusal_clause(peak_mib, total_mib, util_pct, holder_count):
         return ""
     if peak_mib < total_mib * RENDER_PEAK_NEAR_FULL_RATIO:
         return ""
-    clause = (f" -- renders need a near-empty card (measured peak {peak_mib / 1024:.1f} "
-              f"of {total_mib / 1024:.1f}GiB)")
+    clause = (f" -- renders need a near-empty card (card-level peak {peak_mib / 1024:.1f} "
+              f"of {total_mib / 1024:.1f}GiB measured under contention; "
+              f"flux-only footprint unmeasured)")
     if util_pct is not None:
         clause += f"; card {util_pct}% busy over 10s"
         clause += " (holder resident but idle)" if util_pct <= 5 else " (holder working)"
