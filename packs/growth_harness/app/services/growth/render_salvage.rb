@@ -166,15 +166,14 @@ module Growth
     end
 
     def import_photo(run, path)
-      ContentPillars::Photo.find_by(path: path) ||
-        ContentPillars::Photo.create!(
-          persona: goal.persona,
-          path: path,
-          content_pillar: run.content_pillar || fallback_pillar
-        )
-    rescue ActiveRecord::RecordInvalid => e
-      @logger.warn("Growth::RenderSalvage could not import #{path}: #{e.message}")
-      ContentPillars::Photo.find_by(path: path)
+      photo = ContentPillars::Photo.import_render(
+        path: path,
+        persona: goal.persona,
+        content_pillar: run.content_pillar || fallback_pillar,
+        run: run
+      )
+      @logger.warn("Growth::RenderSalvage could not import #{path}") unless photo
+      photo
     end
 
     def schedule_post(run, photo, nsfw, realism)

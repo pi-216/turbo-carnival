@@ -5,8 +5,8 @@
   "evidence": "1 day(s) over the 3/day cap: 09-21=4; 19 future post(s) queued [6 pair(s) inside 60 min: 09-21 04:22/09-21 05:17, 09-21 05:17/09-21 05:31, 09-22 05:19/09-22 05:33, 09-23 05:20/09-23 05:35 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 1 of them (09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T22:43:37-0400",
-  "seen_count": 91,
+  "last_seen": "2026-09-20T23:39:15-0400",
+  "seen_count": 93,
   "source": "probe",
   "notes": [
     {

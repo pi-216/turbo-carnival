@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T17:44:08-0400",
-      "note": "2026-09-20 21:4xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 live: rsync -xahP over ssh -p 2503 with --delete --delete-excluded and an exclude file, source /mnt/fscache/essdee/ -> NAS home, still no --copy-links (and -x stops the walk at the filesystem boundary), so ComfyUI/output is copied as a dangling symlink and the corpus keeps ONE copy on the same NAS volume as the mirror. Needs Tim."
-    },
-    {
       "ts": "2026-09-20T18:36:23-0400",
       "note": "2026-09-20 22:3xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 re-read live: rsync -xahP -e ssh -p 2503 --delete --delete-excluded --exclude-from=... /mnt/fscache/essdee/ -> nas:~/backup/essdee/ with no --copy-links, and -x stops the walk at the filesystem boundary, so ComfyUI/output is mirrored as a dangling symlink and the 337-photo corpus keeps ONE copy on the same NAS volume as its mirror. Fix is one flag in a script outside the working dir; needs Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T22:47:43-0400",
       "note": "2026-09-21 02:4xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 re-read live -- rsync -xahP -e 'ssh -p 2503' --delete --delete-excluded --exclude-from=... /mnt/fscache/essdee/ -> the NAS backup host, still with no --copy-links, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is mirrored as a dangling symlink. Live corpus: 337 photos, 145 ActiveStorage attachments, newest attached photo 2026-05-28 13:07Z -- the NAS tree is still the single copy of every render. Irreplaceable-data risk, one flag for Tim."
+    },
+    {
+      "ts": "2026-09-20T23:41:18-0400",
+      "note": "2026-09-21 03:5xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 re-read live: rsync -xahP -e \"ssh -p 2503\" --delete --delete-excluded --exclude-from=... /mnt/fscache/essdee/ -> tim@192.168.86.43:~/backup/essdee/ -- still no --copy-links, and -x stops the walk at the filesystem boundary, so ComfyUI/output is mirrored as a dangling symlink and the 337-photo corpus keeps ONE copy, on the same NAS volume as its mirror. One flag in a script outside the working dir; not acted on from here."
     }
   ]
 }

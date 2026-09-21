@@ -304,17 +304,12 @@ module Growth
     def import_photo(image_path, run)
       return nil unless image_path && File.exist?(image_path)
 
-      photo = ContentPillars::Photo.find_by(path: image_path)
-      return photo if photo
-
-      ContentPillars::Photo.create!(
-        persona: persona,
+      ContentPillars::Photo.import_render(
         path: image_path,
+        persona: persona,
         content_pillar: @pillar,
-        image_candidate: nil
+        run: run
       )
-    rescue ActiveRecord::RecordInvalid
-      ContentPillars::Photo.find_by(path: image_path)
     end
   end
 end

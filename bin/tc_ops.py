@@ -200,6 +200,17 @@ CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
 PROMPT_SAFETY_GUARD_SRC = (APP / "packs" / "job_orchestration" / "app"
                            / "commands" / "build_job_payload.rb")
 PROMPT_SAFETY_GUARD_REF = "PipelinePromptSafety"
+# The DATABASE half of the synthetic mark (openspec change
+# add-synthetic-provenance). Both render producers must create the Photo through
+# this ONE method, or the mark is remembered by one path and forgotten by the
+# other. A producer that stops calling it is critical: the render reaches the
+# corpus with `synthetic IS NULL`, and the record from which the published asset
+# could ever be marked is gone.
+PROVENANCE_IMPORT_REF = "Photo.import_render"
+PROVENANCE_PRODUCERS = [
+    APP / "packs" / "growth_harness" / "app" / "services" / "growth" / "content_generator.rb",
+    APP / "packs" / "growth_harness" / "app" / "services" / "growth" / "render_salvage.rb",
+]
 WORKFLOW_DIR = APP / "comfy_workflows"
 # Mirrors PipelinePromptSafety::JUVENILE_RULES (detection only; the Ruby side owns
 # the rewrite). Deliberately narrow: "young"/"petite" are NOT violations.
@@ -2646,6 +2657,100 @@ def check_photo_resolution():
     return photo_resolution_verdict(stats)
 
 
+def photo_provenance_verdict(unwired, n_unmarked, n_unmarked_recent):
+    """Pure: is the synthetic mark written at creation, and complete?
+
+    Two independent things, because either alone is insufficient: the PRODUCERS
+    still mark (structural -- a code edit that drops the call is otherwise
+    invisible until an unmarked render ships), and no photo is left unmarked
+    (data -- `synthetic IS NULL` means "unknown", never human origin, and an
+    unknown render cannot be disclosed from the record).
+    """
+    if unwired:
+        return "critical"
+    if n_unmarked and n_unmarked > 0:
+        return "warn"
+    return None
+
+
+def check_photo_provenance():
+    """A render that reaches the corpus unmarked cannot be disclosed later.
+
+    THESIS pillar 2 mandates a synthetic marker that reaches the PUBLISHED asset,
+    and the red line is "never publish a render without a machine-readable
+    synthetic mark". The asset-level mark (openspec change
+    add-synthetic-provenance, tasks 2.x) is not built yet -- but its input is the
+    record written at creation, and provenance that was never tracked cannot be
+    disclosed afterwards. So the DB half is asserted here: the column exists and
+    is written by every render producer, and no photo is left at NULL.
+
+    Detection only. The write lives in ContentPillars::Photo.import_render (the
+    single choke point both producers call) and the corpus repair is
+    `rails photos:backfill_provenance` (dry run; APPLY=1 to write).
+    """
+    unwired = [str(p.relative_to(APP)) for p in PROVENANCE_PRODUCERS
+               if not _file_mentions(p, PROVENANCE_IMPORT_REF)]
+
+    total = psql("select count(*) from photos")
+    unmarked = psql("select count(*) from photos where synthetic is null")
+    if total is None or unmarked is None:
+        # Column absent (migration not applied) or DB unreadable: report nothing
+        # rather than a fabricated zero.
+        return None
+    try:
+        total = int(total)
+        unmarked = int(unmarked)
+    except ValueError:
+        return None
+
+    recent = psql("select count(*) from photos where synthetic is null "
+                  "and created_at > (now() at time zone 'UTC') - interval '24 hours'")
+    try:
+        recent = int(recent) if recent is not None else None
+    except ValueError:
+        recent = None
+
+    severity = photo_provenance_verdict(bool(unwired), unmarked, recent)
+    if not severity:
+        return None
+
+    if unwired:
+        return (
+            "photo-provenance-unmarked",
+            "the render path no longer marks its photo as synthetic",
+            "critical",
+            f"{', '.join(unwired)} no longer call ContentPillars::Photo."
+            f"import_render, so a completed render is written to the corpus with "
+            f"synthetic IS NULL -- unknown origin, and no record to mark the "
+            f"published asset from. Every render must go through that one method "
+            f"(Growth::ContentGenerator for the sync path, Growth::RenderSalvage "
+            f"for the recovery path). Unmarked photos right now: {unmarked} of "
+            f"{total}.",
+        )
+
+    return (
+        "photo-provenance-unmarked",
+        f"{unmarked} photo(s) carry no synthetic mark",
+        severity,
+        f"{unmarked} of {total} photo(s) have synthetic IS NULL"
+        + (f", {recent} of them created in the last 24h" if recent else "")
+        + ". A NULL mark means unknown origin (never defaulted to human origin), "
+          "so nothing can be disclosed about these renders and the asset-level "
+          "mark has no input to carry. Repair: `bundle exec rails "
+          "photos:backfill_provenance` (dry run) then APPLY=1 to write; the "
+          "producers mark at creation via ContentPillars::Photo.import_render.",
+    )
+
+
+def _file_mentions(path, needle):
+    """Does a source file still reference `needle`? Unreadable -> treated as
+    MISSING (the same fail-closed choice the prompt-safety check makes)."""
+    try:
+        return needle in path.read_text()
+    except Exception:
+        return False
+
+
 CHECKS = [
     check_probe_inputs,
     check_worker_running,
@@ -2668,6 +2773,7 @@ CHECKS = [
     check_render_acceptance,
     check_photo_pool,
     check_photo_resolution,
+    check_photo_provenance,
     check_render_starved,
     check_publish_liveness,
     check_publish_gap,
@@ -3517,9 +3623,24 @@ def cmd_selftest(_argv):
         v = image_grounding_verdict(*args)
         expect(f"image_grounding_verdict[{name}]", v[0] if v else None, want)
 
+    # photo_provenance_verdict: the DB half of the synthetic mark. A producer
+    # that stopped marking is critical (nothing reaches the corpus marked); an
+    # unmarked row is warn (unknown origin, no input for the asset-level mark).
+    prov_cases = [
+        ("wired-and-complete", False, 0, 0, None),
+        ("wired-with-unmarked-rows", False, 5, 0, "warn"),
+        ("wired-with-recent-unmarked", False, 2, 2, "warn"),
+        ("producer-unwired", True, 0, 0, "critical"),
+        ("producer-unwired-with-rows", True, 337, 12, "critical"),
+        ("unreadable-db", False, None, None, None),
+    ]
+    for name, unwired, n_unmarked, n_recent, want in prov_cases:
+        expect(f"photo_provenance_verdict[{name}]",
+               photo_provenance_verdict(unwired, n_unmarked, n_recent), want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T17:44:08-0400",
-      "note": "2026-09-20 21:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris re-verified clean live: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs, 18 future scheduled. Side effect of the a29f8bb fix worth noting: the tick claim path no longer burns its 180s budget polling (not_my_turn now returns in under 1s), so the tick has more of its window left for actual work."
-    },
-    {
       "ts": "2026-09-20T18:36:23-0400",
       "note": "2026-09-20 22:3xZ ops-triage: unchanged; the remaining half is Hermes cron config outside this repo (needs Tim: run sync_cadence detached, split into per-slot batches, or raise the tick tool budget above the measured worst case). Repo side re-verified clean this run: probes stuck-run/stuck-job checks quiet, 0 comfyui_jobs created in the last 24h, and the a29f8bb claim fix returns not_my_turn in under 1s so the tick no longer burns its budget polling."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T22:47:44-0400",
       "note": "2026-09-21 02:4xZ ops-triage: unchanged, still needs Tim (Hermes cron config + GPU spend). The repo side is verified fixed this pass: Growth::RenderSalvage (re-run gates, import, caption, schedule) is wired into the hourly publisher and the producer's orphans are bounded by ReconcileStaleRuns, so a SIGKILLed tick truncates the tick but no longer loses the render. Remaining options for Tim, cheapest first: run growth:sync_cadence detached (direct redirect, next tick tops up from render_need, which counts existing posts) / split into per-slot batches / raise the tick's tool timeout above the measured ~45 min worst case."
+    },
+    {
+      "ts": "2026-09-20T23:41:18-0400",
+      "note": "2026-09-21 03:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 pending PipelineRuns, 0 in-flight ComfyuiJobs, 19 future scheduled, 0 failed in 24h. The tick's claim path no longer burns its 180s budget polling (a29f8bb returns not_my_turn in under 1s), so the tick keeps its window for actual work."
     }
   ]
 }

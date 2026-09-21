@@ -84,6 +84,29 @@ module ContentPillars
       false
     end
 
+    # The ONE place a completed render becomes a Photo, so the synthetic mark
+    # cannot be remembered by one producer and forgotten by the other.
+    # Growth::ContentGenerator (sync) and Growth::RenderSalvage (recovery) each
+    # used to create the row themselves -- and RenderSalvage exists precisely
+    # because the sync path can die mid-render, so anything the row must carry
+    # has to live at a single choke point.
+    #
+    # `synthetic: true` is written explicitly (never defaulted) and `provenance`
+    # records what is known about the render, with `embedded: false` because
+    # nothing is written into the image bytes yet.
+    def self.import_render(path:, persona:, content_pillar:, run: nil)
+      find_by(path: path) || create!(
+        persona: persona,
+        path: path,
+        content_pillar: content_pillar,
+        image_candidate: nil,
+        synthetic: true,
+        provenance: PhotoProvenance.for_run(run)
+      )
+    rescue ActiveRecord::RecordInvalid
+      find_by(path: path)
+    end
+
     def posted?
       # Will be true when scheduling pack exists
       # For now, always false

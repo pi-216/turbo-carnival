@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_20_183000) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_21_040000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -242,6 +242,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_20_183000) do
     t.datetime "updated_at", null: false
     t.bigint "image_candidate_id"
     t.bigint "content_pillar_id"
+    t.boolean "synthetic"
+    t.jsonb "provenance", default: {}
     t.index ["content_pillar_id"], name: "index_photos_on_content_pillar_id"
     t.index ["image_candidate_id"], name: "index_photos_on_image_candidate_id", unique: true
     t.index ["path"], name: "index_photos_on_path", unique: true
