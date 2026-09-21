@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-20T21:42:25-0400",
-      "note": "2026-09-21 01:4xZ ops-triage: unchanged, blocked on Tim (intended age) AND on the slot. Live harness status: claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down (co-tenant holds the 4090, claimed 18:13:02Z); our entry comfyui-1789930863-2431031 (21GB) is next in the derived FIFO. No claim taken, no renders run, no identity text touched this pass."
-    },
-    {
       "ts": "2026-09-20T22:47:43-0400",
       "note": "2026-09-21 02:4xZ ops-triage: unchanged, blocked on Tim (intended age) AND on the slot. Live: bin/comfyui_harness.sh status -> claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down (co-tenant holds the 4090). No claim taken, no renders run, no identity text touched this pass."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T03:40:52-0400",
       "note": "2026-09-21 07:3xZ ops-triage: unchanged, blocked on (a) Sarah's intended age -- a fact only Tim can state, nothing in the repo defines it -- and (b) a fresh vision read of a post-c016653 render. Re-checked the blocker this pass: c016653 landed 2026-09-20 20:41Z and the newest render in the corpus predates it (photo 351, 09-20 20:00Z), with no new renders since, so the mechanical fix cannot be verified until a render runs -- i.e. until render-starved clears. No claim taken, no renders run, no identity text touched."
+    },
+    {
+      "ts": "2026-09-21T04:37:05-0400",
+      "note": "2026-09-21 08:3xZ ops-triage: unchanged, blocked on (a) Sarah's intended age -- a fact only Tim can state -- and (b) a post-c016653 render to read. Fresh: newest photo 2026-09-20T16:00:34Z predates c016653 (09-20T20:41Z) and no render has run since, so the mechanical fix stays unverifiable until render-starved clears. No claim taken, no renders run, no identity text touched."
     }
   ]
 }

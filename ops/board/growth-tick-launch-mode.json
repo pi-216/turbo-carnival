@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T21:42:25-0400",
-      "note": "2026-09-21 01:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Live cron/jobs.json: tc-growth-harness-brain still runs the producer inside the tick foreground budget. Repo side re-verified clean this pass: 18 future scheduled / 0 draft, 5 posted in 24h, 0 stuck ComfyuiJobs / PipelineRuns, log-health 0 errors. Residual is a truncated tick, not lost work; the fix is detaching the producer (Tim)."
-    },
-    {
       "ts": "2026-09-20T22:47:44-0400",
       "note": "2026-09-21 02:4xZ ops-triage: unchanged, still needs Tim (Hermes cron config + GPU spend). The repo side is verified fixed this pass: Growth::RenderSalvage (re-run gates, import, caption, schedule) is wired into the hourly publisher and the producer's orphans are bounded by ReconcileStaleRuns, so a SIGKILLed tick truncates the tick but no longer loses the render. Remaining options for Tim, cheapest first: run growth:sync_cadence detached (direct redirect, next tick tops up from render_need, which counts existing posts) / split into per-slot batches / raise the tick's tool timeout above the measured ~45 min worst case."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T03:40:52-0400",
       "note": "2026-09-21 07:3xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo. Re-read live: all four turbo-carnival jobs enabled, deliver=local, tc-growth-harness-brain still runs the producer inside the tick's foreground budget. Repo side re-verified clean this pass (16 queued, 0 failed in 7 days, 0 pending runs, logs 0 errors). Fix remains Tim's: run growth:sync_cadence detached, or raise the tick budget above the measured ~45 min worst case."
+    },
+    {
+      "ts": "2026-09-21T04:37:05-0400",
+      "note": "2026-09-21 08:3xZ ops-triage: unchanged, Hermes cron config outside this repo. Re-read jobs.json: tc-growth-harness-brain (43b0d5c4446d) still invokes 'bundle exec rails growth:sync_cadence[Sarah]' inside the tick's foreground budget, deliver=local. Repo side clean (16 queued, 0 failed/7d, 0 pending runs)."
     }
   ]
 }

@@ -5,14 +5,10 @@
   "source": "manual",
   "status": "open",
   "first_seen": "2026-09-19T17:10:00-0400",
-  "last_seen": "2026-09-21T03:39:49-0400",
-  "seen_count": 23,
+  "last_seen": "2026-09-21T04:25:15-0400",
+  "seen_count": 24,
   "evidence": "32 photo(s) imported in the last 7 days have no ActiveStorage attachment, and 0 post(s) in that window were written by the vision path; corpus 337 photos / 141 attached, newest attachment 2026-05-28. Growth::ContentGenerator#import_photo creates photos path-only and PostAutomation::GenerateCaption routes only attached photos to CaptionGeneration::VisionGenerator, so the caption is written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. The class itself no longer requires an attachment (its guard now accepts a readable local file, spec'd in spec/services/caption_generation/vision_generator_spec.rb), so switching this on is a one-line change to the branch in PostAutomation::GenerateCaption. Measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor already stripping the model preamble and hashtags. NOT flipped by this loop: it changes what a live account PUBLISHES, and the persona's age reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes automatically once a post in the window records generator='vision'.",
   "notes": [
-    {
-      "ts": "2026-09-20T21:42:25-0400",
-      "note": "2026-09-21 01:4xZ ops-triage: unchanged product decision for Tim. Live: corpus 337 photos / 141 with an ActiveStorage attachment, 0 posts in the last 7 days written by the vision path -- every render since 2026-05-28 is path-only, so CaptionGeneration::VisionGenerator is dead code in production by design. The in-repo half landed (f55e8ae: path-only renders can reach the vision path, and Generator now records generator=text so the two paths are countable); the one-line flip changes what a live account publishes and waits on Tim."
-    },
     {
       "ts": "2026-09-20T22:47:43-0400",
       "note": "2026-09-21 02:4xZ ops-triage: unchanged product decision for Tim. Live psql: 337 photos, 145 with an ActiveStorage attachment, newest attached photo 2026-05-28 13:07Z -- every render since is path-only, so CaptionGeneration::VisionGenerator is dead code in production by design and every caption comes from the context text. The in-repo half landed (f55e8ae); the flip is a one-line branch change that alters what a live account publishes."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T03:40:52-0400",
       "note": "2026-09-21 07:3xZ ops-triage: unchanged product decision for Tim. Live psql: photos=337, 141 ContentPillars::Photo ActiveStorage attachments (newest 2026-05-28 13:07Z), 16 queued, 3 photos created in the last 24h and none since 09-20T16:00Z. Every render the growth harness imports is path-only, so CaptionGeneration::VisionGenerator stays unreachable and captions come from context text. The in-repo half landed (f55e8ae); the flip is a one-line branch change that alters what a live account publishes -- Tim's call."
+    },
+    {
+      "ts": "2026-09-21T04:37:05-0400",
+      "note": "2026-09-21 08:3xZ ops-triage: unchanged product decision for Tim. Fresh psql: photos=337, ActiveStorage attachments on ContentPillars::Photo=141 (newest 2026-05-28T13:07Z), 16 queued, 1 photo in 24h. Every growth render is imported path-only, so CaptionGeneration::VisionGenerator stays unreachable and captions come from context text."
     }
   ]
 }
