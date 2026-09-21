@@ -118,6 +118,48 @@ RSpec.describe Growth::ContentGenerator do
         .to eq('render failed in ComfyUI: index is out of bounds for dimension with size 0')
     end
 
+    # A node exception is input-dependent (CLIPSeg found no "head"/"hand" region in
+    # THIS sample), and the resubmit draws a fresh seed (`variables["seed"] +
+    # comfyui_job.id`), so ONE bounded retry recovers the render instead of losing
+    # the slot. The bound is what matters: a prompt that fails deterministically
+    # must still fail the run rather than loop.
+    it 'retries the render once when a node exception kills it' do
+      client = double('comfyui client')
+      allow(ComfyuiClient).to receive(:new).and_return(client)
+      allow(client).to receive(:get_job_status)
+        .and_return(status: 'failed', error: 'index is out of bounds for dimension with size 0')
+      allow(generator).to receive(:poll_for_image).and_call_original
+
+      submits = 0
+      expect(SubmitJob).to receive(:call).twice do
+        submits += 1
+        double('submit', success?: true, comfyui_job: double('job', id: submits, comfyui_job_id: "abc#{submits}"))
+      end
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(submits).to eq(2)
+      expect(result[:success]).to be(false)
+      expect(result[:error])
+        .to eq('render failed in ComfyUI: index is out of bounds for dimension with size 0')
+    end
+
+    # The retry is gated on a ComfyUI ERROR, not on any failure: a render that
+    # simply produced nothing (poll budget exhausted) is a throughput problem, and
+    # re-submitting it inside the same tick would only spend more GPU time on it.
+    it 'does not re-submit a render that produced no image without a ComfyUI error' do
+      allow(generator).to receive(:poll_for_image).and_return(nil)
+
+      expect(SubmitJob).to receive(:call).once.and_return(
+        double('submit', success?: true, comfyui_job: double('job', id: 1, comfyui_job_id: 'abc'))
+      )
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(false)
+      expect(result[:error]).to eq('render timed out or produced no image')
+    end
+
     # Fallback path: the client's failed payload carries no message (a reconciled
     # orphan, a restarted ComfyUI), so the cause has to come from the record
     # PollJobStatus writes -- and an unknown job must read as "unknown", never as

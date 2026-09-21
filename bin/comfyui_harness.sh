@@ -429,21 +429,37 @@ vram_free_mib() { nvidia-smi --query-gpu=memory.free --format=csv,noheader,nouni
 # sat at 18.5GiB free / 0% busy with an EMPTY scheduler queue while an idle
 # co-tenant (BreastTissue-Net labeler, 4.6GiB, outside the scheduler) held the
 # rest -- and every tick refused to render.
-# vram_ask_for_free() therefore asks for what is actually free, minus headroom.
-# The full ask is untouched whenever the card IS free; below VRAM_MIN_FIT nothing
-# is attempted (the pre-existing refuse-and-give-up-the-head behaviour), so this
-# can only ever ADD renders inside the proven envelope, never take a slot for a
-# render that cannot load.
+# vram_ask_for_free() therefore asks for what is actually free, minus headroom,
+# never more than the full ask and never less than VRAM_MIN_FIT.
+#
+# WHY the below-floor case asks the FLOOR and not the full ask (fixed 2026-09-21,
+# completing the fix above): the ask is PERSISTED in the queue record
+# (jobs/<id>.json -> vram_gb) and re-checked by `poll` at CLAIM time against a
+# DIFFERENT free reading -- the card as it is once the current occupant has
+# released. Minting the full 21GiB while another job occupies the card therefore
+# guarantees a self-inflicted refusal later: measured 2026-09-21, the 08:03 tick
+# asked 21GiB while prx-tg-pixel-posttrain-v3 held 16GiB (`plan 8192` -> ask=21GiB)
+# and that record is then refused for the whole of its life against the ~18.9GiB
+# actually free once the occupant releases -- the exact refusal already in this
+# log from the 01:04-06:05 ticks: "free=18949MiB vs requested 21GiB". The entry is
+# then given up at the FIFO head and re-requested on the NEXT tick, so the cost is
+# a whole render window per occurrence.
+# Asking the floor instead costs nothing: `poll` still refuses anything below the
+# ask, so "nothing is attempted below the floor" is unchanged -- the record is
+# simply claimable at the floor the moment the card frees to it. The floor is the
+# smallest ask this install treats as workable; the measured load requirement is
+# ~16.3GiB free (envelope above), so the 16.0-16.3GiB sliver is the only case
+# where a claim can now land marginally under it (raise VRAM_MIN_FIT if that ever
+# bites -- it is the single knob).
 vram_ask_for_free() {
   local free_mib="$1" full="$VRAM" eff
   case "$free_mib" in ''|*[!0-9]*) echo "$full"; return 0 ;; esac
   # Card effectively free -> the known-good full ask, behaviour unchanged.
   if [ "$free_mib" -ge $((full * 1024)) ]; then echo "$full"; return 0; fi
   eff=$(( (free_mib - FIT_HEADROOM_MIB) / 1024 ))
-  # Too tight to be worth a slot: keep the full ask so the caller behaves exactly
-  # as before (refuse, give up the FIFO head) instead of launching a render whose
-  # load would land under the proven floor.
-  if [ "$eff" -lt "$VRAM_MIN_FIT" ]; then echo "$full"; return 0; fi
+  # Too tight for a reduced ask: carry the FLOOR, not the full ask, so the queued
+  # record stays claimable once the occupant releases (see WHY above).
+  if [ "$eff" -lt "$VRAM_MIN_FIT" ]; then echo "$VRAM_MIN_FIT"; return 0; fi
   echo "$eff"
 }
 
@@ -694,11 +710,13 @@ cmd_ensure() {
     # day) -- so it counts co-tenants and cannot be this value's source anyway
     # (23.2 > 21).
     # Since 2026-09-21 the ask is budgeted against live free memory
-    # (vram_ask_for_free), so reaching THIS branch now means something specific
-    # and worth naming: free VRAM is below the ${VRAM_MIN_FIT}GiB floor -- the
-    # card is genuinely too full for even the smallest render proven to work
-    # here. Name the holder and move on; do not re-derive the cause by hand.
-    log "ensure: note — free is below the ${VRAM_MIN_FIT}GiB fit floor, so the ask is NOT reduced and no render is attempted this tick (${VRAM}GiB is a FIT value, f0af66a 2026-09-16, not a footprint)"
+    # (vram_ask_for_free: free minus headroom, clamped to [floor, full]), so
+    # reaching THIS branch now means something specific and worth naming: free
+    # VRAM is below the ask at CLAIM time -- the card is genuinely too full for
+    # even the smallest render proven to work here, and the ask cannot have been
+    # padded (it is never above live-free-minus-headroom). Name the holder and
+    # move on; do not re-derive the cause by hand.
+    log "ensure: note — free is below the ${ask}GiB ask at claim time (floor ${VRAM_MIN_FIT}GiB, full ask ${VRAM}GiB), so no render is attempted this tick (${VRAM}GiB is a FIT value, f0af66a 2026-09-16, not a footprint)"
   fi
   # Keep the entry ONLY while we are waiting our turn behind an earlier queued
   # job: that is normal FIFO waiting and deleting it would only lose our place

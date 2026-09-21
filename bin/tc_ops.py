@@ -867,9 +867,14 @@ def check_render_execution_errors():
         f"{n} ComfyUI execution error(s) in the last {RENDER_ERR_WINDOW_H}h; "
         f"newest {newest}. The producer now NAMES this (Growth::ContentGenerator "
         "carries the ComfyUI error into the run's failure reason and the brain's "
-        "decision row) instead of reporting every render death as a timeout; the "
-        "fix for the fault itself is the workflow payload, not the Rails code. "
-        "Reconciled orphans are excluded.",
+        "decision row) instead of reporting every render death as a timeout, and "
+        "it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's "
+        "base seed + the new ComfyuiJob id -- so the retry draws a different "
+        "sample). A retry that RECOVERS still leaves this failed row, so read this "
+        "entry as 'the workflow can die on this input', not as 'a render was "
+        "lost'. The fault itself is the workflow payload (an empty CLIPSeg "
+        "head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node), not "
+        "the Rails code. Reconciled orphans are excluded.",
     )
 
 
@@ -1887,8 +1892,19 @@ def adaptive_ask_gb(free_mib, full_gb=None, min_fit_gb=None, headroom_mib=None):
     offloaded" -> "Prompt executed in 95.61 seconds", with ~8GiB of co-tenants on the
     card). So a co-tenant holding a few GiB does not make a render impossible, and the
     ask is budgeted against live free memory: full ask when the card is free, free
-    minus headroom otherwise, and the full ask again below the floor -- where nothing
-    is attempted at all, which is the only case that is still a structural refusal.
+    minus headroom otherwise, and the FLOOR when even that reduced ask falls below it.
+
+    WHY the floor and not the full ask in that last case (fixed 2026-09-21): the ask is
+    PERSISTED in the queue record (jobs/<id>.json -> vram_gb) and re-checked at CLAIM
+    time against a DIFFERENT free reading -- the card once the occupant has released.
+    A full ask minted while another job occupies the card is therefore a self-inflicted
+    `vram_insufficient` for the whole life of the record (measured 2026-09-21: the 08:03
+    tick asked 21GiB against a card held by prx-tg-pixel-posttrain-v3, and the refusal
+    the record then earns is the one already in the harness log: "free=18949MiB vs
+    requested 21GiB"). The entry is given up at the FIFO head and re-requested on the
+    next tick, costing a whole render window. Carrying the floor instead changes no
+    invariant -- `poll` still refuses anything below the ask -- and makes the record
+    claimable the moment the card frees to the floor.
     """
     d_full, d_min, d_head = harness_constants()
     full_gb = d_full if full_gb is None else full_gb
@@ -1903,7 +1919,7 @@ def adaptive_ask_gb(free_mib, full_gb=None, min_fit_gb=None, headroom_mib=None):
     if free_mib >= full_gb * 1024:
         return full_gb
     eff = int((free_mib - headroom_mib) // 1024)
-    return full_gb if eff < min_fit_gb else float(eff)
+    return float(min_fit_gb) if eff < min_fit_gb else float(eff)
 
 
 def our_reservation_gb():
@@ -4181,16 +4197,19 @@ def cmd_selftest(_argv):
             expect(f"vram_refusal_clause[{name}]", want in got, True)
 
     # adaptive_ask_gb: the fit policy, mirrored from the harness. Full ask when the
-    # card is free; free minus headroom otherwise; the full ask again below the floor
-    # (where the launcher does not reduce the ask and skips the tick).
+    # card is free; free minus headroom otherwise; the FLOOR when even that falls
+    # below it -- never the full ask, because the ask is PERSISTED in the queue
+    # record and re-checked at claim time against the free reading the card will
+    # have once the current occupant releases (see adaptive_ask_gb's docstring).
     ask_cases = [
         ("card-free", 24564, 21.0),
         ("exactly-full-ask", 21504, 21.0),
         ("just-under", 21000, 19.0),
         ("live-2026-09-21", 18939, 17.0),
         ("at-floor", 17408, 16.0),
-        ("below-floor", 16384, 21.0),
-        ("tiny", 4096, 21.0),
+        ("below-floor", 16384, 16.0),
+        ("card-occupied-2026-09-21", 8192, 16.0),
+        ("tiny", 4096, 16.0),
         ("unknown", None, 21.0),
         ("garbage", "?", 21.0),
     ]
@@ -4205,7 +4224,7 @@ def cmd_selftest(_argv):
     _harness = APP / "bin" / "comfyui_harness.sh"
     _plan_checks = 0
     if _harness.exists():
-        for _free in (24564, 21504, 21000, 18939, 17408, 16384):
+        for _free in (24564, 21504, 21000, 18939, 17408, 16384, 8192):
             _out, _rc = run([str(_harness), "plan", str(_free)])
             # NOT r"ask=..." -- the line also carries "full_ask=21GiB", which that
             # pattern matches first and reports as the decision for every reading.

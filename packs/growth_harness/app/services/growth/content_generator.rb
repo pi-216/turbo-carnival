@@ -74,6 +74,30 @@ module Growth
 
       comfyjob = submit.comfyui_job
       image_path = poll_for_image(comfyjob.comfyui_job_id)
+
+      # A node exception inside the workflow is INPUT-dependent, not a property of
+      # the card: CLIPSeg found no "head"/"hand" region in THIS sample, so the WAS
+      # "Bounded Image Crop with Mask" node indexed an empty mask and the whole
+      # render was lost (measured 2026-09-21: run 479, `index is out of bounds for
+      # dimension with size 0`; 260 such deaths all-time and in bursts -- 211 on
+      # 2025-12-10, 36 on 2025-12-11, 12 on 2026-05-26 -- so this is a
+      # long-standing workflow fragility, not a regression from the clean
+      # pipeline). The seed is `pipeline_run.variables["seed"] + comfyui_job.id`
+      # (SubmitJob#apply_job_variables), so a RESUBMIT draws a genuinely different
+      # sample: one bounded retry turns a lost render into a rendered one for a
+      # few minutes of a claim the tick already holds. Bounded to ONE because a
+      # prompt that fails deterministically (a hand/arm close-up with no head in
+      # frame) must fail the run rather than loop -- the same policy PollJobStatus
+      # already applies to a retryable OOM.
+      if image_path.nil? && render_error
+        Rails.logger.warn("Growth::ContentGenerator retrying render after ComfyUI error: #{render_error}")
+        retry_submit = SubmitJob.call(job_payload: payload.job_payload, pipeline_step: step, pipeline_run: run)
+        if retry_submit.success?
+          comfyjob = retry_submit.comfyui_job
+          image_path = poll_for_image(comfyjob.comfyui_job_id)
+        end
+      end
+
       unless image_path
         # NAME the cause. A ComfyUI execution error is not a timeout, and the
         # difference is the whole diagnosis: measured 2026-09-21, run 479 died in
