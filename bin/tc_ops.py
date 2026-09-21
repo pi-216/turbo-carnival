@@ -1545,10 +1545,9 @@ def image_grounding_verdict(total, attached, recent_unattached, vision_posts,
     if recent_unattached <= 0:
         return None  # every recent photo carries bytes the vision path can read
     detail = (
-        f"{recent_unattached} photo(s) imported in the last "
-        f"{IMAGE_GROUNDING_WINDOW_H // 24} days have no ActiveStorage attachment, "
-        f"and 0 post(s) in that window were written by the vision path; corpus "
-        f"{total} photos / {attached} attached"
+        f"{recent_unattached} render(s) imported in the last "
+        f"{IMAGE_GROUNDING_WINDOW_H // 24} days, and 0 post(s) in that window were "
+        f"written by the vision path; corpus {total} photos / {attached} attached"
     )
     if newest_attach:
         detail += f", newest attachment {newest_attach}"
@@ -1558,15 +1557,20 @@ def image_grounding_verdict(total, attached, recent_unattached, vision_posts,
 def check_caption_image_grounding():
     """Captions never look at the render: the vision path is unreachable.
 
-    The caller (PostAutomation::GenerateCaption) branches on
-    `photo.image.attached?`, and Growth::ContentGenerator#import_photo creates
-    photos path-only -- so since 2026-05-28 every caption has been generated from
-    context text and CaptionGeneration::VisionGenerator has been dead code in
-    production, silently. Nothing else measures it: check_caption_fallback counts
-    placeholders and check_placeholder_caption_queued counts queued junk, so a
-    caption that is fluent and WRONG about the photo reads green everywhere.
-    The condition is a product decision (Tim's), so this refreshes the record
-    with live numbers instead of closing it.
+    HISTORY (this is why the check exists): the caller
+    (PostAutomation::GenerateCaption) branched on `photo.image.attached?`, and
+    Growth::ContentGenerator#import_photo creates photos path-only -- so since
+    2026-05-28 every caption was generated from context text and
+    CaptionGeneration::VisionGenerator was dead code in production, silently.
+    Nothing else measures it: check_caption_fallback counts placeholders and
+    check_placeholder_caption_queued counts queued junk, so a caption that is
+    fluent and WRONG about the photo reads green everywhere.
+
+    The branch was FLIPPED 2026-09-21 (it now routes on readable bytes), so the
+    attachment count is no longer the condition -- it is kept as the count of
+    renders still being produced. What remains measurable, and what this check
+    now reports, is the second clause: no post in the window was captioned by
+    the vision path YET. That clears on the next rendered post.
     """
     attached_pred = ("exists (select 1 from active_storage_attachments a "
                      "where a.record_type = 'ContentPillars::Photo' "
@@ -1596,25 +1600,26 @@ def check_caption_image_grounding():
     sev, detail = verdict
     return (
         "vision-caption-path-never-taken",
-        "no photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image",
+        "no post in the window has been captioned by the vision path yet "
+        "(the routing flip landed 2026-09-21)",
         sev,
         detail
-        + ". Growth::ContentGenerator#import_photo creates photos path-only and "
-        "PostAutomation::GenerateCaption routes only attached photos to "
-        "CaptionGeneration::VisionGenerator, so the caption is written from the "
+        + ". PostAutomation::GenerateCaption used to branch on "
+        "photo.image.attached?, and Growth::ContentGenerator#import_photo creates "
+        "photos path-only, so every production caption was written from the "
         "photo's context text: measured 2026-09-21, the text path described "
         "'rain drumming on the windowpane ... chamomile tea' for a render that "
         "shows an autumn street scene with a mug, which the vision path "
-        "described correctly. The class itself no longer requires an attachment "
-        "(its guard now accepts a readable local file, spec'd in "
-        "spec/services/caption_generation/vision_generator_spec.rb), so "
-        "switching this on is a one-line change to the branch in "
-        "PostAutomation::GenerateCaption. Measured cost on the live caption "
-        "host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor "
-        "already stripping the model preamble and hashtags. NOT flipped by this "
-        "loop: it changes what a live account PUBLISHES, and the persona's age "
-        "reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes "
-        "automatically once a post in the window records generator='vision'."
+        "described correctly. THE BRANCH WAS FLIPPED 2026-09-21 (commit f37136e): "
+        "it now routes on CaptionGeneration::ImageEncoder.readable?, so a "
+        "path-only render with a resolvable file takes the vision path -- "
+        "verified live on photo 353 (generator='vision', gemma3:4b, caption "
+        "grounded in the image). The attachment count in this evidence is "
+        "therefore NO LONGER the condition; it is kept only as the count of "
+        "renders still being produced. The one remaining condition is the second "
+        "clause: no post in the window has yet been captioned by the vision path. "
+        "This record closes itself on the next rendered post (measured cost on "
+        "the live caption host: 15.0s for a 1.1 MB render through gemma3:4b)."
     )
 
 

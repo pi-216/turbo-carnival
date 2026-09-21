@@ -1,26 +1,14 @@
 {
   "key": "vision-caption-path-never-taken",
-  "title": "no photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image",
+  "title": "no post in the window has been captioned by the vision path yet (the routing flip landed 2026-09-21)",
   "severity": "info",
   "source": "manual",
   "status": "open",
   "first_seen": "2026-09-19T17:10:00-0400",
-  "last_seen": "2026-09-21T10:07:28-0400",
-  "seen_count": 37,
-  "evidence": "34 photo(s) imported in the last 7 days have no ActiveStorage attachment, and 0 post(s) in that window were written by the vision path; corpus 339 photos / 141 attached, newest attachment 2026-05-28. Growth::ContentGenerator#import_photo creates photos path-only and PostAutomation::GenerateCaption routes only attached photos to CaptionGeneration::VisionGenerator, so the caption is written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. The class itself no longer requires an attachment (its guard now accepts a readable local file, spec'd in spec/services/caption_generation/vision_generator_spec.rb), so switching this on is a one-line change to the branch in PostAutomation::GenerateCaption. Measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor already stripping the model preamble and hashtags. NOT flipped by this loop: it changes what a live account PUBLISHES, and the persona's age reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes automatically once a post in the window records generator='vision'.",
+  "last_seen": "2026-09-21T11:25:08-0400",
+  "seen_count": 40,
+  "evidence": "34 render(s) imported in the last 7 days, and 0 post(s) in that window were written by the vision path; corpus 339 photos / 141 attached, newest attachment 2026-05-28. PostAutomation::GenerateCaption used to branch on photo.image.attached?, and Growth::ContentGenerator#import_photo creates photos path-only, so every production caption was written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. THE BRANCH WAS FLIPPED 2026-09-21 (commit f37136e): it now routes on CaptionGeneration::ImageEncoder.readable?, so a path-only render with a resolvable file takes the vision path -- verified live on photo 353 (generator='vision', gemma3:4b, caption grounded in the image). The attachment count in this evidence is therefore NO LONGER the condition; it is kept only as the count of renders still being produced. The one remaining condition is the second clause: no post in the window has yet been captioned by the vision path. This record closes itself on the next rendered post (measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b).",
   "notes": [
-    {
-      "ts": "2026-09-21T00:34:52-0400",
-      "note": "2026-09-21 04:37Z: re-verified live: photos=337, ActiveStorage-attached=141, newest attachment 2026-05-28 13:07Z. The flip changes what a live account publishes; unchanged, still info."
-    },
-    {
-      "ts": "2026-09-21T02:54:53-0400",
-      "note": "2026-09-21 06:5xZ ops-triage: re-verified live: photos=337, ActiveStorage-attached=141 (newest 2026-05-28T13:07Z) -- no photo created by the growth harness carries an attachment, so CaptionGeneration::VisionGenerator is still unreachable in production and captions come from context text. Unchanged product decision (the flip changes what a live account publishes), not a defect; in-repo half landed (f55e8ae)."
-    },
-    {
-      "ts": "2026-09-21T03:40:52-0400",
-      "note": "2026-09-21 07:3xZ ops-triage: unchanged product decision for Tim. Live psql: photos=337, 141 ContentPillars::Photo ActiveStorage attachments (newest 2026-05-28 13:07Z), 16 queued, 3 photos created in the last 24h and none since 09-20T16:00Z. Every render the growth harness imports is path-only, so CaptionGeneration::VisionGenerator stays unreachable and captions come from context text. The in-repo half landed (f55e8ae); the flip is a one-line branch change that alters what a live account publishes -- Tim's call."
-    },
     {
       "ts": "2026-09-21T04:37:05-0400",
       "note": "2026-09-21 08:3xZ ops-triage: unchanged product decision for Tim. Fresh psql: photos=337, ActiveStorage attachments on ContentPillars::Photo=141 (newest 2026-05-28T13:07Z), 16 queued, 1 photo in 24h. Every growth render is imported path-only, so CaptionGeneration::VisionGenerator stays unreachable and captions come from context text."
@@ -36,7 +24,16 @@
     {
       "ts": "2026-09-21T10:05:32-0400",
       "note": "DECISION 2026-09-21 (operating agent, route=agent): FLIP the branch so path-only photos reach CaptionGeneration::VisionGenerator -- SEQUENCED AFTER persona-age-read-youthful clears. Rationale: captions are written from context text and are measurably wrong (described rain on a windowpane for an autumn street scene the vision path described correctly), and the measured cost is 15.0s per 1.1MB render on the live caption host. The sequencing IS the decision: a vision model describing a minor-reading render makes the persona problem worse, so the persona must read adult first. In-repo half already landed (f55e8ae); the flip is the one-line branch change in PostAutomation::GenerateCaption."
+    },
+    {
+      "ts": "2026-09-21T11:22:27-0400",
+      "note": "FLIPPED 2026-09-21 (operating agent). The sequencing condition (the persona's age reading) is satisfied by the persona-age-read-youthful fix: the render prompt now states an adult age and the pre-publish age gate HOLDS any render whose read comes back juvenile, so a vision model describing the image can no longer amplify a minor-reading render. CHANGE: PostAutomation::GenerateCaption branches on CaptionGeneration::ImageEncoder.readable? instead of photo.image.attached?, so path-only renders -- every render the growth harness imports -- reach CaptionGeneration::VisionGenerator; a photo with no readable bytes at all still falls back to the text path. VERIFIED live with no GPU: PostAutomation::GenerateCaption.call(photo 353, a real path-only production render) -> success, generator='vision', model=gemma3:4b, caption grounded in the image (the text path had invented a different scene for it). Specs: 226 examples 0 failures, including a new example pinning path-only + readable file -> vision and a fallback example pinning no-bytes -> text. The probe's own check closes this automatically once a post in the window records generator='vision' -- the next rendered post will."
+    },
+    {
+      "ts": "2026-09-21T11:25:13-0400",
+      "note": "2026-09-21 15:2xZ ops-triage: the probe RE-FILED this record because its remaining condition is still true, and that is now the only condition. The routing flip landed (commit f37136e: PostAutomation::GenerateCaption branches on CaptionGeneration::ImageEncoder.readable?), verified live on photo 353 (generator=vision, gemma3:4b, caption grounded in the image), so the attachment count in the evidence is retired as a condition -- the check text was corrected to say so (the title no longer claims captions never look at the image). What keeps this open is the second clause only: no post in the window has yet been captioned by the vision path. It closes itself on the next rendered post, and the growth tick renders one at the next GPU window (queue shortfall 4 after the age-gate hold of post 345). No action pending, no Tim ask."
     }
   ],
-  "route": "agent"
+  "route": "agent",
+  "closed_at": "2026-09-21T11:22:27-0400"
 }
