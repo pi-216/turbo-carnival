@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -795,7 +796,9 @@ def check_render_starved():
     if photos == 0 and refused >= 1:
         job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
         held = foreign_hold_hours()
-        fit = vram_fit_note()
+        # with_util: this is the one check where "is the blocker WORKING or merely
+        # resident?" decides the ask, and it only runs on a starved tick.
+        fit = vram_fit_note(with_util=True)
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
@@ -1809,24 +1812,119 @@ def our_reservation_gb():
     return None
 
 
-def vram_fit_note():
+def gpu_total_mib():
+    out, rc = run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+    if rc != 0 or not out:
+        return None
+    try:
+        return int(out.splitlines()[0].strip())
+    except ValueError:
+        return None
+
+
+def gpu_util_peak_pct(samples=5, interval=2):
+    """Max GPU utilization over a short WINDOW, or None.
+
+    One sample is not a signal in either direction (a healthy run alternates a
+    short burst with a long dataloader gap), so the question this answers -- "is
+    the process holding the missing VRAM actually WORKING, or merely resident?"
+    -- needs a window. Sampled only when a blocker is present, so the healthy
+    path stays fast.
+    """
+    vals = []
+    for i in range(samples):
+        out, rc = run(["nvidia-smi", "--query-gpu=utilization.gpu",
+                       "--format=csv,noheader,nounits"], timeout=10)
+        if rc == 0 and out:
+            try:
+                vals.append(int(out.splitlines()[0].strip().split()[0]))
+            except (ValueError, IndexError):
+                pass
+        if i < samples - 1:
+            time.sleep(interval)
+    return max(vals) if vals else None
+
+
+def telemetry_peak_mib(path=None):
+    """Max vram_used_mib across the telemetry samples, or None.
+
+    The render footprint this pipeline actually needs, measured by the harness's
+    own sampler -- the number the reservation is sized from, read from the file
+    rather than copied, so a copy here cannot drift out of step.
+    """
+    mx = None
+    try:
+        with open(path or TELE_FILE) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    v = json.loads(line).get("vram_used_mib")
+                except Exception:
+                    continue
+                if v:
+                    mx = v if mx is None else max(mx, v)
+    except Exception:
+        return None
+    return mx
+
+
+# A pipeline whose measured peak is this share of the card can only run on an
+# otherwise-EMPTY GPU: whatever the card has left over is smaller than any
+# co-tenant that matters, so a resident (even idle) process starves it exactly as
+# hard as a training job. Below the ratio a refusal is ordinary contention.
+RENDER_PEAK_NEAR_FULL_RATIO = 0.85
+
+
+def vram_refusal_clause(peak_mib, total_mib, util_pct, holder_count):
+    """PURE: the structural half of a VRAM refusal, or '' when renders fit comfortably.
+
+    Without this a refusal reads as "the card is busy", which is unactionable:
+    2026-09-20, five consecutive ticks re-derived by hand from
+    log/comfyui_telemetry.jsonl that renders need a near-empty card before anyone
+    wrote it into the evidence. With it the reader learns the ask in one line --
+    either the co-tenant yields, or the render footprint shrinks.
+    """
+    if not peak_mib or not total_mib or holder_count is None:
+        # holder_count is None only when the holders cannot be enumerated (no
+        # nvidia-smi): an unknown blocker set must not be reported as a known
+        # structural conflict, the same way an unreadable queue is never "idle".
+        return ""
+    if peak_mib < total_mib * RENDER_PEAK_NEAR_FULL_RATIO:
+        return ""
+    clause = (f" -- renders need a near-empty card (measured peak {peak_mib / 1024:.1f} "
+              f"of {total_mib / 1024:.1f}GiB)")
+    if util_pct is not None:
+        clause += f"; card {util_pct}% busy over 10s"
+        clause += " (holder resident but idle)" if util_pct <= 5 else " (holder working)"
+    return clause
+
+
+def vram_fit_note(with_util=False):
     """What stands between us and a claim: free VRAM vs our reservation, plus holders.
 
     A refusal whose evidence says only `holder=none` is unactionable -- it was the
     *foreign job* that went away, not the co-tenant *process*. Name both numbers and
     the process, or the next tick re-diagnoses the same starvation.
+
+    with_util adds the GPU-utilization window (a 10 s sample), which is what
+    separates "a co-tenant is training" from "a co-tenant's tool is merely
+    resident". Off by default so the checks that only need the numbers stay fast.
     """
     free = gpu_vram_free_mib()
     if free is None:
         return ""
     req = our_reservation_gb()
     note = f"free={free / 1024:.1f}GiB" + (f" vs reservation {req:.0f}GiB" if req else "")
-    blockers = vram_blocker_note()
+    blockers = gpu_vram_holders()
     if blockers:
-        note += f"; outside-scheduler holders: {blockers}"
+        note += "; outside-scheduler holders: " + ", ".join(
+            f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in blockers)
     if req and free < req * 1024:
-        note += (" -- a claim is refused vram_insufficient while something outside the "
-                 "scheduler (co-tenant process or display session) holds the difference")
+        note += vram_refusal_clause(
+            telemetry_peak_mib(), gpu_total_mib(),
+            gpu_util_peak_pct() if with_util else None, len(blockers))
     return note
 
 
@@ -3796,9 +3894,42 @@ def cmd_selftest(_argv):
         expect(f"photo_provenance_verdict[{name}]",
                photo_provenance_verdict(unwired, n_unmarked, n_recent), want)
 
+    # vram_refusal_clause: a refusal is only ACTIONABLE when it names the
+    # structural reason. The whole point is that the reader stops re-deriving
+    # "renders need a near-empty card" from the telemetry by hand.
+    refusal_cases = [
+        ("near-full-idle-holder", (23743, 24564, 0, 1), "holder resident but idle"),
+        ("near-full-working-holder", (23743, 24564, 97, 1), "holder working"),
+        ("near-full-util-unknown", (23743, 24564, None, 1), "near-empty card"),
+        ("near-full-no-holder", (23743, 24564, None, 0), "near-empty card"),
+        ("fits-comfortably", (12000, 24564, 0, 1), None),
+        ("peak-unknown", (None, 24564, 0, 1), None),
+        ("total-unknown", (23743, None, 0, 1), None),
+        ("holders-unknown", (23743, 24564, 0, None), None),
+    ]
+    for name, args, want in refusal_cases:
+        got = vram_refusal_clause(*args)
+        if want is None:
+            expect(f"vram_refusal_clause[{name}]", got, "")
+        else:
+            expect(f"vram_refusal_clause[{name}]", want in got, True)
+
+    # telemetry_peak_mib: the render footprint is READ from the sampler's own
+    # file (the number the reservation is sized from), so a malformed line must
+    # not throw and an empty file must read as unknown, never as 0.
+    with tempfile.TemporaryDirectory() as _d:
+        _p = Path(_d) / "tele.jsonl"
+        _p.write_text('{"vram_used_mib": 388}\nnot json\n{"vram_used_mib": 23743}\n')
+        expect("telemetry_peak_mib[parses-and-skips-bad-line]",
+               telemetry_peak_mib(_p), 23743)
+        _p.write_text("")
+        expect("telemetry_peak_mib[empty]", telemetry_peak_mib(_p), None)
+        expect("telemetry_peak_mib[missing-file]",
+               telemetry_peak_mib(Path(_d) / "nope.jsonl"), None)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(refusal_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
