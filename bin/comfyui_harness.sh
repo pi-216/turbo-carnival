@@ -79,16 +79,73 @@ stop_heartbeat() {
   systemctl --user stop "$(hb_unit "$job")" >/dev/null 2>&1 || true
 }
 
-# Remove a job WE created from the scheduler queue. release() alone returns
-# "not_owner" while another agent holds the GPU, leaving a queued entry that
-# would block the next agent's front-of-queue for up to 24h (expire window).
-# Only ever called with job ids this script generated itself (comfyui-<ts>-<pid>).
+# Retire the RECORD of a job WE created by marking it `cancelled` — never by
+# deleting it.
+#
+# release() cannot do this: it returns "not_owner" while another agent holds the
+# GPU (and returns BEFORE touching the job file), so a queued-never-claimed entry
+# stays status=queued and would block the next agent's front-of-queue for up to
+# 24h (expire window). read_queue() only counts status=="queued", so cancelling
+# unblocks the FIFO exactly as `rm` did — but `rm` also destroyed the only
+# artifact tying the id to this project, leaving `job requested: <id>` in the
+# scheduler's events.log with no jobs/<id>.json, which is indistinguishable from
+# a LOST job (measured 2026-09-20: three such orphans cost an investigation, and
+# every diagnosis recipe in the gpu-resource-scheduler skill starts by reading
+# jobs/<id>.json). The cancelled record keeps request -> cancel traceable, with
+# the reason, for free.
+#
+# Falls back to rm when the write cannot be verified: a 24h FIFO blockade is
+# worse than losing one history row. Only ever called with job ids this script
+# generated itself (comfyui-<ts>-<pid>[-<attempt>]).
+cancel_job_record() {
+  local jid="$1" reason="${2:-comfyui_harness.sh: retiring our own queued request}"
+  [ -n "$jid" ] || return 0
+  python3 - "$SCHED_JOBS_DIR" "$jid" "$reason" <<'PY' || rm -f "${SCHED_JOBS_DIR}/${jid}.json" 2>/dev/null || true
+import datetime, json, os, socket, sys
+
+jobs_dir, jid, reason = sys.argv[1], sys.argv[2], sys.argv[3]
+path = os.path.join(jobs_dir, f"{jid}.json")
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+if not os.path.exists(path):
+    sys.exit(0)                      # already gone — nothing to preserve
+with open(path) as f:
+    rec = json.load(f)
+if rec.get("status") != "queued":
+    sys.exit(0)                      # already terminal — leave that history alone
+
+rec["status"] = "cancelled"
+rec["cancelled_at"] = now
+rec["cancelled_by"] = "comfyui_harness.sh"
+rec["cancelled_reason"] = reason
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(rec, f, indent=2)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, path)                # atomic: a reader never sees a partial file
+
+# Audit line in the scheduler's OWN event log (same directory layout the
+# scheduler uses, so a fixture SCHED_JOBS_DIR keeps this isolated too).
+log_dir = os.path.join(os.path.dirname(os.path.abspath(jobs_dir)), "logs")
+os.makedirs(log_dir, exist_ok=True)
+with open(os.path.join(log_dir, "events.log"), "a") as f:
+    f.write(f"{now} [info] {socket.gethostname()}: comfyui_harness.sh: "
+            f"job cancelled: {jid} ({reason})\n")
+
+with open(path) as f:                # verify the write actually took
+    sys.exit(0 if json.load(f).get("status") == "cancelled" else 1)
+PY
+}
+
+# Retire a job we created: release what release() can (a lease we own), then
+# cancel the record so the FIFO is unblocked AND the id stays traceable.
 cleanup_job() {
-  local jid="$1"
+  local jid="$1" reason="${2:-cleanup: one outstanding request per project}"
   [ -n "$jid" ] || return 0
   sched release --gpu "$GPU" --job-id "$jid" --status failed >/dev/null 2>&1 || true
-  rm -f "${SCHED_JOBS_DIR}/${jid}.json" 2>/dev/null || true
-  log "cleanup: removed queued request $jid"
+  cancel_job_record "$jid" "$reason"
+  log "cleanup: retired queued request $jid (record kept as cancelled)"
 }
 
 # Our own queued (never-granted) entries on this GPU, oldest first.
@@ -139,14 +196,22 @@ reconcile_own_queue() {
   fi
   for jid in "${own[@]:1}"; do
     log "reconcile: cancelling duplicate queued request $jid (one outstanding request per project)"
-    cleanup_job "$jid"
+    cleanup_job "$jid" "duplicate: one outstanding request per project"
   done
   echo "${own[0]}"
 }
 
 log() {
   rotate_harness_log
-  echo "[$(date '+%F %T')] $*" | tee -a "$HARNESS_LOG"
+  # Log lines go to STDERR: several callers capture a function's STDOUT as its
+  # return value (`job="$(reconcile_own_queue)"`), and tee-ing the log to stdout
+  # made those captures multiline. Measured 2026-09-20: cancelling a duplicate
+  # turned the adopted id into "<log line>\n<log line>\n<id>", so `poll` was
+  # handed a job id that does not exist and answered `not_queued` — a wasted
+  # attempt and a misleading "re-requesting once" line. A function's stdout is
+  # its return value; the log belongs on stderr. Cron captures both streams, so
+  # nothing is lost.
+  echo "[$(date '+%F %T')] $*" | tee -a "$HARNESS_LOG" >&2
 }
 
 # Retention window for the harness log: this file is append-only and nothing else
@@ -488,7 +553,11 @@ cmd_ensure() {
     attempts=$((attempts + 1))
     job="$(reconcile_own_queue)"
     if [ -z "$job" ]; then
-      job="comfyui-$(date +%s)-$$"
+      # `-${attempts}` keeps the id unique across the retry below: a retired id
+      # is single-use forever (request raises FileExistsError), so re-minting the
+      # same <ts>-<pid> inside the same second would fail the request and skip
+      # the tick.
+      job="comfyui-$(date +%s)-$$-${attempts}"
       log "ensure: requesting claim $job (vram ${VRAM}GB, duration ${DURATION})"
       sched request --gpu "$GPU" --project "$PROJECT" --vram "$VRAM" --duration "$DURATION" --job-id "$job" >/dev/null 2>&1 || { log "ensure: request failed"; return 2; }
     else
@@ -557,7 +626,7 @@ cmd_ensure() {
   # the head would block SMALLER jobs behind us that could run, so give the place
   # up and let the next tick re-request.
   if [ "${result:-}" != "not_my_turn" ]; then
-    cleanup_job "$job"
+    cleanup_job "$job" "gave up the FIFO head (${result:-unknown}) so a job behind us can take the card"
     log "ensure: gave up the FIFO head (last result: ${result:-unknown}) so a job behind us can take the card"
   else
     log "ensure: keeping queued entry ${job:-none} for the next tick (waiting our turn behind another job)"
