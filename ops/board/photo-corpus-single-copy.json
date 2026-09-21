@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T23:41:18-0400",
-      "note": "2026-09-21 03:5xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh:27 re-read live: rsync -xahP -e \"ssh -p 2503\" --delete --delete-excluded --exclude-from=... /mnt/fscache/essdee/ -> tim@192.168.86.43:~/backup/essdee/ -- still no --copy-links, and -x stops the walk at the filesystem boundary, so ComfyUI/output is mirrored as a dangling symlink and the 337-photo corpus keeps ONE copy, on the same NAS volume as its mirror. One flag in a script outside the working dir; not acted on from here."
-    },
-    {
       "ts": "2026-09-21T00:34:52-0400",
       "note": "2026-09-21 04:37Z: unchanged, outside this repo. /home/tim/backup.sh line 27 re-read live: the rsync of /mnt/fscache/essdee/ to the NAS backup host still carries no copy-links flag, and -x stops the walk at the filesystem boundary, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is mirrored as a dangling symlink and the 337-photo corpus keeps ONE copy. One flag in a script outside the repo; needs Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T08:48:23-0400",
       "note": "2026-09-21 12:3xZ ops-triage: unchanged and still outside this repo. Re-read /home/tim/backup.sh today: the essdee rsync is still \"rsync -xahP ... /mnt/fscache/essdee/\" with -x and no --copy-links, so ComfyUI/output still mirrors as a dangling symlink and the render corpus keeps ONE copy while the mark writer mutates it in place. Fix is a one-flag edit in a home-dir script, so it stays Tims."
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh still rsyncs /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is mirrored as a dangling symlink and the photo corpus keeps ONE copy on the same NAS volume as its mirror. One flag in a home-dir script; not touched from here."
     }
   ]
 }

@@ -2,17 +2,13 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v3) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 1.3h; our queue entries=1",
+  "evidence": "we hold no claim; held 1.9h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T08:49:28-0400",
-  "seen_count": 37,
+  "last_seen": "2026-09-21T09:25:42-0400",
+  "seen_count": 38,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T17:43:54-0400",
-      "note": "2026-09-20 21:4xZ ops-triage: by-design capacity record -- and it was masking a REAL defect, now FIXED (a29f8bb). 4090 held by prx-tg-pixel-posttrain-v2 (foreign; ~10.9GB resident, 89 percent util burst), we hold no claim. Our own queue was flooded: TWO own queued entries (19:01Z + 21:00Z). Each tick minted a fresh comfyui-<ts>-<pid> and cancelled it only on the timeout path, so a tick killed mid-wait (tool budget 180s < wait 300s) left its entry queued and the next tick queued BEHIND ITSELF and read not_my_turn from its own predecessor -- blocking us and every project behind us until the 24h expiry, and idling the card had prx-tg released. ensure now adopts the oldest own entry and cancels duplicates; live reconcile cancelled the 21:00Z duplicate (derived queue 3->2, state.json untouched) and ensure adopts 19:01Z in 0.5s. New probe check own-queue-flood / own-queue-blockade guards the regression."
-    },
     {
       "ts": "2026-09-20T18:36:23-0400",
       "note": "2026-09-20 22:3xZ ops-triage: by-design capacity record, nothing to action. Live: 4090 busy on foreign prx-tg-pixel-posttrain-v2 (job requested/claimed 18:13:02Z, duration 6.5h, so it releases about 00:43Z) with our own comfyui-1789930863-2431031 (21GB, requested 19:01:03Z) next in the derived queue. Rules forbid touching another project job and our render need is absorbed by the 18-post queue; recorded so the GPU gate is explained rather than re-diagnosed."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T00:25:55-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: normal shared-resource state, nothing to fix. claim=busy current_job=prx-tg-pixel-posttrain-v3 (16GB, ~11h), ours=no, comfyui=down as expected; our entry comfyui-1789992236-4075726-1 sits behind it (not_my_turn). Note: that entry still asks 21.0GB, but the next tick now re-mints it at the live-fit ask (cb0f36d) instead of waiting for a refusal at the head. No claim taken, no process or state file touched."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400"

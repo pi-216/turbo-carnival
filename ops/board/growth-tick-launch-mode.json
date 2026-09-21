@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T23:41:18-0400",
-      "note": "2026-09-21 03:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 pending PipelineRuns, 0 in-flight ComfyuiJobs, 19 future scheduled, 0 failed in 24h. The tick's claim path no longer burns its 180s budget polling (a29f8bb returns not_my_turn in under 1s), so the tick keeps its window for actual work."
-    },
-    {
       "ts": "2026-09-21T00:34:52-0400",
       "note": "2026-09-21 04:37Z: unchanged, Hermes cron config outside the repo. Repo side re-verified clean: 19 queued, 3 photos in 24h, 0 failed in 24h."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T08:48:23-0400",
       "note": "2026-09-21 12:3xZ ops-triage: unchanged. Re-read the cron config: tc-growth-harness-brain (0 * * * *, no_agent=false, last_run 08:06 EDT) still runs \"bundle exec rails growth:sync_cadence[Sarah]\" in the FOREGROUND of the tick, under the job fixed timeout. That is a Hermes cron-config choice outside this repo, and the sync producer can be killed mid-render by it (the run-level debris class the board already tracks). Recorded here, not acted on."
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo -- tc-growth-harness-brain still runs growth:sync_cadence inside the tick foreground budget. Repo side re-verified: 17 scheduled, no pending PipelineRuns, 0 failed in 24h. The cheapest fix (run the producer detached, direct >> log 2>&1 &) is a cron-prompt edit and was not made from here."
     }
   ]
 }

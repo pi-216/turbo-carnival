@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T23:41:18-0400",
-      "note": "2026-09-21 03:5xZ ops-triage: unchanged, not a repo defect. Live: snapshots 156@03:04Z (flat -- 156/156/156 across the last three hours), goal 156/1000, required 2.53/day, 19 future scheduled (09-21=4 then 3/day), 3 posts created in 24h, 0 failed in 24h. Cadence is already at the configured cap and the review interval gates the next escalation to 09-23, so the lever is the brain's next review, not an ops-triage edit."
-    },
-    {
       "ts": "2026-09-21T00:34:43-0400",
       "note": "2026-09-21 04:36Z: unchanged, not a repo defect. Live: latest snapshot 156 (2026-09-21 04:01Z), goal 156/1000, 19 future scheduled, 3 photos in 24h, cadence at the configured cap; next brain review gates to 2026-09-23. Render throughput is suppressed by GPU contention (see render-starved) but the queue has about 5 days of runway, so this is not yet the binding constraint."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T08:48:23-0400",
       "note": "2026-09-21 12:3xZ ops-triage: unchanged. Re-read the goal: followers 156 / 1000, 333 days left, required 2.53/day, on_track=false, traj_ratio=0.06; queue 17 scheduled (not starved). The render-side blockers that were in this repo are now fixed (adaptive ask + poisoned-ask floor, commits 095ba28 / 81e8c4a); what remains is a strategy decision (cadence is at the configured 3/day cap and the review brain is gated to 2026-09-23). Needs Tim."
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: unchanged. Live re-read: followers 156, queue 17 scheduled (not starved), 0 failed in 24h; cadence is at the configured cap and the strategy review gates to 2026-09-23 (review_interval_days 7, last 2026-09-16). The render-side blockers that lived in this repo are now all closed (095ba28 adaptive ask, 81e8c4a poisoned ask, cb0f36d stale adopted ask), so what remains is a cadence/strategy decision the agent owns, with a pre-registered gate, not an ops edit."
     }
   ]
 }
