@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T19:56:48-0400",
-      "note": "2026-09-20 23:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 in-flight comfyui_jobs, 0 submitted >30min, 18 future scheduled, newest posted 19:00:26Z, decisions 24h = comfyui_unclaimed 9 / salvage_recovered 3 (the GPU-free salvage carries top-ups while prx-tg holds the 4090). Options for Tim unchanged: (a) detach growth:sync_cadence in the tick and defer the end-of-tick release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
-    },
-    {
       "ts": "2026-09-20T20:44:31-0400",
       "note": "2026-09-21 00:4xZ ops-triage: unchanged, Hermes cron config outside this repo (checked cron/jobs.json live: tc-growth-harness-brain is deliver=origin and still runs sync_cadence inside the tick foreground budget). Repo side re-verified clean: 18 future scheduled, 5 posted in 24h, 0 stuck ComfyuiJobs/PipelineRuns. Residual is a truncated growth tick, not lost work; the fix is detaching the producer in the cron prompt (Tim) -- per-slot batching cannot help because ONE render already exceeds the tick budget."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T00:34:52-0400",
       "note": "2026-09-21 04:37Z: unchanged, Hermes cron config outside the repo. Repo side re-verified clean: 19 queued, 3 photos in 24h, 0 failed in 24h."
+    },
+    {
+      "ts": "2026-09-21T02:54:59-0400",
+      "note": "2026-09-21 06:5xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo. Repo side re-verified clean: 17 queued, 1 post + 1 photo in 24h, 0 failed in 24h, no pending PipelineRuns."
     }
   ]
 }

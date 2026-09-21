@@ -3,7 +3,7 @@
   "title": "Provenance is now recorded at creation, but the published asset still carries no machine-readable mark",
   "severity": "warn",
   "evidence": "2026-09-21 03:5xZ: the DB half landed (42cd73d) -- photos.synthetic + photos.provenance are written at creation through ContentPillars::Photo.import_render (single choke point for both render producers) and the corpus is backfilled 337/337 with provenance.embedded=false. The published asset is still unmarked: the bytes Meta fetches carry no digitalSourceType, and the publish path has no gate. Remaining work is tasks 2.x (embed in the served bytes) and 3.x (fail-closed publish gate) of openspec/changes/add-synthetic-provenance. Closes on live evidence: a published asset whose bytes read the mark back out.",
-  "status": "open",
+  "status": "closed",
   "first_seen": "2026-09-20T22:20:49-0400",
   "last_seen": "2026-09-20T23:42:19-0400",
   "seen_count": 2,
@@ -24,6 +24,11 @@
     {
       "ts": "2026-09-21T00:34:43-0400",
       "note": "2026-09-21 04:36Z ops-triage: unchanged, and not done from this session by the repo's own rule -- openspec/changes/add-synthetic-provenance/tasks.md Note says the implementation should run through the repo's normal worker path, not ad-hoc from a session. Founder approval is recorded (f9eec7f); the remaining gate is the worker path. Re-verified live: photos.synthetic + photos.provenance present, corpus 337/337 marked, probe check photo-provenance-unmarked silent."
+    },
+    {
+      "ts": "2026-09-21T03:02:54-0400",
+      "note": "2026-09-21 07:0xZ ops-triage: CLOSED on live evidence, not on the code landing. FIXED (commit 20e2589). Bytes half: ContentPillars::PhotoAssetMarker writes an XMP packet (Iptc4xmpExt:DigitalSourceType=trainedAlgorithmicMedia + xmpRights:Marked) into PNG (iTXt after IHDR) and JPEG (APP1 after SOI), atomically and idempotently, refusing containers it does not recognise and PNGs whose chunk stream never reaches IEND; Photo.import_render -- the single choke point both render producers call -- marks the asset at creation and sets provenance.embedded from that write's verdict; 'rails photos:embed_provenance' covers pre-existing assets (dry-run default). Gate half: GeneratePublicPhotoUrl is the last step before SendPostToInstagram on BOTH rails (SchedulePost chain + scheduling:post_scheduled), so it asserts the mark on the bytes the URL will serve, marks in flight when absent, and blocks only when the mark is still missing -- verified it cannot strand the live queue (all 22 queued/recent photos are PNG, writable, markable). EVIDENCE (end-to-end): photo 334 (the asset behind scheduled post 328) marked via the rake task, post 328 published 2026-09-21T07:00:29Z, and the PUBLIC bytes fetched from https://carnival.pi216.ai/media/photos/334 read digitalSourceType=http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia with every PNG chunk CRC valid and the pixel payload unchanged. Suite: 15 new examples green, full suite 454/0/8 pending, rubocop clean. Also fixed two latent breaks found while wiring the gate: Scheduling::SchedulePost and CreatePostRecord declared 'optional caption_metadata: Hash' (GLCommand has no 'optional' -- only requires/allows/returns), so the class BODY raised NoMethodError on load and Scheduling::PostsController#create_and_post_now ('post now' in the UI) was broken; and a marked JPEG read as unmarked because presence was keyed off the PNG-only chunk keyword. REMAINING in the change (NOT this item): tasks 4.1/4.2 (surface the disclosure in the caption/preview), 1.4 (NOT NULL constraint) and 5.3 (spec update on archive). The 337-photo corpus is NOT bulk-marked: the gate marks each asset as it publishes (the 18-post queue self-heals), and only assets that reach a platform need the mark."
     }
-  ]
+  ],
+  "closed_at": "2026-09-21T03:02:54-0400"
 }
