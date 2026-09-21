@@ -27,10 +27,9 @@ then works the open issues and closes them with a note.
                              moves, an age cannot)
   tc_ops.py warm-caption     load+pin the caption model on max395
   tc_ops.py needs-human      rewrite ops/NEEDS_HUMAN.md -- the markdown digest of
-                             the open board (also refreshed by every `probe`), for
-                             the one reader the board could not reach: cron
-                             delivery from this profile is broken, so a human reads
-                             the repo, not the reports
+                             the open board, for the reader the reports cannot
+                             reach: this profile's jobs deliver `local`, so the
+                             human surface is the repo, not the cron output
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
 up to TC_CAPTION_WARM_BUDGET seconds (default 240) ONLY when no caption model is
@@ -119,6 +118,13 @@ PUBLISH_GAP_CRITICAL_H = 96
 # so a hit is rare and always worth reading; the 24h window keeps the signal
 # while it is actionable and lets the entry self-close once failures age out.
 PUBLISH_FAILED_WINDOW_H = 24
+# The failed-post repair (Scheduling::FailedPostRetry, run by the publisher as
+# `scheduling:retry_failed`) re-books a TRANSIENTLY rejected post onto a fresh slot
+# and stamps the row's failure_reason with `retry#N ...`. Such a row is booked, not
+# lost, so it must never be counted as a lost slot here -- but a row that stays
+# un-marked IS a real loss: a policy rejection (never retried on purpose), a row with
+# no stored reason, a photo whose file is gone, or a repair that stopped running.
+RETRY_MARKER = 'retry#'
 # EXPECTED-EVENT ABSENCE, second case: the engagement feedback path. The insights
 # command refreshes posts older than 24h on every run of the hourly publisher, so
 # a live path is always well inside a day; a day of silence means nothing invoked
@@ -162,6 +168,14 @@ COMFYUI_LIVE_WINDOW_S = 1800
 # 'webui'", for ~18h -- so every finding on this board was being dropped while
 # each run reported success. Nothing in this repo can see that, so read it from
 # the job store (override with TC_CRON_JOBS; unreadable -> no signal, not a warn).
+#
+# RESOLVED 2026-09-21: the three jobs now carry `deliver=local` (their WebUI origin
+# cannot be delivered to; the profile's real home channels are slack/email, and
+# pushing reports there is a human decision, not a silent config change). The check
+# below was made CONFIG-AWARE in the same pass, because `last_status` is historical:
+# keyed on status alone the board would have carried an already-fixed item until the
+# weekly job next ran (up to 7 days). It now fires only for a job that still ASKS
+# for delivery (target != local) whose last attempt failed.
 CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
                  or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
                  / "cron" / "jobs.json")
@@ -888,7 +902,8 @@ def check_publish_failed_silent():
         "select count(*) || '|' || coalesce(round(extract(epoch from "
         "(now() at time zone 'UTC') - max(updated_at)) / 3600.0, 1)::text, 'na') "
         "from scheduling_posts where status = 'failed' and updated_at > "
-        f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours'"
+        f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours' "
+        f"and coalesce(failure_reason, '') not like '{RETRY_MARKER}%'"
     )
     if row is None:
         return None
@@ -907,6 +922,7 @@ def check_publish_failed_silent():
         "|| ' reason: ' || coalesce(failure_reason, '(none stored)') "
         "from scheduling_posts where status = 'failed' and updated_at > "
         f"(now() at time zone 'UTC') - interval '{PUBLISH_FAILED_WINDOW_H} hours' "
+        f"and coalesce(failure_reason, '') not like '{RETRY_MARKER}%' "
         "order by updated_at desc limit 5"
     ) or []
     age = "age unknown" if newest_h is None else f"newest {newest_h:.1f}h ago"
@@ -915,16 +931,20 @@ def check_publish_failed_silent():
         "a post Instagram rejected ends as `failed` -- the slot and its photo are "
         "lost, and nothing re-books them",
         sev,
-        f"{n_failed} post(s) marked failed in the last {PUBLISH_FAILED_WINDOW_H}h "
-        f"({age}): {'; '.join(rows)}. packs/scheduling/lib/tasks/scheduled_posting.rake "
-        "calls record_failure! with no requeue (the row's failure_reason carries the "
-        "cause; rows written before 2026-09-20 have none, so grep the post id in "
-        "log/scheduled_posting.log for those). Nothing else can see it: "
-        "check_publish_liveness counts only scheduled/draft rows past due, and "
-        "check_publish_gap measures the newest POSTED post. The original failure "
-        "mode is fixed in-repo -- Instagram::Client retries a 9007 'media not ready' "
-        "publish 4x/10s and the row persists its reason -- so what lands here has "
-        "already survived the retry; it ages out of this window on its own.",
+        f"{n_failed} un-retried post(s) marked failed in the last "
+        f"{PUBLISH_FAILED_WINDOW_H}h ({age}): {'; '.join(rows)}. The retry path now "
+        "exists in-repo (Scheduling::FailedPostRetry, wired into "
+        "bin/scheduled_posting.sh as `scheduling:retry_failed` with APPLY=1): it "
+        "re-books the SAME row onto a Growth::PostSlotPlanner slot when the stored "
+        "failure_reason matches a TRANSIENT class (9007/2207027, timeout, 429, 5xx, "
+        "connection, url_generation) and writes a `retry#N` marker so one failure "
+        "can never be re-booked twice. Rows counted here are therefore those the "
+        "retry would NOT touch or has not yet seen: a policy/permission rejection "
+        "(deliberate -- re-offering rejected content is not ours to decide), a row "
+        "with no stored reason, a photo file that is gone, or a repair that stopped "
+        "running. Rows marked `retry#N` are excluded on purpose: they are booked, "
+        "not lost. Original failure mode ffe9692 (4x/10s publish retry + persisted "
+        "reason) still stands -- what lands here survived it.",
     )
 
 
@@ -2096,17 +2116,34 @@ def check_zombie_jobs():
     )
 
 
+def _asks_for_delivery(row):
+    """Pure: True when a job's configured target is anything but plain local storage.
+
+    `deliver` is a comma-separated target list; `local` (and empty) means the result
+    is meant to stay on disk, so such a job can never be delivery-broken.
+    """
+    tokens = [t.strip().lower() for t in str(row.get("deliver") or "").split(",")]
+    return any(t and t != "local" for t in tokens)
+
+
 def cron_delivery_verdict(rows):
     """Pure: job records -> (severity, evidence) when a result was never delivered.
 
     From the fix loop's point of view a run whose result never reaches the user is
     a FAILED run -- and the failure is invisible from the repo side: the agent
-    runs, the output file is written, the next tick fires on time. Only a status
-    that actually says the delivery failed counts, so a job still running (status
-    None) or delivering locally is never reported as broken.
+    runs, the output file is written, the next tick fires on time.
+
+    A job counts as broken when it still ASKS for delivery (its configured target is
+    not `local`) AND its last attempt failed. The configured target is read on
+    purpose: `last_status` is HISTORICAL, so a job whose target has just been fixed
+    keeps reading `delivery_failed` until it runs again -- up to a week for the weekly
+    job -- and the board would carry an already-resolved item the whole time. A job
+    that delivers locally, or has not run yet, is never reported as broken.
     """
     broken = []
     for r in rows:
+        if not _asks_for_delivery(r):
+            continue
         status = str(r.get("status") or "").lower()
         if "delivery_failed" in status or "delivery_error" in status:
             broken.append(r)
@@ -2722,11 +2759,11 @@ def human_digest(recs, now=None):
         f"Regenerated by `bin/tc_ops.py probe` at {now} from `ops/board/*.json`.",
         "Do not edit by hand -- every probe run rewrites this file.",
         "",
-        "It exists because nothing else reaches a human: cron delivery from this",
-        "profile fails (`cron-delivery-target-broken`, `deliver=origin` with origin",
-        "`webui`, which the gateway cannot deliver to), so the board and this digest",
-        "are the surfaces a human actually sees. Full records:",
-        "`python3 bin/tc_ops.py show <key>`.",
+        "It exists because the board is the surface a human reads: this profile's",
+        "cron jobs deliver `local` (their origin is the WebUI, which the gateway",
+        "cannot deliver to), so reports land in `cron/output/<job-id>/` and the",
+        "decisions a machine cannot make land here, where git log is the delivery",
+        "channel that works. Full records: `python3 bin/tc_ops.py show <key>`.",
         "",
         f"Open: {len(recs)} (`source=manual` means it waits on a human decision: {len(manual)})",
         "",
@@ -3162,6 +3199,17 @@ def cmd_selftest(_argv):
         ("one-broken", [J("a", "ok"), J("b", "delivery_failed",
                                        error="unknown platform 'webui'")], "warn"),
         ("all-broken", [J("a", "delivery_failed"), J("b", "delivery_failed")], "warn"),
+        # A target that is now `local` is a decision, not a failure -- and
+        # last_status is HISTORICAL, so without this the board would carry a
+        # resolved item until the job next runs (a week, for the weekly job).
+        ("target-fixed-historical-status",
+         [J("a", "delivery_failed", deliver="local", error="unknown platform 'webui'")],
+         None),
+        ("target-fixed-in-list",
+         [J("a", "delivery_failed", deliver="local,", error="unknown platform 'webui'")],
+         None),
+        ("still-asking-still-broken",
+         [J("a", "delivery_failed", deliver="origin,slack")], "warn"),
     ]
     for name, rows, want in delivery_cases:
         v = cron_delivery_verdict(rows)

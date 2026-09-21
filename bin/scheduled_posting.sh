@@ -103,6 +103,24 @@ if [ "$INSIGHTS_CODE" -ne 0 ]; then
     log "WARN: insights collection exited $INSIGHTS_CODE — publishing anyway"
 fi
 
+# Re-book the slot of a post Instagram rejected (2026-09-21). `failed` is terminal in
+# the state machine, the (photo_id, persona_id) index is UNIQUE so no replacement row
+# can be created, and nothing else in the pipeline ever reads a `failed` row -- so a
+# rejected post lost BOTH its slot and its paid-for render while the publisher exited
+# 0 (3 lifetime occurrences: posts 37, 246, 333; the newest 2026-09-20 15:15Z, a 9007
+# readiness race that survived the 4x/10s publish retry). Scheduling::FailedPostRetry
+# re-books the row onto a PostSlotPlanner slot, but ONLY for causes it classifies as
+# transient and only ONCE per row -- a policy rejection stays failed and stays on the
+# ops board for a human. Runs ahead of the publisher so a re-booked slot can be
+# released on the very tick it is due. Deliberately NON-FATAL (same pattern as the
+# repairs above): a recovery failure must never stall publishing.
+log "Re-booking posts Instagram rejected transiently (if any)..."
+APPLY=1 LIMIT=3 bundle exec rails scheduling:retry_failed 2>&1 | tee -a "$LOG_FILE"
+RETRY_CODE=${PIPESTATUS[0]}
+if [ "$RETRY_CODE" -ne 0 ]; then
+    log "WARN: failed-post retry exited $RETRY_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

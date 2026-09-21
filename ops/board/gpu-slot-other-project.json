@@ -2,17 +2,13 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v2) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 7.5h; our queue entries=1",
+  "evidence": "we hold no claim; held 8.5h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-20T21:42:33-0400",
-  "seen_count": 26,
+  "last_seen": "2026-09-20T22:43:29-0400",
+  "seen_count": 30,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-19T21:37:33-0400",
-      "note": "Closed as an accepted condition AND the check that filed it is fixed. A co-tenant holding the 4090 is normal sharing and our rules forbid touching its job, so a record filed on hold duration alone could never be actioned -- this one sat open through 5 probes and two ops-triage runs that both concluded 'nothing to action'. bin/tc_ops.py check_slot now files it only when one of OUR jobs is queued on that GPU. Verified 2026-09-20 01:45Z: the foreign hold is still live (prx-tg-latent-first-v34, current_since 15:00:28Z = 10.8h) and the probe returned 0 info; real starvation stays covered by check_render_starved (refusals + no output). Commit f40f08c."
-    },
     {
       "ts": "2026-09-20T16:43:16-0400",
       "note": "2026-09-20 20:4xZ ops-triage: by-design capacity record, nothing to action. The 4090 is held by prx-tg-pixel-posttrain-v2 (foreign project, 16 GB); rules forbid touching another project's job, and our render need is absorbed by the queue (18 scheduled). Recorded so the GPU gate is explained rather than re-diagnosed."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T21:42:25-0400",
       "note": "2026-09-21 01:4xZ ops-triage: by-design capacity record, untouched. Live scheduler status: 4090 busy, current_job=prx-tg-pixel-posttrain-v2 (16GB, claimed 18:13:02Z, duration 6.5h), our comfyui-1789930863-2431031 (21GB) next in the derived FIFO; strix idle. Rules forbid touching another project's job; nothing to action."
+    },
+    {
+      "ts": "2026-09-20T22:47:43-0400",
+      "note": "2026-09-21 02:4xZ ops-triage: by-design capacity record. Live: 4090 claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down; our queued entry stays in the derived FIFO. No action -- foreign holds are normal sharing and must not be touched. Auto-closes when we next hold the slot."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400"
