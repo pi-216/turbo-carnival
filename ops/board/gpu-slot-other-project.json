@@ -2,11 +2,11 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v3) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 7.1h; our queue entries=1",
+  "evidence": "we hold no claim; held 7.9h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T14:35:10-0400",
-  "seen_count": 54,
+  "last_seen": "2026-09-21T15:25:24-0400",
+  "seen_count": 55,
   "source": "probe",
   "notes": [
     {
