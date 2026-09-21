@@ -9,5 +9,10 @@
   "seen_count": 1,
   "source": "manual",
   "route": "tim",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-21T12:55:58-0400",
+      "note": "2026-09-21 17:0xZ ops-triage: CONFIRMED and SHARPENED -- this is the one surviving enablement ask on the corpus. (a) Off-site: the app's B2 keys are unusable, verified three ways this pass -- aws s3 ls --endpoint-url https://s3.us-west-004.backblazeb2.com s3://fluffy-train-{development,production}/ with the .env keys returns InvalidAccessKeyId (key id 00437451bb92cd0000000000e, len 25); Rails credentials b2.access_key_id is the SAME key id; and Rails' own ActiveStorage b2 service.exist? on the newest b2 blob (id 172, created 2026-05-28 -- nothing has been written to B2 since May) returns Aws::S3::Errors::Forbidden. So this needs NEW credentials (or a different destination: any S3-compatible target, a second physical disk, or Tim's own off-site). The upload itself is small once a target exists: 171 files / 176 MiB are the NAS-only corpus (the ~83 GB snapshot tree is mostly the historical sarah1a3 render tree); bin/corpus_backup.sh already supports CORPUS_BACKUP_DEST=<target> for exactly this. (b) Second half of the same ask, and it is Tim's file: /home/tim/backup.sh:27 still rsyncs /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output mirrors as a DANGLING symlink onto the SAME NAS volume -- the nightly backup still looks like it covers the images while covering none of them. Either exclude that symlink so the backup stops implying coverage it does not have, or leave it (the repo copy now covers the bytes). I have written nothing to B2 and touched nothing outside this repo."
+    }
+  ]
 }

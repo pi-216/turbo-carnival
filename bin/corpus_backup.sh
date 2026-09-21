@@ -31,9 +31,14 @@
 # (ubuntu-vg). That is a different MACHINE and a different DEVICE from the NAS,
 # so it covers a NAS volume loss, a NAS box failure, and an accidental `rm -rf`
 # of comfyui-output. It does NOT cover this box dying: for that, point
-# CORPUS_BACKUP_DEST at off-site storage (the ecosystem uses the `b2` CLI
-# elsewhere, but no B2 credentials exist on this machine). Two independent
-# devices is the bar this script is written to; it will not claim more.
+# CORPUS_BACKUP_DEST at off-site storage. The app's B2 keys are NOT usable: the
+# key in .env and the one in Rails credentials are the same id and BOTH are dead
+# (verified 2026-09-21: aws s3 ls on fluffy-train-development/-production ->
+# InvalidAccessKeyId; Rails' own b2 service.exist? on the newest b2 blob ->
+# Forbidden, and nothing has been written to B2 since 2026-05-28). So off-site
+# needs NEW credentials or a different destination -- see the board entry
+# photo-corpus-offsite-gap. Two independent devices is the bar this script is
+# written to; it will not claim more.
 # The directory is gitignored -- machine-local data, never source.
 #
 # HISTORY WITHOUT DELETING ANYTHING

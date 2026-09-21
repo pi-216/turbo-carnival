@@ -1517,41 +1517,70 @@ def check_queued_post_hashtags():
 
 
 IMAGE_GROUNDING_WINDOW_H = 24 * 7
+# When the caption routing flip landed (commit f37136e, 2026-09-21 15:19Z UTC):
+# PostAutomation::GenerateCaption now branches on
+# CaptionGeneration::ImageEncoder.readable? instead of photo.image.attached?.
+# A caption written BEFORE this cannot be evidence about it, and neither can a
+# window in which no post was created at all -- reading those as "the vision path
+# is never taken" is what kept the board entry open for 41 sightings with no
+# action while the only thing actually missing was a rendered post (the GPU was
+# held by a co-tenant). See image_grounding_verdict.
+CAPTION_VISION_FLIP_LANDED = calendar.timegm(
+    time.strptime("2026-09-21T15:19:00", "%Y-%m-%dT%H:%M:%S"))
 
 
 def image_grounding_verdict(total, attached, recent_unattached, vision_posts,
-                            newest_attach=None):
-    """Pure: do published captions ever look at the render itself?
+                            newest_attach=None, ungrounded_since_flip=None):
+    """Pure: is a caption STILL written without looking at the render?
 
-    Returns (severity, detail) or None when the condition is clean or unknown.
+    Returns (severity, detail) or None.
 
     "Captions are written from context text, never from the image" is not a code
-    defect on its own -- the caller routes only ATTACHED photos to
-    CaptionGeneration::VisionGenerator, and every render the growth harness
-    imports is path-only -- but it IS the difference between a caption that
+    defect on its own -- but it IS the difference between a caption that
     describes the photo and one that invents a scene the photo does not show
     (measured 2026-09-21 on photo 351: vision said "warm cup of coffee and a
     beautiful autumn morning" for an autumn street scene; the text path shipped
-    "rain drumming on the windowpane ... chamomile tea"). Two things must hold
-    for it to be LIVE rather than history: photos are still being imported
-    without an attachment, and no post in the window was written by the vision
-    path -- which scheduling_posts.caption_metadata now records on BOTH paths
-    (generator: 'vision' / 'text').
+    "rain drumming on the windowpane ... chamomile tea").
+
+    The evidence has to be POST-flip, because that is the only thing the flip
+    changes: `ungrounded_since_flip` counts captions created after
+    CAPTION_VISION_FLIP_LANDED whose photo had READABLE bytes yet which took the
+    TEXT path -- i.e. the flip not taking effect in production. None means the
+    caller could not measure it (unreadable DB).
+
+    The window counts are kept for the evidence text and as a clean-guard, NOT
+    as the condition: no vision caption in a window with no post in it is
+    UNPROVEN, not broken. scheduling_posts.caption_metadata records generator
+    ('vision' / 'text') on both paths, so a post-flip text caption over readable
+    bytes is the defect, directly.
     """
     if any(v is None for v in (total, attached, recent_unattached, vision_posts)):
         return None
     if vision_posts > 0:
         return None  # the image path is taken -> the condition no longer reproduces
-    if recent_unattached <= 0:
-        return None  # every recent photo carries bytes the vision path can read
+    if ungrounded_since_flip is None or ungrounded_since_flip <= 0:
+        return None  # no post since the flip, or every one of them used the image
     detail = (
-        f"{recent_unattached} render(s) imported in the last "
-        f"{IMAGE_GROUNDING_WINDOW_H // 24} days, and 0 post(s) in that window were "
-        f"written by the vision path; corpus {total} photos / {attached} attached"
+        f"{ungrounded_since_flip} caption(s) written AFTER the routing flip "
+        f"(commit f37136e, 2026-09-21 15:19Z) took the TEXT path for a photo "
+        f"whose bytes are readable, so the flip is not taking effect in "
+        f"production; corpus {total} photos / {attached} attached"
     )
     if newest_attach:
         detail += f", newest attachment {newest_attach}"
-    return "info", detail
+    return "warn", detail
+
+
+def _photo_readable_sql(alias):
+    """SQL predicate mirroring CaptionGeneration::ImageEncoder.readable?.
+
+    `photo.image.attached? || photo.servable_file_path.present?` -- the
+    attachment half here, the file half in Python (Photo#servable_file_path's
+    first branch, File.file?(path), is the one that resolves in production).
+    """
+    return ("exists (select 1 from active_storage_attachments a "
+            "where a.record_type = 'ContentPillars::Photo' "
+            f"and a.record_id = {alias}.id)")
 
 
 def check_caption_image_grounding():
@@ -1566,15 +1595,15 @@ def check_caption_image_grounding():
     check_placeholder_caption_queued counts queued junk, so a caption that is
     fluent and WRONG about the photo reads green everywhere.
 
-    The branch was FLIPPED 2026-09-21 (it now routes on readable bytes), so the
+    The branch was FLIPPED 2026-09-21 (commit f37136e: it now routes on
+    CaptionGeneration::ImageEncoder.readable?), verified live on photo 353
+    (generator='vision', gemma3:4b, caption grounded in the image). So the
     attachment count is no longer the condition -- it is kept as the count of
-    renders still being produced. What remains measurable, and what this check
-    now reports, is the second clause: no post in the window was captioned by
-    the vision path YET. That clears on the next rendered post.
+    renders still being produced. What this check reports now is the flip
+    FAILING in production: a caption created after it, for a photo with readable
+    bytes, that still took the text path.
     """
-    attached_pred = ("exists (select 1 from active_storage_attachments a "
-                     "where a.record_type = 'ContentPillars::Photo' "
-                     "and a.record_id = p.id)")
+    attached_pred = _photo_readable_sql("p")
     total = psql("select count(*) from photos p")
     attached = psql(f"select count(*) from photos p where {attached_pred}")
     newest = psql("select to_char(max(p.created_at), 'YYYY-MM-DD') from photos p "
@@ -1588,20 +1617,52 @@ def check_caption_image_grounding():
         "caption_metadata->>'generator' = 'vision' and created_at > "
         f"(now() at time zone 'UTC') - interval '{IMAGE_GROUNDING_WINDOW_H} hours'")
 
+    # The flip's own evidence: every post created after it landed, with its
+    # generator and whether that photo's bytes are readable. Readability is
+    # resolved HERE (attached row, or a path that resolves to a real file) so the
+    # check cannot call a post ungrounded when the flip had no bytes to route on.
+    ph_pred = _photo_readable_sql("ph")
+    post_flip_rows = psql_lines(
+        "select coalesce(p.caption_metadata->>'generator', '') || '|' || "
+        "coalesce(ph.path, '') || '|' || "
+        f"case when {ph_pred} then '1' else '0' end "
+        "from scheduling_posts p join photos ph on ph.id = p.photo_id "
+        # `at time zone 'UTC'`: scheduling_posts.created_at is a timestamp WITHOUT
+        # time zone holding UTC wall-clock values, while this psql session runs in
+        # America/New_York -- comparing it to a bare to_timestamp() shifts the
+        # boundary by 4h and counts pre-flip rows as post-flip (measured: post 346,
+        # created 13:01Z, matched a 15:19Z boundary).
+        f"where p.created_at > (to_timestamp({CAPTION_VISION_FLIP_LANDED}) "
+        "at time zone 'UTC') "
+        "order by p.created_at desc limit 25")
+    ungrounded = None
+    if post_flip_rows is not None:
+        ungrounded = 0
+        for line in post_flip_rows:
+            parts = line.split("|")
+            if len(parts) != 3:
+                continue
+            generator, path, attached_flag = parts
+            if generator == "vision":
+                continue
+            if attached_flag == "1" or (path and os.path.isfile(path)):
+                ungrounded += 1
+
     counts = []
     for raw in (total, attached, recent_unattached, vision_posts):
         try:
             counts.append(int(raw))
         except (TypeError, ValueError):
             return None
-    verdict = image_grounding_verdict(*counts, newest_attach=newest)
+    verdict = image_grounding_verdict(*counts, newest_attach=newest,
+                                      ungrounded_since_flip=ungrounded)
     if not verdict:
         return None
     sev, detail = verdict
     return (
         "vision-caption-path-never-taken",
-        "no post in the window has been captioned by the vision path yet "
-        "(the routing flip landed 2026-09-21)",
+        "a caption written AFTER the routing flip took the text path for a "
+        "photo with readable bytes",
         sev,
         detail
         + ". PostAutomation::GenerateCaption used to branch on "
@@ -1614,12 +1675,80 @@ def check_caption_image_grounding():
         "it now routes on CaptionGeneration::ImageEncoder.readable?, so a "
         "path-only render with a resolvable file takes the vision path -- "
         "verified live on photo 353 (generator='vision', gemma3:4b, caption "
-        "grounded in the image). The attachment count in this evidence is "
-        "therefore NO LONGER the condition; it is kept only as the count of "
-        "renders still being produced. The one remaining condition is the second "
-        "clause: no post in the window has yet been captioned by the vision path. "
-        "This record closes itself on the next rendered post (measured cost on "
-        "the live caption host: 15.0s for a 1.1 MB render through gemma3:4b)."
+        "grounded in the image). So a text caption over readable bytes is the "
+        "flip FAILING, and the window counts above are context, not the "
+        "condition: a window in which NO post was created (the GPU held by a "
+        "co-tenant, no renders) is unproven, not broken, and this check stays "
+        "silent on it."
+    )
+
+
+CORPUS_BACKUP_DIR = APP / "corpus-backup"
+# bin/corpus_backup.sh writes ONE snapshot per weekday slot and rewrites a slot
+# weekly, so the newest slot must be younger than this or the protection has
+# stopped happening. See check_corpus_backup.
+CORPUS_BACKUP_MAX_AGE_H = 48
+
+
+def corpus_backup_verdict(newest_age_h):
+    """Pure: is the second copy of the render corpus being REFRESHED?
+
+    Returns (severity, detail) or None. `newest_age_h` is the age in hours of the
+    newest snapshot slot, None when it cannot be read (then: say nothing -- an
+    unreadable stat is not evidence the backup stopped).
+    """
+    if newest_age_h is None:
+        return None
+    if newest_age_h > CORPUS_BACKUP_MAX_AGE_H * 3:
+        return ("critical", f"newest corpus snapshot is {newest_age_h:.0f}h old "
+                            f"(> {CORPUS_BACKUP_MAX_AGE_H * 3}h): the second copy "
+                            f"of the corpus has stopped being written")
+    if newest_age_h > CORPUS_BACKUP_MAX_AGE_H:
+        return ("warn", f"newest corpus snapshot is {newest_age_h:.0f}h old "
+                        f"(> {CORPUS_BACKUP_MAX_AGE_H}h): the nightly corpus "
+                        f"backup looks like it stopped ticking")
+    return None
+
+
+def check_corpus_backup():
+    """The second copy of the render corpus must be refreshed, not just present.
+
+    /mnt/nas-ai-models/comfyui-output is the only copy of every photo this
+    account has posted or could post, and the nightly /home/tim/backup.sh mirrors
+    it as a DANGLING symlink onto the SAME NAS volume (see the board entry
+    photo-corpus-single-copy). bin/corpus_backup.sh puts real bytes (-L) on a
+    different device, run by the cron job tc-corpus-backup at 03:15 daily, and it
+    refuses to report success unless every resolvable photos.path is in the copy.
+
+    This check exists because a backup whose job silently stopped ticking is
+    indistinguishable from one that works: the Hermes cron scheduler has been
+    observed to stop firing a job while force-run still succeeds, and this one's
+    first tick is a day away from its creation. The snapshot slot's mtime is the
+    cheap signal that the copy is still being written.
+    """
+    slots = []
+    try:
+        slots = [p for p in (CORPUS_BACKUP_DIR / "snapshots").glob("*") if p.is_dir()]
+    except OSError:
+        slots = []
+    if not slots:
+        return None  # not configured on this machine -- not this check's call
+    newest = max(slots, key=lambda p: p.stat().st_mtime)
+    age_h = (time.time() - newest.stat().st_mtime) / 3600.0
+    v = corpus_backup_verdict(age_h)
+    if not v:
+        return None
+    sev, detail = v
+    return (
+        "corpus-backup-stale",
+        detail,
+        sev,
+        f"{detail}; newest slot {newest} (mtime "
+        f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(newest.stat().st_mtime))}); "
+        f"run `bin/corpus_backup.sh` and check the cron job tc-corpus-backup is "
+        f"still firing (its own log is the cron output, and "
+        f"`bin/corpus_backup.sh --verify-only` re-checks the newest slot against "
+        f"the database).",
     )
 
 
@@ -3292,6 +3421,7 @@ CHECKS = [
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
     check_cron_prompt_log_paths,
+    check_corpus_backup,
 ]
 
 
@@ -3562,6 +3692,20 @@ def cmd_close(argv):
     rec = json.loads(p.read_text())
     rec["status"] = "closed"
     rec["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    # A condition that is now MEASURED by a probe check must be owned by the
+    # probe, or the next re-filing carries `source: manual` forward and can never
+    # auto-close again -- which is how one entry sat open for 41 sightings. Pass
+    # --source probe when closing a hand-filed record whose signal the probe now
+    # derives itself.
+    for flag in ("--source",):
+        if flag in argv:
+            i = argv.index(flag) + 1
+            src = argv[i] if i < len(argv) else ""
+            if src in ("probe", "manual"):
+                rec["source"] = src
+            else:
+                print(f"--source must be probe|manual (got {src!r})", file=sys.stderr)
+                return 2
     rec.setdefault("notes", [])
     append_note(rec, note)
     p.write_text(json.dumps(rec, indent=2) + "\n")
@@ -4315,18 +4459,36 @@ def cmd_selftest(_argv):
     for name, got, want in esc_cases:
         expect(f"escalations_text[{name}]", got, want)
 
-    # image_grounding_verdict: does any published caption look at the render?
-    # (total, attached, recent_unattached, vision_posts) -> severity or None.
+    # image_grounding_verdict: is a caption STILL written without the render?
+    # (total, attached, recent_unattached, vision_posts, ungrounded_since_flip)
+    # -> severity or None. The condition is the POST-flip evidence: a window with
+    # no post in it is unproven (silent), a post-flip text caption over readable
+    # bytes is the defect.
     grounding_cases = [
-        ("path-only-live", (337, 141, 12, 0), "info"),
-        ("vision-in-window", (337, 141, 12, 3), None),
-        ("all-recent-attached", (10, 10, 0, 0), None),
-        ("empty-corpus", (0, 0, 0, 0), None),
-        ("unreadable", (None, None, None, None), None),
+        ("no-post-since-flip", (337, 141, 12, 0), None, None),
+        ("vision-since-flip", (337, 141, 12, 1), 0, None),
+        ("text-since-flip-readable", (337, 141, 12, 0), 2, "warn"),
+        ("text-since-flip-not-readable", (337, 141, 12, 0), 0, None),
+        ("unmeasurable-post-flip", (337, 141, 12, 0), None, None),
+        ("unreadable-db", (None, None, None, None), 3, None),
     ]
-    for name, args, want in grounding_cases:
-        v = image_grounding_verdict(*args)
+    for name, args, ungrounded, want in grounding_cases:
+        v = image_grounding_verdict(*args, ungrounded_since_flip=ungrounded)
         expect(f"image_grounding_verdict[{name}]", v[0] if v else None, want)
+
+    # corpus_backup_verdict: is the second copy of the render corpus still being
+    # written? A stale slot is the only signal that the backup job stopped, and
+    # an unreadable stat must stay silent rather than invent an alarm.
+    backup_cases = [
+        ("fresh", 2.0, None),
+        ("at-threshold", 48.0, None),
+        ("late", 60.0, "warn"),
+        ("dead", 200.0, "critical"),
+        ("unreadable", None, None),
+    ]
+    for name, age_h, want in backup_cases:
+        v = corpus_backup_verdict(age_h)
+        expect(f"corpus_backup_verdict[{name}]", v[0] if v else None, want)
 
     # photo_provenance_verdict: the DB half of the synthetic mark. A producer
     # that stopped marking is critical (nothing reaches the corpus marked); an
@@ -4460,7 +4622,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

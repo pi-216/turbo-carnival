@@ -284,6 +284,12 @@ module Growth
         # not_found → still queued/executing; keep polling
         sleep POLL_INTERVAL
       end
+      # The poll budget ran out. A job that FAILED late -- a slow render, a long
+      # queue -- never reached the branch above, so its cause would be recorded
+      # as "timed out" and the bounded retry would be skipped: exactly the two
+      # behaviours this class was fixed to provide. The error text lands on the
+      # ComfyuiJob row (PollJobStatus writes it), so read it before giving up.
+      @render_error ||= comfyui_job_error(comfyui_job_id)
       nil
     end
 

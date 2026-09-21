@@ -172,5 +172,25 @@ RSpec.describe Growth::ContentGenerator do
         .to eq('reconciled: ComfyUI no longer knows prompt job-xyz')
       expect(generator.send(:comfyui_job_error, 'no-such-job')).to be_nil
     end
+
+    # A job that fails AFTER the poll budget closes (a slow render, a long queue)
+    # never reaches poll_for_image's failed-status branch, so the run used to be
+    # recorded as "timed out" and the bounded retry was skipped -- silently
+    # dropping the two behaviours this class was fixed to provide. The error text
+    # is on the ComfyuiJob row (PollJobStatus writes it), so the exhausted poll
+    # must read it before giving up.
+    it 'reads the job record when the poll budget is exhausted, so the cause and the retry survive a late failure' do
+      create(:comfyui_job, :failed, comfyui_job_id: 'job-late',
+                                    error_message: 'index is out of bounds for dimension with size 0')
+      stub_const('Growth::ContentGenerator::MAX_POLLS', 2)
+      stub_const('Growth::ContentGenerator::POLL_INTERVAL', 0)
+      client = double('comfyui client')
+      allow(ComfyuiClient).to receive(:new).and_return(client)
+      allow(client).to receive(:get_job_status).and_return(status: 'not_found')
+      allow(generator).to receive(:poll_for_image).and_call_original
+
+      expect(generator.send(:poll_for_image, 'job-late')).to be_nil
+      expect(generator.render_error).to eq('index is out of bounds for dimension with size 0')
+    end
   end
 end
