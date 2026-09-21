@@ -1790,11 +1790,67 @@ def vram_blocker_note():
     return ", ".join(f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in gpu_vram_holders())
 
 
-def our_reservation_gb():
-    """Our 4090 reservation in GB -- the live queued entry, else the harness constant.
+def harness_constants():
+    """(full_ask_gb, min_fit_gb, headroom_mib) read from the harness -- it owns them.
 
-    Read, never hardcoded: the harness owns the number (`VRAM=21`, sized from a
-    MEASURED 23.2 GiB peak on this card) and a copy here would drift out of step.
+    Read, never hardcoded: bin/comfyui_harness.sh is the one place the fit policy is
+    defined, and a copy here would drift out of step. The formula itself is mirrored
+    in adaptive_ask_gb() and CROSS-CHECKED against the harness's own `plan` output by
+    selftest, so changing it there fails the suite instead of silently making this
+    probe report a different ask than the launcher actually makes.
+    """
+    try:
+        txt = (APP / "bin" / "comfyui_harness.sh").read_text()
+    except Exception:
+        return 21.0, 16.0, 1024.0
+
+    def grab(name, default):
+        m = re.search(rf"^{name}=(\d+(?:\.\d+)?)", txt, re.M)
+        return float(m.group(1)) if m else default
+
+    return grab("VRAM", 21.0), grab("VRAM_MIN_FIT", 16.0), grab("FIT_HEADROOM_MIB", 1024.0)
+
+
+def adaptive_ask_gb(free_mib, full_gb=None, min_fit_gb=None, headroom_mib=None):
+    """PURE: the VRAM ask the harness will make for a given free-VRAM reading.
+
+    Mirrors vram_ask_for_free() in bin/comfyui_harness.sh. WHY the ask is not simply
+    the full 21GiB: that number is a FIT value (f0af66a, 2026-09-16 -- 21 because
+    22.4GiB happened to be free with the desktop attached), NOT the render's
+    requirement. ComfyUI's dynamic loader sizes the UNet to whatever is free at load
+    time and offloads the remainder, and this install has ALREADY rendered this exact
+    workflow with a much smaller resident UNet (comfyui-comfyui-variety-1789685009.log,
+    2026-09-17: "loaded partially; 15275.15 MB usable, 14914.77 MB loaded, 7785.37 MB
+    offloaded" -> "Prompt executed in 95.61 seconds", with ~8GiB of co-tenants on the
+    card). So a co-tenant holding a few GiB does not make a render impossible, and the
+    ask is budgeted against live free memory: full ask when the card is free, free
+    minus headroom otherwise, and the full ask again below the floor -- where nothing
+    is attempted at all, which is the only case that is still a structural refusal.
+    """
+    d_full, d_min, d_head = harness_constants()
+    full_gb = d_full if full_gb is None else full_gb
+    min_fit_gb = d_min if min_fit_gb is None else min_fit_gb
+    headroom_mib = d_head if headroom_mib is None else headroom_mib
+    if free_mib is None:
+        return full_gb
+    try:
+        free_mib = float(free_mib)
+    except (TypeError, ValueError):
+        return full_gb
+    if free_mib >= full_gb * 1024:
+        return full_gb
+    eff = int((free_mib - headroom_mib) // 1024)
+    return full_gb if eff < min_fit_gb else float(eff)
+
+
+def our_reservation_gb():
+    """The VRAM ask we would make right now: what we asked for, else the live fit.
+
+    Read, never hardcoded: the harness owns the number AND the policy. Order is what
+    we actually asked for (a queued entry), then what the harness WOULD ask for given
+    live free memory -- which since 2026-09-21 is free minus headroom, not the 21GiB
+    fit value. Consequence for the reader: `free < ask` now means free VRAM is below
+    the harness's fit floor, i.e. the card really is too full to render on.
     """
     for j in queue(GPU):
         if j.get("project") == "turbo-carnival" and j.get("vram_gb"):
@@ -1802,14 +1858,7 @@ def our_reservation_gb():
                 return float(j["vram_gb"])
             except (TypeError, ValueError):
                 pass
-    try:
-        m = re.search(r"^VRAM=(\d+(?:\.\d+)?)",
-                      (APP / "bin" / "comfyui_harness.sh").read_text(), re.M)
-        if m:
-            return float(m.group(1))
-    except Exception:
-        pass
-    return None
+    return adaptive_ask_gb(gpu_vram_free_mib())
 
 
 def gpu_total_mib():
@@ -1848,9 +1897,9 @@ def gpu_util_peak_pct(samples=5, interval=2):
 def telemetry_peak_mib(path=None):
     """Max vram_used_mib across the telemetry samples, or None.
 
-    The render footprint this pipeline actually needs, measured by the harness's
-    own sampler -- the number the reservation is sized from, read from the file
-    rather than copied, so a copy here cannot drift out of step.
+    The render footprint a reservation SHOULD be sized from, measured by the
+    harness's own sampler -- read from the file rather than copied, so a copy here
+    cannot drift out of step.
 
     It is an UPPER BOUND on that footprint, not the footprint: the sampler reads
     CARD-level `nvidia-smi memory.used`, so it counts every co-tenant, and the
@@ -1882,35 +1931,40 @@ def telemetry_peak_mib(path=None):
     return mx
 
 
-# A pipeline whose peak ON RECORD is this share of the card can only run on an
-# otherwise-EMPTY GPU: whatever the card has left over is smaller than any
-# co-tenant that matters, so a resident (even idle) process starves it exactly as
-# hard as a training job. Below the ratio a refusal is ordinary contention.
-# Conservative by construction -- the recorded peak is card-level and was sampled
-# under contention, so this fires on the worst session known rather than on a
-# clean render (see telemetry_peak_mib).
-RENDER_PEAK_NEAR_FULL_RATIO = 0.85
+def vram_refusal_clause(free_mib, req_gb, util_pct, holder_count,
+                        peak_mib=None, total_mib=None):
+    """PURE: why a VRAM refusal is structural, or '' when free memory is not the cause.
 
+    CORRECTED 2026-09-21 -- this used to assert "renders need a near-empty card",
+    inferred from the sampler's CARD-level peak (23.2 of 24.0GiB). That inference was
+    wrong twice over: the peak was sampled while the deprecated pony/SDXL duplicate
+    renders shared the card (it counts co-tenants, an upper bound, and 23.2 > 21 means
+    it never sourced the 21GiB ask anyway), and ComfyUI's own logs show the loader
+    sizing the UNet to whatever is FREE at load time and offloading the remainder --
+    this install has already rendered this workflow at a 14.9GiB resident UNet with
+    ~8GiB of co-tenants on the card (comfyui-comfyui-variety-1789685009.log,
+    "Prompt executed in 95.61 seconds").
 
-def vram_refusal_clause(peak_mib, total_mib, util_pct, holder_count):
-    """PURE: the structural half of a VRAM refusal, or '' when renders fit comfortably.
-
-    Without this a refusal reads as "the card is busy", which is unactionable:
-    2026-09-20, five consecutive ticks re-derived by hand from
-    log/comfyui_telemetry.jsonl that renders need a near-empty card before anyone
-    wrote it into the evidence. With it the reader learns the ask in one line --
-    either the co-tenant yields, or the render footprint shrinks.
+    So a resident process is NOT a blocker by itself, and since the harness budgets
+    its ask against live free memory (adaptive_ask_gb) the only structural refusal
+    left is free VRAM below the harness's fit FLOOR, where the ask is not reduced and
+    nothing is attempted. Without this the reader sees "holder=none" and re-derives
+    the cause by hand, which is what six consecutive ticks did.
     """
-    if not peak_mib or not total_mib or holder_count is None:
+    if free_mib is None or req_gb is None or holder_count is None:
         # holder_count is None only when the holders cannot be enumerated (no
         # nvidia-smi): an unknown blocker set must not be reported as a known
         # structural conflict, the same way an unreadable queue is never "idle".
         return ""
-    if peak_mib < total_mib * RENDER_PEAK_NEAR_FULL_RATIO:
+    if free_mib >= req_gb * 1024:
         return ""
-    clause = (f" -- renders need a near-empty card (card-level peak {peak_mib / 1024:.1f} "
-              f"of {total_mib / 1024:.1f}GiB measured under contention; "
-              f"flux-only footprint unmeasured)")
+    clause = (f" -- free {free_mib / 1024:.1f}GiB is below the {req_gb:.0f}GiB ask, and below "
+              "the harness's fit floor: the ask is not reduced and no render is attempted. "
+              "A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the "
+              "UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet)")
+    if peak_mib and total_mib:
+        clause += (f" (card-level peak {peak_mib / 1024:.1f} of {total_mib / 1024:.1f}GiB "
+                   "measured under contention)")
     if util_pct is not None:
         clause += f"; card {util_pct}% busy over 10s"
         clause += " (holder resident but idle)" if util_pct <= 5 else " (holder working)"
@@ -1932,15 +1986,15 @@ def vram_fit_note(with_util=False):
     if free is None:
         return ""
     req = our_reservation_gb()
-    note = f"free={free / 1024:.1f}GiB" + (f" vs reservation {req:.0f}GiB" if req else "")
+    note = f"free={free / 1024:.1f}GiB" + (f" vs ask {req:.0f}GiB" if req else "")
     blockers = gpu_vram_holders()
     if blockers:
         note += "; outside-scheduler holders: " + ", ".join(
             f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in blockers)
     if req and free < req * 1024:
         note += vram_refusal_clause(
-            telemetry_peak_mib(), gpu_total_mib(),
-            gpu_util_peak_pct() if with_util else None, len(blockers))
+            free, req, gpu_util_peak_pct() if with_util else None,
+            len(blockers), telemetry_peak_mib(), gpu_total_mib())
     return note
 
 
@@ -4024,18 +4078,20 @@ def cmd_selftest(_argv):
         v = publish_gate_verdict(stats)
         expect(f"publish_gate_verdict[{name}]", v[0] if v else None, want)
 
-    # vram_refusal_clause: a refusal is only ACTIONABLE when it names the
-    # structural reason. The whole point is that the reader stops re-deriving
-    # "renders need a near-empty card" from the telemetry by hand.
+    # vram_refusal_clause: fires only when free VRAM is below the ask -- i.e. below
+    # the harness's fit floor, where the ask is not reduced and nothing is attempted.
+    # A resident co-tenant is never called a blocker by itself (ComfyUI partial-loads
+    # the UNet; it has rendered at a 14.9GiB resident UNet).
     refusal_cases = [
-        ("near-full-idle-holder", (23743, 24564, 0, 1), "holder resident but idle"),
-        ("near-full-working-holder", (23743, 24564, 97, 1), "holder working"),
-        ("near-full-util-unknown", (23743, 24564, None, 1), "near-empty card"),
-        ("near-full-no-holder", (23743, 24564, None, 0), "near-empty card"),
-        ("fits-comfortably", (12000, 24564, 0, 1), None),
-        ("peak-unknown", (None, 24564, 0, 1), None),
-        ("total-unknown", (23743, None, 0, 1), None),
-        ("holders-unknown", (23743, 24564, 0, None), None),
+        ("below-floor-idle-holder", (15000, 21, 0, 1, 23743, 24564), "holder resident but idle"),
+        ("below-floor-working-holder", (15000, 21, 97, 1, 23743, 24564), "holder working"),
+        ("below-floor-util-unknown", (15000, 21, None, 1, None, None), "fit floor"),
+        ("below-floor-no-holder", (15000, 21, None, 0, 23743, 24564), "fit floor"),
+        ("fits", (18939, 17, 0, 1, 23743, 24564), None),
+        ("exactly-the-ask", (17408, 17, 0, 1, 23743, 24564), None),
+        ("free-unknown", (None, 21, 0, 1, 23743, 24564), None),
+        ("req-unknown", (15000, None, 0, 1, 23743, 24564), None),
+        ("holders-unknown", (15000, 21, 0, None, 23743, 24564), None),
     ]
     for name, args, want in refusal_cases:
         got = vram_refusal_clause(*args)
@@ -4043,6 +4099,41 @@ def cmd_selftest(_argv):
             expect(f"vram_refusal_clause[{name}]", got, "")
         else:
             expect(f"vram_refusal_clause[{name}]", want in got, True)
+
+    # adaptive_ask_gb: the fit policy, mirrored from the harness. Full ask when the
+    # card is free; free minus headroom otherwise; the full ask again below the floor
+    # (where the launcher does not reduce the ask and skips the tick).
+    ask_cases = [
+        ("card-free", 24564, 21.0),
+        ("exactly-full-ask", 21504, 21.0),
+        ("just-under", 21000, 19.0),
+        ("live-2026-09-21", 18939, 17.0),
+        ("at-floor", 17408, 16.0),
+        ("below-floor", 16384, 21.0),
+        ("tiny", 4096, 21.0),
+        ("unknown", None, 21.0),
+        ("garbage", "?", 21.0),
+    ]
+    for name, free_mib, want in ask_cases:
+        expect(f"adaptive_ask_gb[{name}]", adaptive_ask_gb(free_mib), want)
+
+    # The mirror above is only worth having if it agrees with the launcher. Run the
+    # harness's OWN decision (plan takes the reading as an argument, so this needs no
+    # GPU and no claim) and require the two to match: a policy change in the harness
+    # must fail HERE rather than quietly make the probe report a different ask than
+    # the launcher makes.
+    _harness = APP / "bin" / "comfyui_harness.sh"
+    _plan_checks = 0
+    if _harness.exists():
+        for _free in (24564, 21504, 21000, 18939, 17408, 16384):
+            _out, _rc = run([str(_harness), "plan", str(_free)])
+            # NOT r"ask=..." -- the line also carries "full_ask=21GiB", which that
+            # pattern matches first and reports as the decision for every reading.
+            _m = re.search(r"(?<![_\w])ask=(\d+)GiB", _out or "")
+            expect(f"harness-plan-matches-mirror[{_free}]",
+                   float(_m.group(1)) if (_rc == 0 and _m) else None,
+                   adaptive_ask_gb(_free))
+            _plan_checks += 1
 
     # telemetry_peak_mib: the render footprint is READ from the sampler's own
     # file (the number the reservation is sized from), so a malformed line must
@@ -4059,7 +4150,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

@@ -51,7 +51,14 @@ PY3="$(command -v python3)"
 COMFY_MEM_MAX=infinity
 GPU=4090
 PROJECT=turbo-carnival
+# The ask when the card is FREE. A FIT value, not a requirement: f0af66a
+# (2026-09-16) set 21 because 22.4GiB was free with the desktop attached, after a
+# 23GiB ask was refused all day. When the card is NOT free the ask is budgeted
+# against live free memory by vram_ask_for_free() -- see the PROVEN ENVELOPE note
+# there. Never assume this number is the render's footprint.
 VRAM=21
+VRAM_MIN_FIT=16        # GiB: below this ask no render is attempted at all
+FIT_HEADROOM_MIB=1024  # MiB left free for the desktop + ComfyUI's own slack
 DURATION=9h
 COMFY_DIR=/mnt/fscache/essdee/ComfyUI
 COMFY_VENV=.venv
@@ -355,12 +362,23 @@ telemetry_report() {
   # the moment it is collected, so the sampler can miss the final oom_kill
   # increment; the kernel journal is the reliable record, and the OOM line names
   # our own unit in oom_memcg=, so grep by unit name.
-  local job="$1" last unit jl
+  local job="$1" last unit jl peak
   unit="comfyui-svc-${1#comfyui-}"
   if [ -f "$TELE_FILE" ]; then
     last="$(grep -F "\"job\": \"${job}\"" "$TELE_FILE" 2>/dev/null | tail -1)"
     [ -n "$last" ] || last="$(tail -1 "$TELE_FILE" 2>/dev/null)"
     log "instrument: last telemetry: ${last:-none}"
+    # The number a reservation should be sized from, at the point of use: the
+    # card-level high-water mark during THIS job. It counts co-tenants -- the
+    # sampler reads card-level nvidia-smi memory.used -- so subtract any holder
+    # that is not us before calling it our footprint. This is the surface that
+    # turns "flux footprint unmeasured" into a measurement on the first render
+    # (see vram_ask_for_free for the envelope already proven from ComfyUI logs).
+    peak="$(grep -F "\"job\": \"${job}\"" "$TELE_FILE" 2>/dev/null \
+            | sed -n 's/.*"vram_used_mib": *\([0-9][0-9]*\).*/\1/p' | sort -n | tail -1)"
+    if [ -n "$peak" ]; then
+      log "instrument: card-level VRAM peak for $job: ${peak}MiB (co-tenants INCLUDED; outside-scheduler holders now: $(vram_holders))"
+    fi
     case "$last" in
       *'"oom_kill_events": 0'*|*'"oom_kill_events": null'*|"") : ;;
       *'"oom_kill_events"'*) log "instrument: OOM KILL recorded by the watcher — see $TELE_FILE" ;;
@@ -390,6 +408,44 @@ gpu_idle() {
 vram_mib() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
 
 vram_free_mib() { nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
+
+# --- Adaptive fit: budget the ask against live free memory --------------------
+# WHY (root-caused 2026-09-21, after 18h of render starvation reported by 6 ticks
+# as "needs a human decision"): the fixed 21GiB ask is a FIT value, and the
+# consumer does NOT need a near-empty card. ComfyUI's dynamic loader sizes the
+# UNet to whatever is free at load time and offloads the remainder, and this
+# install has ALREADY rendered this exact workflow with a much smaller footprint.
+# PROVEN ENVELOPE (comfyui-comfyui-variety-1789685009.log, 2026-09-17 -- same
+# ComfyUI install, same flux1-krea-dev UNet, same 824x1024/1024x1024 workflow):
+#   loaded partially; 15275.15 MB usable, 14914.77 MB loaded, 7785.37 MB offloaded
+#   -> [INFO] Prompt executed in 95.61 seconds
+#   loaded partially; 15498.09 MB usable, 15132.32 MB loaded, 7567.81 MB offloaded
+#   -> [INFO] Prompt executed in 89.93 seconds
+#   (four such loads, 79.9-95.6s each -- the FASTEST prompts of that job; a ~15GiB
+#    resident UNet with ~7.5GiB streamed from CPU RAM is a working configuration,
+#    not a degraded one. The card held ~8GiB of co-tenants at the time.)
+# So the render needs roughly 16.3GiB FREE at load, and the 21GiB ask only
+# guarantees it by requiring an almost-empty card. Measured 2026-09-21: the 4090
+# sat at 18.5GiB free / 0% busy with an EMPTY scheduler queue while an idle
+# co-tenant (BreastTissue-Net labeler, 4.6GiB, outside the scheduler) held the
+# rest -- and every tick refused to render.
+# vram_ask_for_free() therefore asks for what is actually free, minus headroom.
+# The full ask is untouched whenever the card IS free; below VRAM_MIN_FIT nothing
+# is attempted (the pre-existing refuse-and-give-up-the-head behaviour), so this
+# can only ever ADD renders inside the proven envelope, never take a slot for a
+# render that cannot load.
+vram_ask_for_free() {
+  local free_mib="$1" full="$VRAM" eff
+  case "$free_mib" in ''|*[!0-9]*) echo "$full"; return 0 ;; esac
+  # Card effectively free -> the known-good full ask, behaviour unchanged.
+  if [ "$free_mib" -ge $((full * 1024)) ]; then echo "$full"; return 0; fi
+  eff=$(( (free_mib - FIT_HEADROOM_MIB) / 1024 ))
+  # Too tight to be worth a slot: keep the full ask so the caller behaves exactly
+  # as before (refuse, give up the FIFO head) instead of launching a render whose
+  # load would land under the proven floor.
+  if [ "$eff" -lt "$VRAM_MIN_FIT" ]; then echo "$full"; return 0; fi
+  echo "$eff"
+}
 
 # WHO is holding the card when our request is refused. A bare `vram_insufficient`
 # forces every consumer of the log -- the growth brain's report, the ops probe, a
@@ -492,6 +548,18 @@ cmd_ensure() {
     esac
   done
 
+  # Budget the ask against live free memory BEFORE requesting. Requesting the
+  # full 21GiB on a card with 18.5GiB free is a guaranteed `vram_insufficient`,
+  # and that refusal is what the whole render loop then reports as "the GPU is
+  # unavailable" while the card sits idle (see vram_ask_for_free).
+  local free_mib ask
+  free_mib="$(vram_free_mib)"
+  ask="$(vram_ask_for_free "$free_mib")"
+  VRAM_ASK="$ask"
+  if [ "$ask" != "$VRAM" ]; then
+    log "ensure: adaptive fit — free=${free_mib}MiB < full ask ${VRAM}GiB, so asking ${ask}GiB (headroom ${FIT_HEADROOM_MIB}MiB, floor ${VRAM_MIN_FIT}GiB). ComfyUI sizes the UNet to free VRAM and offloads the rest (proven: a 14.9GiB resident flux UNet rendered in 95.6s, comfyui-variety-1789685009.log)."
+  fi
+
   local job_id hb_pid sline status current_job
   job_id="$(read_state | head -1)"
   hb_pid="$(read_state | sed -n '2p')"
@@ -558,8 +626,8 @@ cmd_ensure() {
       # same <ts>-<pid> inside the same second would fail the request and skip
       # the tick.
       job="comfyui-$(date +%s)-$$-${attempts}"
-      log "ensure: requesting claim $job (vram ${VRAM}GB, duration ${DURATION})"
-      sched request --gpu "$GPU" --project "$PROJECT" --vram "$VRAM" --duration "$DURATION" --job-id "$job" >/dev/null 2>&1 || { log "ensure: request failed"; return 2; }
+      log "ensure: requesting claim $job (vram ${ask}GB, duration ${DURATION})"
+      sched request --gpu "$GPU" --project "$PROJECT" --vram "$ask" --duration "$DURATION" --job-id "$job" >/dev/null 2>&1 || { log "ensure: request failed"; return 2; }
     else
       log "ensure: adopting our own queued entry $job (keeps the best FIFO position)"
       # A granted record keeps status "queued", so a claim that is already OURS
@@ -615,7 +683,7 @@ cmd_ensure() {
 
   log "ensure: NOT claimed within ${wait_s}s (last result: ${result:-unknown}) — GPU unavailable, skipping this tick"
   if [ "${result:-}" = "vram_insufficient" ]; then
-    log "ensure: why — free=$(vram_free_mib)MiB vs requested ${VRAM}GiB; holders: $(vram_holders)"
+    log "ensure: why — free=$(vram_free_mib)MiB vs requested ${ask}GiB; holders: $(vram_holders)"
     # Provenance (verified 2026-09-21 by git blame + the sampler itself): ${VRAM}
     # is a FIT value, NOT a measured flux footprint. f0af66a (2026-09-16) set it
     # to 21 because 22.4GiB was free with the desktop attached, after a 23GiB ask
@@ -623,12 +691,14 @@ cmd_ensure() {
     # CARD-level nvidia-smi memory.used high-water mark from 2026-09-19 -- a
     # session that was ALSO dispatching the deprecated-pipeline pony/SDXL
     # duplicate renders (the contention OOM, root-caused and fixed that same
-    # day) -- so it overstates our flux footprint and cannot be this value's
-    # source anyway (23.2 > 21). Do NOT lower ${VRAM} to fit on a guess, but do
-    # NOT call it measured either: whether a CLEAN flux render fits in the
-    # ~18.9GiB left by a 4.5GiB co-tenant is UNMEASURED, and that measurement is
-    # the open work on the render-starved board item.
-    log "ensure: note — the ${VRAM}GiB reservation is a FIT to the card with the desktop attached (f0af66a 2026-09-16), NOT a measured flux footprint; the only peak on record (23.2GiB card-level, 2026-09-19) was measured under contention, so a clean render's footprint is unmeasured — do not lower it on a guess, and do not treat it as settled"
+    # day) -- so it counts co-tenants and cannot be this value's source anyway
+    # (23.2 > 21).
+    # Since 2026-09-21 the ask is budgeted against live free memory
+    # (vram_ask_for_free), so reaching THIS branch now means something specific
+    # and worth naming: free VRAM is below the ${VRAM_MIN_FIT}GiB floor -- the
+    # card is genuinely too full for even the smallest render proven to work
+    # here. Name the holder and move on; do not re-derive the cause by hand.
+    log "ensure: note — free is below the ${VRAM_MIN_FIT}GiB fit floor, so the ask is NOT reduced and no render is attempted this tick (${VRAM}GiB is a FIT value, f0af66a 2026-09-16, not a footprint)"
   fi
   # Keep the entry ONLY while we are waiting our turn behind an earlier queued
   # job: that is normal FIFO waiting and deleting it would only lose our place
@@ -657,7 +727,7 @@ start_heartbeat_loop() {
   systemctl --user stop "$unit" >/dev/null 2>&1 || true
   systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
   systemd-run --user --unit="$unit" --collect \
-    bash -c "while true; do $PY3 $SCHEDULER_PY heartbeat --gpu $GPU --job-id $job --progress 1 --vram-used $VRAM >>$HARNESS_LOG 2>&1; sleep $HEARTBEAT_INTERVAL; done" >/dev/null 2>&1
+    bash -c "while true; do $PY3 $SCHEDULER_PY heartbeat --gpu $GPU --job-id $job --progress 1 --vram-used ${VRAM_ASK:-$VRAM} >>$HARNESS_LOG 2>&1; sleep $HEARTBEAT_INTERVAL; done" >/dev/null 2>&1
   pid="$(systemctl --user show -p MainPID --value "$unit" 2>/dev/null)"
   case "$pid" in ''|0) pid="" ;; esac
   write_state "$job" "$pid"
@@ -748,7 +818,7 @@ cmd_heartbeat() {
   local job_id
   job_id="$(read_state | head -1)"
   if [ -n "$job_id" ]; then
-    sched heartbeat --gpu "$GPU" --job-id "$job_id" --progress 1 --vram-used "$VRAM" 2>&1 | tee -a "$HARNESS_LOG"
+    sched heartbeat --gpu "$GPU" --job-id "$job_id" --progress 1 --vram-used "${VRAM_ASK:-$VRAM}" 2>&1 | tee -a "$HARNESS_LOG"
   else
     log "heartbeat: no active claim in state file"
     return 2
@@ -798,15 +868,27 @@ cmd_shutdown() {
   fi
 }
 
+# Offline decision surface: what would `ensure` ask for, given a free-MiB reading?
+# The reading is an argument so this can be exercised with NO GPU and no claim --
+# it is what makes the fit policy testable, and what tc_ops.py cross-checks its
+# own mirror of the formula against (selftest), so the two cannot drift apart.
+cmd_plan() {
+  local free_mib="${1:-}" ask
+  [ -n "$free_mib" ] || free_mib="$(vram_free_mib)"
+  ask="$(vram_ask_for_free "$free_mib")"
+  echo "free=${free_mib}MiB full_ask=${VRAM}GiB min_fit=${VRAM_MIN_FIT}GiB headroom=${FIT_HEADROOM_MIB}MiB ask=${ask}GiB"
+}
+
 case "${1:-}" in
   status)    cmd_status ;;
   ensure)    shift; cmd_ensure "$@" ;;
   heartbeat) cmd_heartbeat ;;
   telemetry) shift; cmd_telemetry "$@" ;;
+  plan)      shift; cmd_plan "$@" ;;
   shutdown)  cmd_shutdown ;;
   ownqueue)  own_queued_jobs ;;
   reconcile) reconcile_own_queue ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|shutdown|ownqueue|reconcile}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|shutdown|ownqueue|reconcile}" >&2
     exit 1 ;;
 esac
