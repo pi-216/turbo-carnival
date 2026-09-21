@@ -30,15 +30,22 @@
 # <repo>/corpus-backup/ -- inside the codebase, on the game box's local NVMe
 # (ubuntu-vg). That is a different MACHINE and a different DEVICE from the NAS,
 # so it covers a NAS volume loss, a NAS box failure, and an accidental `rm -rf`
-# of comfyui-output. It does NOT cover this box dying: for that, point
-# CORPUS_BACKUP_DEST at off-site storage. The app's B2 keys are NOT usable: the
-# key in .env and the one in Rails credentials are the same id and BOTH are dead
-# (verified 2026-09-21: aws s3 ls on fluffy-train-development/-production ->
-# InvalidAccessKeyId; Rails' own b2 service.exist? on the newest b2 blob ->
-# Forbidden, and nothing has been written to B2 since 2026-05-28). So off-site
-# needs NEW credentials or a different destination -- see the board entry
-# photo-corpus-offsite-gap. Two independent devices is the bar this script is
-# written to; it will not claim more.
+# of comfyui-output. It does NOT cover this box dying: for that, use --offsite.
+#
+# CREDENTIAL, corrected 2026-09-21: the APP's B2 keys are dead (the key in .env
+# and the one in Rails credentials are the same id; aws s3 ls on
+# fluffy-train-development/-production -> InvalidAccessKeyId, Rails' own b2
+# service.exist? -> Forbidden, nothing written to B2 since 2026-05-28). But the
+# earlier conclusion on the board -- "off-site needs NEW credentials, no agent
+# can obtain those from here" -- was WRONG about this box: ~/.aws/credentials
+# holds the profile `b2_tim`, a LIVE key for the SAME B2 account
+# (float 37451bb92cd0; `aws s3 ls --profile b2_tim --endpoint-url
+# https://s3.us-west-004.backblazeb2.com` lists the account's 6 buckets, rc=0),
+# and every sibling project already has a prefix in `tim-training-data/`.
+# Off-site therefore needs no new credential -- only approval to write into
+# Tim's B2 account, which is why --offsite is OFF by default and runs only when
+# explicitly asked (see photo-corpus-offsite-gap). Until it is approved, the
+# bar this script claims is two independent devices, no more.
 # The directory is gitignored -- machine-local data, never source.
 #
 # HISTORY WITHOUT DELETING ANYTHING
@@ -53,6 +60,9 @@
 #   bin/corpus_backup.sh --dry-run        # show what would move, change nothing
 #   bin/corpus_backup.sh --verify-only    # re-check the newest slot against the DB
 #   bin/corpus_backup.sh --list           # slots, newest first
+#   bin/corpus_backup.sh --offsite --dry-run   # show how the off-site upload would go
+#   bin/corpus_backup.sh --offsite             # archive + upload + read back
+#   CORPUS_BACKUP_OFFSITE=1 bin/corpus_backup.sh   # snapshot, then the off-site leg
 #   CORPUS_BACKUP_DEST=/mnt/models/corpus bin/corpus_backup.sh
 #
 # NOT IN SCOPE: the other projects' trees under comfyui-output (A1111, unnamed,
@@ -125,8 +135,86 @@ newest_slot() {
   printf '%s' "$best"
 }
 
+# --- off-site (opt-in; writes into Tim's B2 account only when asked) ----------
+# The corpus as the DATABASE defines it -- every resolvable `photos.path`, the
+# same set verify_against() demands -- packed into one archive and uploaded to a
+# store that is neither this box nor the NAS. Scope is deliberate: the ~83 GB
+# historical sarah1a3 render tree stays on the two local copies, because
+# off-siting it is a recurring cost decision, while the ~176 MiB the app can
+# actually publish is not. The object is READ BACK after upload and its size and
+# sha256 compared, because an upload nobody read back is a claim, not a copy.
+OFFSITE_BUCKET="${CORPUS_BACKUP_BUCKET:-tim-training-data}"
+OFFSITE_PREFIX="${CORPUS_BACKUP_PREFIX:-turbo-carnival/corpus}"
+OFFSITE_PROFILE="${CORPUS_BACKUP_PROFILE:-b2_tim}"
+OFFSITE_ENDPOINT="${CORPUS_BACKUP_ENDPOINT:-https://s3.us-west-004.backblazeb2.com}"
+OFFSITE_DIR="$DEST/offsite"
+OFFSITE_ARCHIVE=""          # set by build_offsite_archive; never via stdout --
+                            # log() writes to stdout, so a `$(...)` capture would
+                            # return "<log line>\n<path>" (the harness hit exactly
+                            # that bug on an adopted job id).
+
+aws_() { aws --profile "$OFFSITE_PROFILE" --endpoint-url "$OFFSITE_ENDPOINT" "$@"; }
+
+build_offsite_archive() {
+  write_manifest || die "off-site copy needs the DB manifest"
+  mkdir -p "$OFFSITE_DIR" || die "cannot create $OFFSITE_DIR"
+  local stamp list rel n=0
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  list="$OFFSITE_DIR/.corpus-list-$stamp"
+  : > "$list"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ -f "$p" ] || continue                  # already-lost rows are not ours to ship
+    rel="${p#*/output/}"
+    if [ -f "$SRC/$rel" ]; then
+      printf '%s\n' "$rel" >> "$list"
+      n=$((n + 1))
+    else
+      log "WARN: off-site: skipping unresolvable $p"
+    fi
+  done < "$MANIFEST"
+  [ "$n" -gt 0 ] || die "off-site copy: no resolvable corpus file to archive"
+  cp "$MANIFEST" "$OFFSITE_DIR/corpus-paths.txt"
+  OFFSITE_ARCHIVE="$OFFSITE_DIR/corpus-$stamp.tar.gz"
+  tar -czf "$OFFSITE_ARCHIVE" -C "$SRC" -T "$list" -C "$OFFSITE_DIR" corpus-paths.txt \
+    || die "off-site copy: tar failed"
+  rm -f "$list"
+  log "off-site: archived $n corpus file(s) + the DB manifest"
+}
+
+run_offsite() {                             # $1 = 1 for a dry run
+  local dry="${1:-0}" key sha size got meta
+  build_offsite_archive
+  key="${OFFSITE_PREFIX}/$(basename "$OFFSITE_ARCHIVE")"
+  sha=$(sha256sum "$OFFSITE_ARCHIVE" | cut -d' ' -f1)
+  size=$(stat -c %s "$OFFSITE_ARCHIVE")
+  log "off-site: archive $OFFSITE_ARCHIVE ($size bytes, sha256=$sha)"
+  log "off-site: target s3://$OFFSITE_BUCKET/$key (profile $OFFSITE_PROFILE)"
+  if [ "$dry" -eq 1 ]; then
+    aws_ s3 cp --dryrun "$OFFSITE_ARCHIVE" "s3://$OFFSITE_BUCKET/$key" \
+      || die "off-site copy: dry run failed"
+    log "DRY RUN -- nothing was uploaded"
+    return 0
+  fi
+  aws_ s3 cp "$OFFSITE_ARCHIVE" "s3://$OFFSITE_BUCKET/$key" --metadata "sha256=$sha" \
+    || die "off-site copy: upload failed"
+  got=$(aws_ s3api head-object --bucket "$OFFSITE_BUCKET" --key "$key" \
+        --query 'ContentLength' --output text) \
+    || die "off-site copy: cannot read the object back"
+  meta=$(aws_ s3api head-object --bucket "$OFFSITE_BUCKET" --key "$key" \
+        --query 'Metadata.sha256' --output text)
+  [ "$got" = "$size" ] || die "off-site copy: uploaded size $got != local $size"
+  [ "$meta" = "$sha" ] || die "off-site copy: uploaded sha256 $meta != local $sha"
+  log "OK: off-site copy verified -- s3://$OFFSITE_BUCKET/$key ($got bytes, sha256 matches)"
+}
+
 # --- modes -------------------------------------------------------------------
 case "${1:-}" in
+  --offsite)
+    # Standalone off-site copy. `--dry-run` builds the archive locally and shows
+    # the exact upload (auth exercised, nothing written to the bucket).
+    if [ "${2:-}" = "--dry-run" ]; then run_offsite 1; else run_offsite 0; fi
+    exit $? ;;
   --list)
     [ -d "$SNAP_ROOT" ] || { log "no snapshots yet in $SNAP_ROOT"; exit 0; }
     for d in "$SNAP_ROOT"/*/; do
@@ -183,3 +271,10 @@ fi
 
 log "OK: snapshot $SNAP"
 du -sh "$SNAP" 2>/dev/null || true
+
+# The off-site leg is OFF unless explicitly enabled: it writes into Tim's B2
+# account, and that is an approval to obtain, not a default to assume
+# (photo-corpus-offsite-gap).
+if [ "${CORPUS_BACKUP_OFFSITE:-0}" = "1" ]; then
+  run_offsite 0 || die "off-site copy FAILED (the local snapshot above is still valid)"
+fi
