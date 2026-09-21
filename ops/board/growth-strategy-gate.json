@@ -9,5 +9,10 @@
   "seen_count": 1,
   "source": "manual",
   "route": "agent",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-21T14:39:49-0400",
+      "note": "2026-09-21 18:5xZ ops-triage: RECORDED as pre-registered and NOT actionable per pass -- closure condition and trigger named so future passes stop re-deriving it. (1) The gate and its criteria are LOCKED in this item's evidence: if followers < 170 AND no pillar exceeds 3% average engagement at the 2026-09-28 weekly review, the growth thesis gets an explicit GO / PIVOT / KILL decision instead of another tuning pass. (2) The trigger is the weekly review (tc-weekly-persona-review, 0 9 * * 1 -> next run 2026-09-28 09:00 EDT); the ops-triage pass that runs on/after that review MUST evaluate this gate against the review's own numbers and CLOSE this item with the decision as the note. Before 2026-09-28 there is nothing to action here and no note is needed. (3) Status quo is frozen meanwhile: hashtag volume stays where it is (the 10->30 ramp measured zero lift across five weeks) and the pillar rotation stays as-is, because the one lever that did land today (image-grounded captions, f37136e, verified live on photo 353) has not yet produced a post it could be judged by -- the 4090 has been held by prx-tg-pixel-posttrain-v3 since 11:30Z, so renders (and therefore posts) are stalled on a shared resource, not on strategy. (4) Failure mode this note exists to prevent: a pre-registered gate that nobody evaluates is an expected event that never fires (genome: Expected-Event Absence Detection), and the item would otherwise be re-derived as a menu of options every hour."
+    }
+  ]
 }
