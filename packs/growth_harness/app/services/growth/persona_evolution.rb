@@ -19,6 +19,16 @@ module Growth
     TAG_MIN        = 3
     TAG_MAX        = 30
 
+    # A persona's `tone` is authored FREE TEXT ("friendly and approachable",
+    # "warm, authentic, conversational"), not an enum — so an exact-match test
+    # against a single literal can never see the warmth that is already there.
+    # Measured 2026-09-14 (review 5): `:warmer` on a persona whose tone was
+    # "friendly and approachable" left the tone untouched, yet recorded the
+    # change anyway — a "caption action=warmer" experiment in `applied_changes`
+    # that never moved a single knob.
+    WARM_TONE_TOKENS = %w[warm friendly approachable cozy inviting kind affectionate
+                          gentle cheerful nurturing welcoming].freeze
+
     attr_reader :goal, :changes
 
     def initialize(goal:)
@@ -46,7 +56,6 @@ module Growth
       return [] unless top_pillar && bottom_pillar
 
       reward(top_pillar, WEIGHT_STEP, bottom_pillar)
-      changes.last(2)
     end
 
     # Adjust caption tone/style based on what's engaging. action: :warmer/:bolder/:calmer/:balanced
@@ -58,7 +67,10 @@ module Growth
       style  = config.style || 'casual'
       case action
       when :warmer
-        tone = 'warm' if tone == 'friendly'
+        # Append rather than replace: the authored voice is the persona, and a
+        # bare 'warm' would throw away everything the operator wrote. Idempotent
+        # — a second :warmer finds the token already present and changes nothing.
+        tone = "#{tone}, warm" unless warm_tone?(tone)
         style = 'intimate' unless style.include?('intimate')
       when :bolder
         tone  = 'confident'
@@ -75,7 +87,6 @@ module Growth
       persona.caption_config = Personas::CaptionConfig.new(config.to_hash.merge(tone: tone, style: style))
       persona.save!
       record(:caption_config, from, { tone: tone, style: style }, "caption action=#{action}")
-      changes.last
     end
 
     # Adjust hashtag volume/count within bounds.
@@ -90,10 +101,17 @@ module Growth
         expand_tags(strategy)
         record(:hashtag_strategy, from, persona.hashtag_strategy.to_hash, 'low engagement — broaden tags')
       end
-      changes.last
     end
 
     private
+
+    # Does this free-text tone already read as warm? Tokenised, so
+    # "friendly and approachable" and "warm, authentic, conversational" both
+    # count — the exact-match test that used to live here did not.
+    def warm_tone?(tone)
+      words = tone.to_s.downcase.scan(/[a-z]+/)
+      (words & WARM_TONE_TOKENS).any?
+    end
 
     def find_pillar(name)
       persona.content_pillars.current.find { |p| p.name.casecmp?(name) }
@@ -118,8 +136,10 @@ module Growth
         pillar.update!(weight: new_top_weight, priority: new_top_priority, active: true)
       end
 
-      record(:content_pillar, from, { id: pillar.id, weight: pillar.weight, priority: pillar.priority }, "reward #{pillar.name}")
-      record(:content_pillar, p_from, { id: penalty_pillar.id, weight: penalty_pillar.weight, priority: penalty_pillar.priority }, "penalize #{penalty_pillar.name}")
+      recorded = []
+      recorded << record(:content_pillar, from, { id: pillar.id, weight: pillar.weight, priority: pillar.priority }, "reward #{pillar.name}")
+      recorded << record(:content_pillar, p_from, { id: penalty_pillar.id, weight: penalty_pillar.weight, priority: penalty_pillar.priority }, "penalize #{penalty_pillar.name}")
+      recorded.compact
     end
 
     def reduce_tags(strategy)
@@ -140,7 +160,23 @@ module Growth
     end
 
     def record(kind, from, to, reason)
-      @changes << { kind: kind, from: from, to: to, reason: reason, at: Time.current }
+      # A recorded "change" that changed nothing is a false experiment: the
+      # review's gate evaluation reads `applied_changes` to decide whether a
+      # lever worked, so a no-op inflates that ledger and can never be
+      # evaluated honestly. Refuse to record one — and SAY so, because the
+      # absence of an applied change is otherwise indistinguishable from a
+      # lever nobody pulled.
+      if from == to
+        Rails.logger.info(
+          "[growth] #{kind} lever inert for persona #{persona.id} (#{reason}): " \
+          "already at target #{from.inspect} — nothing recorded"
+        )
+        return nil
+      end
+
+      change = { kind: kind, from: from, to: to, reason: reason, at: Time.current }
+      @changes << change
+      change
     end
   end
 end
