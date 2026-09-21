@@ -5,8 +5,8 @@
   "evidence": "1 ComfyUI execution error(s) in the last 24h; newest index is out of bounds for dimension with size 0 (09-21 11:16Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. The fault itself is the workflow payload (an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node), not the Rails code. Reconciled orphans are excluded.",
   "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-21T15:25:24-0400",
-  "seen_count": 24,
+  "last_seen": "2026-09-21T16:50:50-0400",
+  "seen_count": 26,
   "source": "probe",
   "notes": [
     {

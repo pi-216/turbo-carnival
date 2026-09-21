@@ -2531,19 +2531,77 @@ DEPRECATED_LOGS = ("log/growth_harness.log",)
 # real crash prints.
 LOG_ERROR_PAT = re.compile(r"\b(ERROR|FATAL|Traceback|aborted|Exception)\b")
 LOG_SCAN_BYTES = 2 * 1024 * 1024
+# A log LINE is a record, not a state: the tail window holds every error the log
+# ever printed, and a small, slow-growing log's window spans DAYS (measured
+# 2026-09-21: log/comfyui_harness.log is 90 KB / 903 lines over 8 days, so the
+# whole file sits inside the 2 MiB window). One ERROR line from a defect that has
+# since been fixed then reads as `errors=1` on every monitoring tick, and each
+# pass re-investigates it from scratch -- the deps gate's cwd false alarm, fixed
+# 4 h later in 4c70264, was reported as a live error by two consecutive runs. The
+# fix is to carry the AGE of the newest error into the output (never to hide the
+# line: a fault that is still live keeps re-emitting, so age is the one fact that
+# separates current from historical).
+LOG_ERROR_MAX_AGE_H = float(os.environ.get("TC_LOG_ERROR_MAX_AGE_H", "24"))
+
+_LOG_TS_RES = (
+    re.compile(r"\[(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})"),  # [2026-09-21 07:00:33]
+    re.compile(r"\b(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})"),     # 2026-09-21T11:16:30
+)
+
+
+def log_line_epoch(line):
+    """Newest plausible epoch for the line's OWN timestamp, or None.
+
+    The log declares no timezone (the harness prints local time, Rails prints
+    UTC), so both readings are computed and the LATER one wins: an undeclared
+    timezone can then never make a fresh error read as stale. A line with no
+    timestamp at all -- a traceback continuation, a bare message -- returns None
+    and is never treated as stale.
+    """
+    best = None
+    for pat in _LOG_TS_RES:
+        for m in pat.finditer(line or ""):
+            try:
+                t = time.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            for ep in (calendar.timegm(t), time.mktime(t)):
+                if best is None or ep > best:
+                    best = ep
+    return best
+
+
+def log_error_note(n_errors, newest_age_h, max_age_h=LOG_ERROR_MAX_AGE_H):
+    """Pure: the suffix `log-health` prints after `errors=N`.
+
+    The reader of that surface is a monitoring tick deciding whether to act, so
+    the discriminator has to be in the line: an error older than the window is
+    labelled STALE with the reason, and a hit with no timestamp says so rather
+    than implying a clean bill of health.
+    """
+    if not n_errors:
+        return ""
+    if newest_age_h is None:
+        return " (newest error carries no timestamp — judge it from the lines below)"
+    shown = f"{newest_age_h:.1f}h" if newest_age_h < 48 else f"{newest_age_h / 24:.1f}d"
+    if newest_age_h > max_age_h:
+        return (f" (newest error {shown} old — STALE, outside the {max_age_h:g}h "
+                f"alert window; a still-live fault re-emits)")
+    return f" (newest error {shown} old)"
 
 
 def log_error_samples(rel_path, limit=3):
-    """(exists, age_seconds, error_count, newest_error_lines) for a log's tail.
+    """(exists, age_seconds, error_count, newest_error_lines, newest_error_age_h).
 
     Bounded to the last LOG_SCAN_BYTES so `log-health` stays cheap on a 24 MB
-    development.log.
+    development.log. The newest-error age is computed from the last matching
+    line's own timestamp (None when it carries none, or when there are no hits).
     """
     p = APP / rel_path
     try:
         st = p.stat()
     except OSError:
-        return False, None, 0, []
+        return False, None, 0, [], None
     age = time.time() - st.st_mtime
     with open(p, "rb") as fh:
         if st.st_size > LOG_SCAN_BYTES:
@@ -2551,7 +2609,9 @@ def log_error_samples(rel_path, limit=3):
             fh.readline()  # drop the partial first line of the window
         tail = fh.read().decode("utf-8", "replace")
     hits = [ln.strip() for ln in tail.splitlines() if LOG_ERROR_PAT.search(ln)]
-    return True, age, len(hits), hits[-limit:]
+    newest_ep = log_line_epoch(hits[-1]) if hits else None
+    newest_age_h = None if newest_ep is None else (time.time() - newest_ep) / 3600.0
+    return True, age, len(hits), hits[-limit:], newest_age_h
 
 
 def check_harness_log_growth():
@@ -4869,6 +4929,37 @@ def cmd_selftest(_argv):
                "deps: OK" in (_dout or ""),
                check_launch_deps_importable() is None)
 
+    # log_error_note / log_line_epoch: a log LINE is a record, not a state. The
+    # harness log is 90 KB over 8 days, so its 2 MiB tail window holds EVERY error
+    # it ever printed and a single since-fixed ERROR line reads as `errors=1` on
+    # every monitoring tick. The age of the newest error is what separates current
+    # from historical, so it must be printed -- and a line whose timestamp the log
+    # does not declare (no TZ) must never be read as stale, in either direction.
+    _stale_line = "[2026-08-01 07:00:33] deps: ERROR — long-fixed defect"
+    _fresh_line = time.strftime("[%Y-%m-%d %H:%M:%S] boom ERROR", time.localtime())
+    _iso_line = "2026-09-21T11:16:30 boom Exception"
+    _now = time.time()
+    _fresh_ep = log_line_epoch(_fresh_line)
+    _old_ep = log_line_epoch(_stale_line)
+    _fresh_age_h = (_now - _fresh_ep) / 3600 if _fresh_ep else None
+    _old_age_h = (_now - _old_ep) / 3600 if _old_ep else None
+    lognote_cases = [
+        ("no-errors", log_error_note(0, 9.0), ""),
+        ("fresh-error", log_error_note(1, 2.0), " (newest error 2.0h old)"),
+        ("at-window-not-stale", "STALE" in log_error_note(1, 24.0), False),
+        ("past-window-stale", "STALE" in log_error_note(1, 30.0), True),
+        ("inside-window-hours-shown", "30.0h" in log_error_note(1, 30.0), True),
+        ("day-scale-shown", "2.5d" in log_error_note(1, 60.0), True),
+        ("untimestamped-named", "no timestamp" in log_error_note(1, None), True),
+        ("parses-bracket-stamp", _fresh_ep is not None, True),
+        ("parses-iso-stamp", log_line_epoch(_iso_line) is not None, True),
+        ("no-stamp-reads-none", log_line_epoch("    from /x/y.rb:65:in 'block'"), None),
+        ("localtime-fresh-not-stale", "STALE" in log_error_note(1, _fresh_age_h), False),
+        ("localtime-fixed-line-stale", "STALE" in log_error_note(1, _old_age_h), True),
+    ]
+    for name, got, want in lognote_cases:
+        expect(f"log_error_note[{name}]", got, want)
+
     # telemetry_peak_mib: the render footprint is READ from the sampler's own
     # file (the number the reservation is sized from), so a malformed line must
     # not throw and an empty file must read as unknown, never as 0.
@@ -4884,7 +4975,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
@@ -4939,7 +5030,7 @@ def cmd_log_health(_argv):
     always exits 0, so a monitoring tick can never be blocked by it.
     """
     for rel in LOG_HEALTH_FILES:
-        exists, age, n, samples = log_error_samples(rel)
+        exists, age, n, samples, newest_age = log_error_samples(rel)
         if not exists:
             print(f"{rel}: MISSING (nothing writes this path any more)")
             continue
@@ -4947,11 +5038,11 @@ def cmd_log_health(_argv):
             print(f"{rel}: present but its age is unreadable")
             continue
         shown = f"{age / 3600:.1f}h" if age < 86400 else f"{age / 86400:.1f}d"
-        print(f"{rel}: age={shown} errors={n}")
+        print(f"{rel}: age={shown} errors={n}{log_error_note(n, newest_age)}")
         for s in samples:
             print(f"    {s[:160]}")
     for rel in DEPRECATED_LOGS:
-        exists, age, _, _ = log_error_samples(rel)
+        exists, age, _, _, _ = log_error_samples(rel)
         if exists and age is not None:
             print(f"{rel}: DEPRECATED — age={age / 86400:.1f}d, nothing writes it "
                   f"(its wrapper bin/growth_harness.sh is retired); do NOT read it "

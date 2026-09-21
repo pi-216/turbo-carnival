@@ -1,0 +1,19 @@
+{
+  "key": "log-health-stale-error-line",
+  "title": "log-health reports a since-fixed ERROR line as a live error, every tick, for as long as the log's tail window holds it",
+  "severity": "info",
+  "evidence": "log/comfyui_harness.log is 92 KB / 903 lines spanning 8 days, so its last 2 MiB (LOG_SCAN_BYTES) is the WHOLE FILE: the single ERROR line it printed at 07:00:33 today -- the deps gate's cwd false alarm (ensure_comfyui_deps ran import comfy.storage from the repo root instead of $COMFY_DIR, fixed 4 h later in 4c70264) -- sits inside the window indefinitely and log-health reported 'errors=1' on every tick. Two consecutive ops-triage runs re-investigated it from scratch (this pass included) and the watchdog's step 5 tells every run to 'flag multiple failures'. The line is a RECORD, not a state: a fault that is still live re-emits, so the age of the newest error is the discriminator that was missing from the surface a monitoring prompt reads.",
+  "status": "closed",
+  "first_seen": "2026-09-21T16:51:50-0400",
+  "last_seen": "2026-09-21T16:51:50-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-21T16:51:50-0400",
+      "note": "FIXED in-repo this pass (bin/tc_ops.py; commit follows). log_error_samples now also returns the AGE of the newest error line, parsed from the line's own timestamp (log_line_epoch: bracket [YYYY-MM-DD HH:MM:SS] and ISO forms, and because the logs declare no timezone both local and UTC readings are computed with the LATER one winning, so an undeclared TZ can never make a fresh error read stale; a line with no timestamp returns None and is never treated as stale). log_error_note (pure) renders it into the surface: 'errors=1 (newest error 9.8h old)' inside the window, and 'errors=1 (newest error 30.0h old \u2014 STALE, outside the 24h alert window; a still-live fault re-emits)' past it; window is LOG_ERROR_MAX_AGE_H, env-overridable via TC_LOG_ERROR_MAX_AGE_H. Nothing is hidden -- the line still prints -- because a live fault must stay visible. VERIFIED: selftest 272 assertions / 0 failures (12 new cases covering fresh/at-window/past-window/day-scale/untimestamped/unparseable/bracket+ISO parsing, plus the negative control that a FRESH line must not read STALE); negative control on live data -- python3 bin/tc_ops.py log-health prints 'errors=1 (newest error 9.8h old)' at the default 24h window and the SAME line reads 'STALE, outside the 1h alert window' with TC_LOG_ERROR_MAX_AGE_H=1, i.e. the discriminator actually tracks the window; probe unchanged (0 critical / 1 warn / 2 info). Related: the deps gate itself was already fixed (4c70264) -- bin/comfyui_harness.sh deps now returns 'deps: OK' from $COMFY_DIR and tc_ops selftest asserts the harness gate and this probe agree."
+    }
+  ],
+  "closed_at": "2026-09-21T16:51:50-0400"
+}
