@@ -1,0 +1,12 @@
+{
+  "key": "ai-content-disclosure-absent",
+  "title": "We publish photorealistic synthetic media to Instagram with no provenance and no disclosure path",
+  "severity": "warn",
+  "evidence": "MEASURED in-repo 2026-09-21: (1) the publish path carries nothing but pixels and prose -- packs/scheduling/app/commands/scheduling/commands/send_post_to_instagram.rb calls Instagram::Client#create_post(image_url:, caption:) and Instagram::Client#create_media_container posts only image_url + caption; there is no AI flag, no provenance field, no disclosure step. (2) provenance is not tracked at the source, so it cannot be disclosed downstream -- the photos table (db/schema.rb) has only persona_id, path, created_at, updated_at, image_candidate_id, content_pillar_id; there is no ai_generated/provenance/synthetic attribute on Photo, Post or the pipeline run. (3) nothing embeds machine-readable provenance at creation -- grep for c2pa|content_credential|exif|iptc|provenance across app/ lib/ packs/ bin/ returns only unrelated caption-provenance helpers in bin/tc_ops.py. ComfyUI writes the render to comfyui-output and we serve the file by URL, so the asset reaches Meta carrying no signal. EXTERNAL REQUIREMENT (verified by web search 2026-09-21): EU AI Act Art. 50 transparency obligations apply from 2 Aug 2026 (machine-readable marking + deepfake disclosure); Meta updated its AI disclosure framework in Jul 2026 and its automated systems apply the AI info label when they detect third-party generative tools or read C2PA metadata -- an asset with neither is presented as real photography. Reported exposure includes reach suppression and ad rejection, plus FTC/UK advertising-law risk for undisclosed synthetic media that would mislead a consumer. NOTE on mechanics: the organic IG Content Publishing API has no per-post is-AI field, so the fix is not an API parameter -- it is provenance-at-creation (embed C2PA/IPTC so the signal travels with the file and survives re-upload) and/or an explicit disclosure in the caption. The user-visible consequence today: a viewer of this account has no way to know the imagery is synthetic, and we have no record from which to disclose it even if we wanted to.",
+  "status": "open",
+  "first_seen": "2026-09-20T22:20:49-0400",
+  "last_seen": "2026-09-20T22:20:49-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": []
+}
