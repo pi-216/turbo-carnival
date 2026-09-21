@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T20:44:37-0400",
-      "note": "2026-09-21 00:4xZ ops-triage: unchanged, not a repo defect. Live: followers 156 (snapshot 00:41Z), 18 future scheduled / 0 draft, 5 posted in 24h, publishing already at the configured 3/day cap, review brain interval-gated to 2026-09-23. Nothing in this repo can move the trajectory: it is a volume/strategy decision for Tim."
-    },
-    {
       "ts": "2026-09-20T21:42:25-0400",
       "note": "2026-09-21 01:4xZ ops-triage: unchanged, not a repo defect. Live: Growth::Snapshot 932 followers=156 at 2026-09-21 01:01:53Z (goal 1: 151 -> 1000), 18 future scheduled / 0 draft, 5 posted in the last 24h (already at the 3/day cap), review brain interval-gated to 2026-09-23. Nothing in this repo can move the trajectory: it is a volume/strategy decision for Tim."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T02:54:53-0400",
       "note": "2026-09-21 06:5xZ ops-triage: unchanged, not a repo defect. Live: goal 156/1000, traj_ratio 0.06, required 2.53/day, 17 queued, 1 post + 1 photo in the last 24h; cadence is at the configured cap and the next brain review gates to 2026-09-23. Renders still starved (see render-starved) but the queue holds ~5 days of runway, so this is not yet the binding constraint."
+    },
+    {
+      "ts": "2026-09-21T03:40:52-0400",
+      "note": "2026-09-21 07:3xZ ops-triage: unchanged, not a repo defect. Live psql: 156 followers (goal 151 -> 1000, required 2.53/day), 16 queued (min scheduled 09-21 17:15Z, max 09-26), 16 posts in 8 days (last 09-21 07:00Z), 0 failed in 7 days, 0 pending PipelineRuns, 0 in-flight ComfyuiJobs. Cadence is already at the configured 3/day cap and the next brain review gates to 2026-09-23, so the lever is the strategy decision, not an ops-triage edit."
     }
   ]
 }

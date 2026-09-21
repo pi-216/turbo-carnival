@@ -28,6 +28,10 @@
     {
       "ts": "2026-09-21T02:54:53-0400",
       "note": "2026-09-21 06:5xZ ops-triage: unchanged, still the binding constraint, still not fixable in-repo. Live: 4090 scheduler-idle, EMPTY derived queue, 18.9GiB free vs our 21GiB reservation; the outside-scheduler holder is BT-Net's labeler (pid 2857312, 4.6GiB, 0% busy across 10s, ~0.3% CPU over its life). ASKS unchanged from the 05:4xZ note: (a) stop the labeler when not labeling -> 4.6GiB returns and renders resume next tick; (b) fund ONE measured --lowvram launch; (c) accept no renders and drain the ~5d queue. Escalation: check_render_acceptance (zero-accepted-output-24h) fires 2026-09-21T16:00Z; last photo 2026-09-20T16:00Z."
+    },
+    {
+      "ts": "2026-09-21T03:40:40-0400",
+      "note": "2026-09-21 07:3xZ ops-triage: unchanged, still the binding constraint and still not fixable in-repo. Re-verified live: 4090 scheduler-idle, EMPTY derived queue, 5142 MiB used / 18939 MiB free, 0% util across 5 samples over 10s, 24.7W; the only holder is BT-Net's labeler (pid 2857312 labeler_spa.py, 4588 MiB, idle). Telemetry re-analysed: 165 of 372 samples of job comfyui-1789826497-1334030 exceeded 18 GiB and the peak was 23743 MiB with the card otherwise near-empty (min sample 388 MiB), so the 21 GiB reservation is measured, not padded -- a co-tenant holding 4.6 GiB starves every render. ASKS unchanged: (a) stop the idle labeler -> renders resume next tick; (b) fund one measured --lowvram launch; (c) accept no renders and drain the ~5d queue. Escalation: zero-accepted-output-24h fires 16:00Z (last photo 09-20T16:00Z)."
     }
   ],
   "closed_at": "2026-09-20T02:36:11-0400"

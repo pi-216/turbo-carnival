@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T20:44:31-0400",
-      "note": "2026-09-21 00:4xZ ops-triage: unchanged, Hermes cron config outside this repo (checked cron/jobs.json live: tc-growth-harness-brain is deliver=origin and still runs sync_cadence inside the tick foreground budget). Repo side re-verified clean: 18 future scheduled, 5 posted in 24h, 0 stuck ComfyuiJobs/PipelineRuns. Residual is a truncated growth tick, not lost work; the fix is detaching the producer in the cron prompt (Tim) -- per-slot batching cannot help because ONE render already exceeds the tick budget."
-    },
-    {
       "ts": "2026-09-20T21:42:25-0400",
       "note": "2026-09-21 01:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Live cron/jobs.json: tc-growth-harness-brain still runs the producer inside the tick foreground budget. Repo side re-verified clean this pass: 18 future scheduled / 0 draft, 5 posted in 24h, 0 stuck ComfyuiJobs / PipelineRuns, log-health 0 errors. Residual is a truncated tick, not lost work; the fix is detaching the producer (Tim)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T02:54:59-0400",
       "note": "2026-09-21 06:5xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo. Repo side re-verified clean: 17 queued, 1 post + 1 photo in 24h, 0 failed in 24h, no pending PipelineRuns."
+    },
+    {
+      "ts": "2026-09-21T03:40:52-0400",
+      "note": "2026-09-21 07:3xZ ops-triage: unchanged, Hermes cron config (~/.hermes/profiles/turbo-carnival/cron/jobs.json) outside this repo. Re-read live: all four turbo-carnival jobs enabled, deliver=local, tc-growth-harness-brain still runs the producer inside the tick's foreground budget. Repo side re-verified clean this pass (16 queued, 0 failed in 7 days, 0 pending runs, logs 0 errors). Fix remains Tim's: run growth:sync_cadence detached, or raise the tick budget above the measured ~45 min worst case."
     }
   ]
 }
