@@ -10,10 +10,6 @@
   "evidence": "Independent vision reads of three production renders all returned a youthful age: gen-1789832734 -> 'a young girl, likely a teenager'; gen-1789833673 -> 'late teens or early twenties'; gen-1789834527 -> 'late teens or early twenties'. The read is stable BEFORE and AFTER the checkpoint change (cyberrealisticpony -> Pornmaster), so it comes from the persona preset / identity LoRA, not the base model. Contributing inputs: the workflow preset carries 'petite face, small nose' (node 88), and the reference pipeline-20 preset additionally carried 'underbooba, underboobs' alongside the identity tokens (sarah1a3, s1_dram). The images themselves are fully dressed and pass the NSFW gate comfortably (0.0004-0.0722 against ~0.5), so this is NOT a gate failure -- it is an audience-fit and platform-risk question for a public Instagram account.",
   "notes": [
     {
-      "ts": "2026-09-20T15:39:18-0400",
-      "note": "2026-09-20 20:0xZ ops-triage: unchanged as a DECISION item (no age stated anywhere; guessing changes who Sarah is), but this run pinned the deterministic driver in LIVE production data and filed it separately as persona-preset-suppresses-adult-features. Production renders use pipeline 'turbo-one-step-clean' (id 21, 280 runs, newest 2026-09-19) whose step id 40 has node 79 as the NEGATIVE prompt wired to the sampler (node 96 KSampler negative=[79,0]): '..., long neck, adult, mature_face, sunken_eyes'. The pipeline therefore conditions against adult features on every render -- that, plus node 88's 'petite face, small nose', is why the vision reads come back late-teens regardless of checkpoint. The juvenile-adjacent tokens previously cited from the reference workflow (petite/underboob/young teenager) are NOT in the live production step: 'underbooba, underboobs' sits in pipeline 20 (fallback, last ran 2026-08-24) and 'young teenager' in pipeline 17 (legacy, last ran 2026-05-26)."
-    },
-    {
       "ts": "2026-09-20T16:42:59-0400",
       "note": "2026-09-20 20:4xZ ops-triage: the MECHANICAL driver is now fixed (commit c016653) -- the production and fallback negative prompts no longer condition against 'adult, mature_face' (that suppression was what made renders read as a teenager), and the legacy step-34 LLM instruction no longer says 'young teenager'. What REMAINS is exactly the identity question and it is unchanged: nothing in the repo states Sarah's intended age, and the positive preset still carries 'petite face, small nose' with no age marker. That is Tim's call, not a defect -- guessing would silently change who she is. Next render is the first without adult suppression; a vision read on it will show whether the youthful read persists, and that measurement needs the 4090 (not held by us this run, so no renders were run)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T20:44:31-0400",
       "note": "2026-09-21 00:4xZ ops-triage: unchanged, blocked on Tim intended age AND on the GPU. Live: harness status claim=busy ours=no comfyui=down (4090 held by foreign prx-tg-pixel-posttrain-v2, claimed 18:13:02Z, 6.5h); our entry comfyui-1789930863-2431031 (21GB) is next in the derived FIFO. No claim taken, no renders run, no identity text touched. Pre-scoped direction once answered: drop adult/mature_face/sunken_eyes from the live step-40 negative prompt (the token list lives in the DB-stored workflow payload, not in a repo file) plus a vision re-read."
+    },
+    {
+      "ts": "2026-09-20T21:42:25-0400",
+      "note": "2026-09-21 01:4xZ ops-triage: unchanged, blocked on Tim (intended age) AND on the slot. Live harness status: claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down (co-tenant holds the 4090, claimed 18:13:02Z); our entry comfyui-1789930863-2431031 (21GB) is next in the derived FIFO. No claim taken, no renders run, no identity text touched this pass."
     }
   ]
 }

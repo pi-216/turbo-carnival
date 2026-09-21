@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T14:37:47-0400",
-      "note": "2026-09-20 18:3xZ ops-triage: option (b) -- an in-repo self-imposed deadline in the rake task -- is now REFUTED with numbers, not just deferred to Tim. The tick's foreground tool budget is Hermes's default 180s (the job record in cron/jobs.json carries no tool-timeout override), while one render costs ~9 min (the measured 45-min 5-render shortfall). A deadline that exits cleanly between renders can therefore never fire usefully: with a 180s ceiling the task either starts render #1 and is SIGKILLed mid-render exactly as today, or refuses to start any render and tops up nothing. The same arithmetic kills option (c) per-slot batches UNLESS each tick launches its render detached -- and a detached producer collides with the tick's own end-of-tick ComfyUI shutdown + claim release (option a). So the remaining fix is outside this repo either way: (a) detach the producer and defer the release to a follow-up tick, or (c) one detached render per tick, or raise the tick's tool timeout above the measured worst case. Repo side re-verified clean this run: 0 stuck PipelineRuns, 0 stuck ComfyuiJobs."
-    },
-    {
       "ts": "2026-09-20T16:43:16-0400",
       "note": "2026-09-20 20:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo-side debris handling re-verified clean (0 stuck PipelineRuns, 0 stuck ComfyuiJobs). Needs Tim (spend/launch behaviour)."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T20:44:31-0400",
       "note": "2026-09-21 00:4xZ ops-triage: unchanged, Hermes cron config outside this repo (checked cron/jobs.json live: tc-growth-harness-brain is deliver=origin and still runs sync_cadence inside the tick foreground budget). Repo side re-verified clean: 18 future scheduled, 5 posted in 24h, 0 stuck ComfyuiJobs/PipelineRuns. Residual is a truncated growth tick, not lost work; the fix is detaching the producer in the cron prompt (Tim) -- per-slot batching cannot help because ONE render already exceeds the tick budget."
+    },
+    {
+      "ts": "2026-09-20T21:42:25-0400",
+      "note": "2026-09-21 01:4xZ ops-triage: unchanged, Hermes cron config outside this repo. Live cron/jobs.json: tc-growth-harness-brain still runs the producer inside the tick foreground budget. Repo side re-verified clean this pass: 18 future scheduled / 0 draft, 5 posted in 24h, 0 stuck ComfyuiJobs / PipelineRuns, log-health 0 errors. Residual is a truncated tick, not lost work; the fix is detaching the producer (Tim)."
     }
   ]
 }

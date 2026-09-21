@@ -5,14 +5,10 @@
   "evidence": "1 day(s) over the 3/day cap: 09-21=4; 18 future post(s) queued [6 pair(s) inside 60 min: 09-21 04:22/09-21 05:17, 09-21 05:17/09-21 05:31, 09-22 05:19/09-22 05:33, 09-23 05:20/09-23 05:35 -- paced, one post per tick, context only]. Producers allocate through Growth::PostSlotPlanner and the publisher releases at most ONE post per tick (Scheduling::PostReleasePlan, asserted by check_release_pacing), so these rows cannot leave as a burst. 1 of them (09-21) are pre-fix residue: every row predates Growth::PostSlotPlanner, so no producer is misbehaving -- re-spacing them would be a live-publishing edit, and each day clears as it passes.",
   "status": "open",
   "first_seen": "2026-09-19T22:35:03-0400",
-  "last_seen": "2026-09-20T20:42:47-0400",
-  "seen_count": 85,
+  "last_seen": "2026-09-20T21:42:40-0400",
+  "seen_count": 87,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T13:45:34-0400",
-      "note": "2026-09-20 17:4xZ ops-triage: residue only, shrinking. Live: the only future day over the 3/day cap is 09-21=4 and every over-cap row predates Growth::PostSlotPlanner; 09-20 is no longer over the cap. Release pacing holds in production: the 17:00Z tick published only post 334 (posted_at 17:00:28Z) and explicitly held 335 for the next tick, with 335 (16:25Z) and 336 (17:10Z) still due. Self-clears as the day passes; deliberately no live-publishing edits."
-    },
     {
       "ts": "2026-09-20T14:37:47-0400",
       "note": "2026-09-20 18:3xZ ops-triage: residue only, unchanged. Live: the only future day over the 3/day cap is 09-21=4, every over-cap row predating Growth::PostSlotPlanner; 19 scheduled / 0 draft, 4 posted in 24h, 1 failed. Deliberately no live-publishing edits; the day self-clears as it passes."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T19:56:48-0400",
       "note": "2026-09-20 23:5xZ ops-triage: residue only, shrinking. Live by day: 09-21=4 (the one over-cap day), 09-22..09-25=3, 09-26=2, total 18 future. Every over-cap row predates Growth::PostSlotPlanner, so no producer is misbehaving, and release pacing holds in production (the publisher releases at most one post per tick; newest posted_at 19:00:26Z). Deliberately no live-publishing edits -- the day self-clears as it passes."
+    },
+    {
+      "ts": "2026-09-20T21:42:25-0400",
+      "note": "2026-09-21 01:4xZ ops-triage: residue only, and the last over-cap day is today. Live by EDT day: 09-21=4 (00:22, 01:17, 01:31, 13:15), 09-22..09-25=3, 09-26=2; 18 future total. Every over-cap row predates Growth::PostSlotPlanner, and release pacing holds (one post per tick), so the three 09-21 entries cannot leave as a burst. Deliberately no live-publishing edits; the day self-clears and the check auto-closes."
     }
   ]
 }
