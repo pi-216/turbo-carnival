@@ -24,6 +24,9 @@ module Growth
     GATE_REWARD_ENGAGEMENT  = 4.0   # rewarded pillar must sustain >= this avg
     GATE_REWARD_MIN_POSTS   = 3     # and must post at least this many more
     GATE_TAG_ENGAGEMENT     = 5.0   # tighten-tags decision bound
+    # An expansion is kept only if engagement climbed off the < 1.0 bound that
+    # triggered it. Anything below this is a failed broaden — revert it.
+    GATE_TAG_EXPAND_ENGAGEMENT = 1.0
 
     attr_reader :goal
 
@@ -43,6 +46,17 @@ module Growth
 
       recommendations = recommend(audit, gate_results)
       changes = Array(gate_results[:actions])
+
+      # Tag-volume cleanup runs under EVERY verdict, including the halts: an
+      # above-baseline tag count is a leftover of the disproven "broaden tags"
+      # ramp (max_tags 10 -> 30 across reviews 2-5 with engagement flat), not a
+      # new experiment against a broken trajectory. It is a correction of a
+      # known-inert lever, so it is applied even when no strategy tuning is
+      # mandated — otherwise the ramp survives indefinitely behind a halt.
+      if apply
+        baseline_change = PersonaEvolution.new(goal: goal).enforce_tag_baseline
+        changes << baseline_change if baseline_change
+      end
 
       if apply && Growth::Authority::TERMINAL_VERDICTS.include?(audit[:verdict])
         # CONCLUSION STATE: the trajectory is broken (net loss), the render
@@ -299,6 +313,24 @@ module Growth
               reverted << 'tighten-tags'
               actions << { kind: 'revert_hashtags', from: from, reason: "tighten-tags gate failed" }
             end
+          elsif to && from && to['max_tags'].to_i > from['max_tags'].to_i
+            # The OTHER direction, which was never gated: an expansion was
+            # applied and its effect measured a week later. It was justified as
+            # "low engagement — broaden tags", so the gate is the same claim —
+            # engagement had to rise off the < 1.0 bound that triggered it.
+            # Five consecutive expansions (10 -> 30) each failed that claim and
+            # nothing ever noticed, because only the tighten direction was
+            # checked. A failure reverts to the BASELINE, not to the recorded
+            # `from` (which is itself one rung of the discredited ramp).
+            avg_eng = average_engagement(current_pillars)
+            if avg_eng >= GATE_TAG_EXPAND_ENGAGEMENT
+              kept << 'expand-tags'
+            else
+              revert_tags_to_baseline
+              reverted << 'expand-tags'
+              actions << { kind: 'revert_hashtags', from: from,
+                           reason: 'expand-tags gate failed — narrowing back to the baseline' }
+            end
           end
         end
       end
@@ -334,6 +366,13 @@ module Growth
         from.merge(max_tags: from['max_tags'].to_i)
       )
       persona.save!
+    end
+
+    # A failed EXPANSION reverts to the baseline rather than to the recorded
+    # `from`: the from was itself a rung of the same disproven ramp, so
+    # stepping back one rung would leave most of the ramp in place.
+    def revert_tags_to_baseline
+      PersonaEvolution.new(goal: goal).enforce_tag_baseline
     end
 
     def posted_posts

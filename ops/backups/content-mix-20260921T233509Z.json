@@ -1,0 +1,94 @@
+{
+  "persona": {
+    "id": 3,
+    "name": "Sarah"
+  },
+  "taken_at": "20260921T233509Z",
+  "pillars": [
+    {
+      "id": 6,
+      "name": "Lifestyle & Daily Living",
+      "weight": "10.0",
+      "priority": 4,
+      "active": true
+    },
+    {
+      "id": 7,
+      "name": "Community & Social Proof",
+      "weight": "10.0",
+      "priority": 4,
+      "active": true
+    },
+    {
+      "id": 8,
+      "name": "Fashion & Style",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    },
+    {
+      "id": 9,
+      "name": "Wellness & Self-Care",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    },
+    {
+      "id": 10,
+      "name": "Thanksgiving 2024 Gratitude",
+      "weight": "10.0",
+      "priority": 1,
+      "active": true
+    },
+    {
+      "id": 11,
+      "name": "Holiday Season 2025",
+      "weight": "10.0",
+      "priority": 1,
+      "active": true
+    },
+    {
+      "id": 16,
+      "name": "Fitness & Wellness",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    },
+    {
+      "id": 17,
+      "name": "Travel & Adventure",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    },
+    {
+      "id": 18,
+      "name": "Food & Cooking",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    },
+    {
+      "id": 19,
+      "name": "Beauty & Self-Care",
+      "weight": "10.0",
+      "priority": 3,
+      "active": true
+    }
+  ],
+  "hashtag_strategy": {
+    "max_tags": 30,
+    "brand_tags": [
+      "lifestyleblogger",
+      "slowliving",
+      "dailywellness",
+      "selfcaretips",
+      "cozyvibes",
+      "everydaymagic",
+      "fashiondiaries",
+      "foodandmood",
+      "traveldiaries",
+      "tinyjoys"
+    ]
+  }
+}

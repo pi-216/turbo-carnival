@@ -63,7 +63,7 @@ module Growth
       created = 0
       failures = []
       budget_stopped = false
-      config = pillar_candidates.to_a.shuffle
+      config = weighted_pillar_order
 
       while shortfall > 0 && config.any?
         # Check BEFORE starting a render: a render begun with too little budget
@@ -187,6 +187,34 @@ module Growth
     # the current weighted share while still moving on when one is rejected).
     def pillar_candidates
       goal.persona.content_pillars.current.order(weight: :desc)
+    end
+
+    # The current pillars in WEIGHTED-RANDOM order: a pillar's weight is its
+    # chance of being tried first, but every pillar stays reachable and a
+    # rejection still moves on to the next one.
+    #
+    # This used to be `pillar_candidates.to_a.shuffle`, which DESTROYED the
+    # relation's weight order — so `ContentPillar#weight`, the one knob the
+    # weekly review's `reweight_toward_top` moves, had no effect at all on what
+    # got rendered: every slot drew a uniform permutation and the content mix
+    # stayed flat no matter how the weights were "rebalanced". Weighted
+    # sampling without replacement honours the weight while keeping variety.
+    def weighted_pillar_order
+      remaining = pillar_candidates.to_a
+      order = []
+      until remaining.empty?
+        total = remaining.sum { |p| [p.weight.to_f, 0.0].max }
+        if total <= 0
+          picked = remaining.sample
+        else
+          roll = rand * total
+          acc = 0.0
+          picked = remaining.find { |p| acc += [p.weight.to_f, 0.0].max; acc > roll } || remaining.last
+        end
+        order << picked
+        remaining.delete(picked)
+      end
+      order
     end
 
     # True ONLY for NSFW rejections — the one failure mode where retrying a

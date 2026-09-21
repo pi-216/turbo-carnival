@@ -69,4 +69,43 @@ RSpec.describe Growth::WeeklyReview do
       expect(review.recommendations.join(' ')).to include('Diagnose root cause')
     end
   end
+
+  # The broaden lever was applied five weeks running with no effect, because
+  # only the TIGHTEN direction was ever gated.
+  describe 'the hashtag expand gate' do
+    before do
+      persona.hashtag_strategy = { max_tags: 30, brand_tags: [ 'test' ] }
+      persona.save!
+      goal.reviews.create!(
+        reviewed_at: 1.week.ago, verdict: 'behind',
+        applied_changes: [ {
+          'kind' => 'hashtag_strategy',
+          'from' => { 'max_tags' => 25, 'brand_tags' => [ 'test' ] },
+          'to' => { 'max_tags' => 30, 'brand_tags' => [ 'test' ] },
+          'reason' => 'low engagement — broaden tags'
+        } ]
+      )
+    end
+
+    it 'reverts a failed expansion all the way to the baseline' do
+      allow(reviewer).to receive(:pillar_stats)
+        .and_return([ { name: 'Fashion & Style', posts: 10, engagement: 0.4 } ])
+
+      gates = reviewer.send(:evaluate_previous_gates)
+
+      expect(gates[:reverted]).to include('expand-tags')
+      expect(persona.reload.hashtag_strategy.max_tags).to eq(10)
+      expect(gates[:actions].map { |a| a[:kind] }).to include('revert_hashtags')
+    end
+
+    it 'keeps an expansion that lifted engagement off the low bound it was justified by' do
+      allow(reviewer).to receive(:pillar_stats)
+        .and_return([ { name: 'Fashion & Style', posts: 10, engagement: 2.0 } ])
+
+      gates = reviewer.send(:evaluate_previous_gates)
+
+      expect(gates[:kept]).to include('expand-tags')
+      expect(persona.reload.hashtag_strategy.max_tags).to eq(30)
+    end
+  end
 end

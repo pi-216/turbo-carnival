@@ -18,6 +18,9 @@ module Growth
     TAG_STEP       = 5
     TAG_MIN        = 3
     TAG_MAX        = 30
+    # The pre-experiment hashtag volume. The 10 -> 30 ramp (reviews 2-5) bought
+    # no engagement, so the baseline is also the CAP for the broaden lever.
+    TAG_BASELINE   = 10
 
     # A persona's `tone` is authored FREE TEXT ("friendly and approachable",
     # "warm, authentic, conversational"), not an enum — so an exact-match test
@@ -90,17 +93,46 @@ module Growth
     end
 
     # Adjust hashtag volume/count within bounds.
+    #
+    # BROADENING IS CAPPED AT THE BASELINE (TAG_BASELINE). The "low engagement
+    # -> broaden tags" lever was pulled five weeks running (reviews 2-5,
+    # 2026-08-24 -> 2026-09-14) taking max_tags 10 -> 30, and per-post
+    # engagement never moved (every pillar at or under ~2%, four pillars at
+    # 0.0%). Repeating it is not an experiment, it is drift: the review's
+    # expand gate now reverts a failed expansion to the baseline, and this
+    # bound stops the ramp from being re-walked in the first place. A tag
+    # volume ABOVE the baseline is corrected by `enforce_tag_baseline`.
+    # Raising the baseline is a policy change (edit the constant, record a
+    # review) — deliberately not something a low-engagement week can do.
     def adjust_hashtags(posts:, engagement:)
       strategy = persona.hashtag_strategy || Personas::HashtagStrategy.new
       if posts >= 5 && engagement > 5.0
         from = strategy.to_hash
         reduce_tags(strategy)
         record(:hashtag_strategy, from, persona.hashtag_strategy.to_hash, 'high engagement — tighten tags')
-      elsif posts >= 5 && engagement < 1.0
+      elsif posts >= 5 && engagement < 1.0 && strategy.max_tags.to_i < TAG_BASELINE
         from = strategy.to_hash
         expand_tags(strategy)
         record(:hashtag_strategy, from, persona.hashtag_strategy.to_hash, 'low engagement — broaden tags')
       end
+    end
+
+    # Pull a persona back to the tag baseline when it sits above it — the
+    # cleanup for the disproven broaden ramp, and the reason the ramp cannot
+    # survive a review as a stale value in the DB. Records the change so the
+    # ledger shows why the volume moved (never a silent edit).
+    def enforce_tag_baseline
+      strategy = persona.hashtag_strategy || Personas::HashtagStrategy.new
+      current = strategy.max_tags.to_i
+      return nil if current <= TAG_BASELINE
+
+      from = strategy.to_hash
+      persona.hashtag_strategy = Personas::HashtagStrategy.new(
+        strategy.to_hash.merge(max_tags: TAG_BASELINE)
+      )
+      persona.save!
+      record(:hashtag_strategy, from, persona.hashtag_strategy.to_hash,
+             "tag volume above the #{TAG_BASELINE} baseline — reverting the disproven broaden ramp")
     end
 
     private

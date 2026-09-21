@@ -92,4 +92,27 @@ RSpec.describe Growth::CadenceEngine do
       expect(outcome[:result]).to be_nil
     end
   end
+
+  # `ContentPillar#weight` is the one knob Growth::PersonaEvolution moves, so
+  # cadence must actually honour it. It used to `shuffle` the relation, which
+  # discarded the weight order entirely and made the lever inert.
+  describe '#weighted_pillar_order' do
+    it 'lets weight set the render mix while keeping every pillar reachable' do
+      firsts = Hash.new(0)
+      400.times { firsts[engine.send(:weighted_pillar_order).first.name] += 1 }
+
+      expect(firsts.keys).to contain_exactly('Fashion & Style', 'Food & Cooking')
+      # 20 vs 10 → the heavy pillar leads about two thirds of the time. Assert
+      # the direction with slack, not the exact ratio (this is a random draw).
+      expect(firsts['Fashion & Style']).to be > firsts['Food & Cooking']
+      expect(firsts['Fashion & Style']).to be > 200
+    end
+
+    it 'never drops a pillar from the order' do
+      order = engine.send(:weighted_pillar_order)
+
+      expect(order.map(&:name)).to contain_exactly('Fashion & Style', 'Food & Cooking')
+      expect(order.size).to eq(2)
+    end
+  end
 end

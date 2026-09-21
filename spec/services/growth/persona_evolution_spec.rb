@@ -96,14 +96,44 @@ RSpec.describe Growth::PersonaEvolution do
     end
 
     it 'records a real broaden when there is room to move' do
-      persona.hashtag_strategy = { max_tags: 10, brand_tags: [ 'test' ] }
+      persona.hashtag_strategy = { max_tags: 5, brand_tags: [ 'test' ] }
       persona.save!
 
       change = evolution.adjust_hashtags(posts: 10, engagement: 0.2)
 
       expect(change[:kind].to_s).to eq('hashtag_strategy')
-      expect(change[:to][:max_tags]).to eq(15)
+      expect(change[:to][:max_tags]).to eq(10)
       expect(change[:from]).not_to eq(change[:to])
+    end
+
+    # The 10 -> 30 ramp (reviews 2-5) bought no engagement; the lever is now
+    # capped at the baseline so a low-engagement week cannot re-walk it.
+    it 'does NOT broaden above the baseline' do
+      persona.hashtag_strategy = { max_tags: 10, brand_tags: [ 'test' ] }
+      persona.save!
+
+      expect(evolution.adjust_hashtags(posts: 10, engagement: 0.2)).to be_nil
+      expect(evolution.changes).to be_empty
+    end
+  end
+
+  describe '#enforce_tag_baseline' do
+    it 'pulls an above-baseline tag volume back to the baseline and records why' do
+      persona.hashtag_strategy = { max_tags: 30, brand_tags: [ 'test' ] }
+      persona.save!
+
+      change = evolution.enforce_tag_baseline
+
+      expect(persona.reload.hashtag_strategy.max_tags).to eq(10)
+      expect(change[:kind].to_s).to eq('hashtag_strategy')
+      expect(change[:from][:max_tags]).to eq(30)
+      expect(change[:to][:max_tags]).to eq(10)
+      expect(change[:reason]).to include('baseline')
+    end
+
+    it 'is a no-op at or below the baseline (records nothing)' do
+      expect(evolution.enforce_tag_baseline).to be_nil
+      expect(evolution.changes).to be_empty
     end
   end
 
