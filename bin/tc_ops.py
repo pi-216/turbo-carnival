@@ -27,9 +27,13 @@ then works the open issues and closes them with a note.
                              moves, an age cannot)
   tc_ops.py warm-caption     load+pin the caption model on max395
   tc_ops.py needs-human      rewrite ops/NEEDS_HUMAN.md -- the markdown digest of
-                             the open board, for the reader the reports cannot
-                             reach: this profile's jobs deliver `local`, so the
-                             human surface is the repo, not the cron output
+                             the open board, split by route (enablement for Tim
+                             vs decisions the agent owns)
+  tc_ops.py route KEY --route agent|tim [-n NOTE]
+                             move an item between the two queues, recording why
+  tc_ops.py escalations      print ONLY the enablement queue (route=tim); empty
+                             output when no human is needed, so an escalation job
+                             can suppress itself
 
 Probe exits 0 always (cron-safe); prints CRITICAL/WARN counts. The probe blocks
 up to TC_CAPTION_WARM_BUDGET seconds (default 240) ONLY when no caption model is
@@ -70,6 +74,22 @@ SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 NEEDS_HUMAN = APP / "ops" / "NEEDS_HUMAN.md"
 DIGEST_EVIDENCE_CHARS = 300
 DIGEST_NOTE_CHARS = 400
+
+# ROUTE: every open item belongs to exactly one of two queues, and the split IS
+# the fix. `agent` -- a decision the operating agent OWNS and must TAKE (business
+# and product calls: cadence, persona, caption path, whether to wait for a slot).
+# `tim` -- an ENABLEMENT ask only a human can perform (a file outside this repo,
+# a credential, a platform/channel setting, a GPU policy).
+#
+# Why this exists: the board filed business decisions as "needs a human" for its
+# first two days, because nothing said the agent owned them. Every hourly pass
+# re-derived the same deferred item, appended another note, and closed nothing --
+# a decision queue with no decision-maker looks identical to a healthy backlog.
+# Default is `agent`: a business decision reaching a human is the FAILURE MODE, so
+# only genuine enablement may route to `tim`. Re-route with:
+#   python3 bin/tc_ops.py route <key> --route tim -n "<why it needs a human>"
+ROUTES = ("agent", "tim")
+ROUTE_DEFAULT = "agent"
 
 # A foreign project holding the 4090 is the NORMAL shared-resource state and our
 # rules forbid interfering with it, so a foreign hold is only an issue when it
@@ -3275,7 +3295,7 @@ def issue_path(key):
     return BOARD / f"{key}.json"
 
 
-def file_issue(key, title, severity, evidence, source="probe"):
+def file_issue(key, title, severity, evidence, source="probe", route=ROUTE_DEFAULT):
     BOARD.mkdir(parents=True, exist_ok=True)
     p = issue_path(key)
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -3288,6 +3308,9 @@ def file_issue(key, title, severity, evidence, source="probe"):
                    last_seen=now, status="open")
         rec["seen_count"] = rec.get("seen_count", 1) + 1
         rec.setdefault("first_seen", now)
+        # setdefault, not assignment: a re-filing probe must never silently move an
+        # item back out of the human queue it was deliberately routed into.
+        rec.setdefault("route", route)
         # A probe must not silently claim ownership of a hand-filed issue.
         if rec.get("source", "probe") == "probe":
             rec["source"] = source
@@ -3295,7 +3318,7 @@ def file_issue(key, title, severity, evidence, source="probe"):
         rec = {
             "key": key, "title": title, "severity": severity, "evidence": evidence,
             "status": "open", "first_seen": now, "last_seen": now,
-            "seen_count": 1, "source": source, "notes": [],
+            "seen_count": 1, "source": source, "route": route, "notes": [],
         }
     p.write_text(json.dumps(rec, indent=2) + "\n")
     return rec
@@ -3325,53 +3348,93 @@ def archive_notes(key, notes):
             fh.write(json.dumps(n) + "\n")
 
 
+def route_of(rec):
+    """Which queue an open item is in: 'agent' (the agent decides) or 'tim' (enablement).
+
+    Pure. An explicit `route` wins; anything else -- absent, blank, or garbage --
+    reads as the agent's, because the default mistake this board was making is a
+    business decision sitting in a human's queue.
+    """
+    r = str(rec.get("route") or "").strip().lower()
+    return r if r in ROUTES else ROUTE_DEFAULT
+
+
 def human_digest(recs, now=None):
     """Render the open board as one markdown digest -- a surface a human can READ.
 
     Pure: takes the records, returns text. Bounded by construction (evidence and
     notes truncated, file rewritten rather than appended), so regenerating it on
     every probe run cannot grow it.
+
+    Split by route, because the two queues have different readers: `tim` items are
+    the only ones that may be pushed to the operator (enablement), while `agent`
+    items are the operating agent's OWN decisions -- listed explicitly so a session
+    can see they are its own to take and not someone else's to grant.
     """
     now = now or time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    manual = [r for r in recs if r.get("source", "probe") == "manual"]
+    tim = [r for r in recs if route_of(r) == "tim"]
+    agent = [r for r in recs if route_of(r) == "agent"]
     lines = [
         "# turbo-carnival ops board -- open items",
         "",
         f"Regenerated by `bin/tc_ops.py probe` at {now} from `ops/board/*.json`.",
         "Do not edit by hand -- every probe run rewrites this file.",
         "",
-        "It exists because the board is the surface a human reads: this profile's",
-        "cron jobs deliver `local` (their origin is the WebUI, which the gateway",
-        "cannot deliver to), so reports land in `cron/output/<job-id>/` and the",
-        "decisions a machine cannot make land here, where git log is the delivery",
-        "channel that works. Full records: `python3 bin/tc_ops.py show <key>`.",
+        "Two queues, two readers:",
         "",
-        f"Open: {len(recs)} (`source=manual` means it waits on a human decision: {len(manual)})",
+        "- **Enablement (`route=tim`)** -- only a human can do it: a file outside",
+        "  this repo, a credential, a platform/channel setting, a GPU policy.",
+        "- **Decisions (`route=agent`)** -- business/product calls the operating",
+        "  agent OWNS. Decide and close with the decision as the note; routing one",
+        "  of these to a human is the failure this board was filing into.",
         "",
-        "| sev | key | source | seen | first seen | last seen |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "Move an item between queues with",
+        "`python3 bin/tc_ops.py route <key> --route tim -n '<why it needs a human>'`.",
+        "",
+        "This file is the durable surface because this profile's cron jobs deliver",
+        "`local` (their WebUI origin has no gateway adapter), so a report lands in",
+        "`cron/output/<job-id>/` and nowhere else. Full records:",
+        "`python3 bin/tc_ops.py show <key>`.",
+        "",
+        f"Open: {len(recs)} (enablement for Tim: {len(tim)} | agent decisions: {len(agent)})",
+        "",
     ]
-    for r in recs:
-        lines.append(
-            f"| {r.get('severity', 'info')} | `{r.get('key', '')}` "
-            f"| {r.get('source', 'probe')} | {r.get('seen_count', 0)} "
-            f"| {r.get('first_seen', '')} | {r.get('last_seen', '')} |"
-        )
-    lines.append("")
-    for r in recs:
-        lines.append(f"## {r.get('severity', 'info').upper()} `{r.get('key', '')}` -- "
-                     f"{r.get('title', '')}")
+
+    def _table(rows, caption):
+        lines.append(f"## {caption}")
         lines.append("")
-        lines.append(f"- source {r.get('source', 'probe')} | seen {r.get('seen_count', 0)}x "
-                     f"| first {r.get('first_seen', '')} | last {r.get('last_seen', '')}")
-        evidence = " ".join((r.get("evidence") or "").split())
-        if evidence:
-            lines.append(f"- evidence: {evidence[:DIGEST_EVIDENCE_CHARS]}")
-        notes = r.get("notes") or []
-        if notes:
-            latest = " ".join((notes[-1].get("note") or "").split())
-            lines.append(f"- latest note ({notes[-1].get('ts', '')}): {latest[:DIGEST_NOTE_CHARS]}")
+        if not rows:
+            lines.append("_none_")
+            lines.append("")
+            return
+        lines.append("| sev | key | source | seen | first seen | last seen |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for r in rows:
+            lines.append(
+                f"| {r.get('severity', 'info')} | `{r.get('key', '')}` "
+                f"| {r.get('source', 'probe')} | {r.get('seen_count', 0)} "
+                f"| {r.get('first_seen', '')} | {r.get('last_seen', '')} |"
+            )
         lines.append("")
+
+    _table(tim, "Enablement needed from Tim (`route=tim`)")
+    _table(agent, "Agent-owned decisions (`route=agent`)")
+    for caption, rows in (("ENABLEMENT (route=tim)", tim), ("DECISION (route=agent)", agent)):
+        for r in rows:
+            lines.append(f"## {caption} | {r.get('severity', 'info').upper()} "
+                         f"`{r.get('key', '')}` -- {r.get('title', '')}")
+            lines.append("")
+            lines.append(f"- route {route_of(r)} | source {r.get('source', 'probe')} "
+                         f"| seen {r.get('seen_count', 0)}x | first {r.get('first_seen', '')} "
+                         f"| last {r.get('last_seen', '')}")
+            evidence = " ".join((r.get("evidence") or "").split())
+            if evidence:
+                lines.append(f"- evidence: {evidence[:DIGEST_EVIDENCE_CHARS]}")
+            notes = r.get("notes") or []
+            if notes:
+                latest = " ".join((notes[-1].get("note") or "").split())
+                lines.append(f"- latest note ({notes[-1].get('ts', '')}): {latest[:DIGEST_NOTE_CHARS]}")
+            lines.append("")
     return "\n".join(lines)
 
 
@@ -3448,9 +3511,9 @@ def cmd_list(argv):
     if not recs:
         print("board: no open issues")
         return 0
-    print(f"{'SEV':9} {'KEY':32} {'SEEN':4} LAST SEEN")
+    print(f"{'SEV':9} {'ROUTE':6} {'KEY':32} {'SEEN':4} LAST SEEN")
     for r in recs:
-        print(f"{r.get('severity',''):9} {r.get('key',''):32} "
+        print(f"{r.get('severity',''):9} {route_of(r):6} {r.get('key',''):32} "
               f"{r.get('seen_count',0):<4} {r.get('last_seen','')}")
         print(f"    {r.get('title','')}")
     return 0
@@ -3520,11 +3583,13 @@ def cmd_file(argv):
     """
     if not argv:
         print("usage: tc_ops.py file KEY --title TEXT --evidence TEXT "
-              "[--severity warn|critical|info] [--source manual]", file=sys.stderr)
+              "[--severity warn|critical|info] [--source manual] [--route agent|tim]",
+              file=sys.stderr)
         return 2
     key = argv[0]
     opts = {}
-    for flag in ("--title", "--evidence", "--evidence-file", "--severity", "--source"):
+    for flag in ("--title", "--evidence", "--evidence-file", "--severity", "--source",
+                 "--route"):
         if flag in argv:
             i = argv.index(flag) + 1
             if i >= len(argv) or argv[i].startswith("--"):
@@ -3547,6 +3612,10 @@ def cmd_file(argv):
     if sev not in SEV_ORDER:
         print(f"severity must be one of {', '.join(SEV_ORDER)}", file=sys.stderr)
         return 2
+    route = opts.get("route", ROUTE_DEFAULT)
+    if route not in ROUTES:
+        print(f"--route must be one of {', '.join(ROUTES)}", file=sys.stderr)
+        return 2
 
     p = issue_path(key)
     prior = None
@@ -3556,15 +3625,20 @@ def cmd_file(argv):
         except Exception:
             prior = None
     rec = file_issue(key, opts["title"], sev, opts["evidence"],
-                     source=opts.get("source", "manual"))
+                     source=opts.get("source", "manual"), route=route)
     # A manual filing must not STEAL a probe-owned key: file_issue adopts the
     # caller's source for any record that was probe-owned, which would silently
     # stop the probe re-filing and auto-closing a signal it can measure.
     if prior and prior.get("source") == "probe":
         rec["source"] = "probe"
         p.write_text(json.dumps(rec, indent=2) + "\n")
+    # An explicit --route IS applied to an existing record (file_issue only
+    # setdefaults), so a filing can deliberately move an item into the human queue.
+    if "--route" in argv and route_of(rec) != route:
+        rec["route"] = route
+        p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"filed {key} [{rec['severity']}] status={rec['status']} "
-          f"seen_count={rec['seen_count']} source={rec['source']}")
+          f"seen_count={rec['seen_count']} source={rec['source']} route={route_of(rec)}")
     return 0
 
 
@@ -3603,6 +3677,78 @@ def cmd_touch(argv):
     append_note(rec, note)
     p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"noted on {key}: {note}")
+    return 0
+
+
+def cmd_route(argv):
+    """Move an item between the two queues, recording why.
+
+    `route KEY --route agent|tim [-n NOTE]`. The route is the ONLY thing that
+    decides which queue an item is published in (and whether an escalation job may
+    push it to the operator), so changing it must be an explicit, noted act rather
+    than something a probe can drift.
+    """
+    if not argv:
+        print("usage: tc_ops.py route KEY --route agent|tim [-n NOTE]", file=sys.stderr)
+        return 2
+    key = argv[0]
+    want, note = "", ""
+    if "--route" in argv:
+        i = argv.index("--route") + 1
+        want = argv[i].strip().lower() if i < len(argv) else ""
+    for flag in ("--note", "-n"):
+        if flag in argv:
+            i = argv.index(flag) + 1
+            note = argv[i] if i < len(argv) else ""
+            break
+    if want not in ROUTES:
+        print(f"--route must be one of {', '.join(ROUTES)}", file=sys.stderr)
+        return 2
+    p = issue_path(key)
+    if not p.exists():
+        print(f"no such issue: {key}", file=sys.stderr)
+        return 2
+    rec = json.loads(p.read_text())
+    was = route_of(rec)
+    rec["route"] = want
+    append_note(rec, note or f"routed {was} -> {want}")
+    p.write_text(json.dumps(rec, indent=2) + "\n")
+    print(f"{key}: route {was} -> {want}" + (f" ({note})" if note else ""))
+    return 0
+
+
+def escalations_text(recs, limit=DIGEST_NOTE_CHARS):
+    """Render the enablement queue (`route=tim`) as a terse operator digest.
+
+    Pure. Returns "" when no human is needed, which is what lets a delivery job
+    suppress itself on empty output instead of sending a "nothing to do" message.
+    """
+    tim = [r for r in recs if route_of(r) == "tim"]
+    if not tim:
+        return ""
+    lines = [f"turbo-carnival: {len(tim)} item(s) need you to unblock", ""]
+    for r in tim:
+        lines.append(f"[{r.get('severity', 'info')}] {r.get('key', '')}: {r.get('title', '')}")
+        notes = r.get("notes") or []
+        if notes:
+            latest = " ".join((notes[-1].get("note") or "").split())
+            lines.append(f"    latest: {latest[:limit]}")
+        lines.append(f"    open since: {r.get('first_seen', '')}")
+    return "\n".join(lines)
+
+
+def cmd_escalations(_argv):
+    """Print ONLY the enablement queue (`route=tim`), for an escalation job to deliver.
+
+    The two queues have different readers: this one MAY be pushed to the operator,
+    the agent-decision queue must NOT be (it is the agent's own work, and pushing
+    it re-creates the "everything is a human's problem" state this split undoes).
+    Prints NOTHING and exits 0 when no human is needed, so a delivery job can
+    suppress itself on empty output rather than sending a "nothing to do" message.
+    """
+    text = escalations_text(load_all())
+    if text:
+        print(text)
     return 0
 
 
@@ -4110,6 +4256,9 @@ def cmd_selftest(_argv):
         "notes": [{"ts": "old", "note": "OLD NOTE"}, {"ts": "new", "note": "NEW NOTE"}],
     }
     d_one = human_digest([digest_rec], now="2026-09-20T00:00:00Z")
+    digest_tim = dict(digest_rec, key="k2", route="tim", source="manual")
+    digest_bad = dict(digest_rec, key="k3", route="banana")
+    d_two = human_digest([digest_rec, digest_tim, digest_bad], now="2026-09-20T00:00:00Z")
     digest_cases = [
         ("empty-counts-zero", "Open: 0" in d_empty, True),
         ("empty-has-no-items", "## WARN" in d_empty, False),
@@ -4117,10 +4266,49 @@ def cmd_selftest(_argv):
         ("newest-note-only", "NEW NOTE" in d_one and "OLD NOTE" not in d_one, True),
         ("evidence-bounded", (long_evidence not in d_one)
          and ("x" * DIGEST_EVIDENCE_CHARS in d_one), True),
-        ("records-manual-count", "waits on a human decision: 1" in d_one, True),
+        ("records-route-count", "enablement for Tim: 0 | agent decisions: 1" in d_one, True),
+        ("splits-tim-and-agent", "enablement for Tim: 1 | agent decisions: 2" in d_two, True),
+        ("tim-item-in-enablement-section",
+         "ENABLEMENT (route=tim)" in d_two and "`k2`" in d_two, True),
+        ("tim-item-routes-tim", "- route tim |" in d_two, True),
+        ("garbage-route-routes-agent", "- route agent |" in d_two, True),
     ]
     for name, got, want in digest_cases:
         expect(f"human_digest[{name}]", got, want)
+
+    # route_of: the queue an item belongs to. An explicit route wins; anything
+    # else -- absent, blank, garbage -- is the AGENT's, because a business decision
+    # sitting in a human's queue is the failure this split exists to undo.
+    route_cases = [
+        ("explicit-tim", {"route": "tim"}, "tim"),
+        ("explicit-agent", {"route": "agent"}, "agent"),
+        ("case-and-space", {"route": "  TIM "}, "tim"),
+        ("absent", {}, "agent"),
+        ("blank", {"route": ""}, "agent"),
+        ("garbage", {"route": "banana"}, "agent"),
+        ("none", {"route": None}, "agent"),
+    ]
+    for name, rec, want in route_cases:
+        expect(f"route_of[{name}]", route_of(rec), want)
+
+    # escalations_text: only the enablement queue may reach the operator, and an
+    # empty queue must render to "" so a delivery job suppresses itself instead of
+    # sending "nothing to do". The inverse -- pushing agent-owned decisions to a
+    # human -- is what stalled the board in the first place.
+    esc_tim = {"key": "e1", "title": "t", "severity": "warn", "route": "tim",
+               "first_seen": "2026-09-19T00:00:00Z",
+               "notes": [{"ts": "new", "note": "LATEST ASK"}]}
+    esc_agent = {"key": "a1", "title": "t", "severity": "warn", "route": "agent",
+                 "notes": [{"ts": "new", "note": "AGENT ONLY"}]}
+    esc_cases = [
+        ("none-needs-human", escalations_text([esc_agent]), ""),
+        ("empty-board", escalations_text([]), ""),
+        ("tim-item-listed", "e1" in escalations_text([esc_tim]), True),
+        ("agent-item-never-pushed", "a1" in escalations_text([esc_agent, esc_tim]), False),
+        ("carries-newest-ask", "LATEST ASK" in escalations_text([esc_tim]), True),
+    ]
+    for name, got, want in esc_cases:
+        expect(f"escalations_text[{name}]", got, want)
 
     # image_grounding_verdict: does any published caption look at the render?
     # (total, attached, recent_unattached, vision_posts) -> severity or None.
@@ -4267,7 +4455,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
@@ -4351,6 +4539,8 @@ def main():
         "caption-endpoint": cmd_caption_endpoint,
         "log-health": cmd_log_health,
         "needs-human": cmd_needs_human,
+        "route": cmd_route,
+        "escalations": cmd_escalations,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 
