@@ -1365,6 +1365,108 @@ def check_queued_post_hashtags():
     )
 
 
+IMAGE_GROUNDING_WINDOW_H = 24 * 7
+
+
+def image_grounding_verdict(total, attached, recent_unattached, vision_posts,
+                            newest_attach=None):
+    """Pure: do published captions ever look at the render itself?
+
+    Returns (severity, detail) or None when the condition is clean or unknown.
+
+    "Captions are written from context text, never from the image" is not a code
+    defect on its own -- the caller routes only ATTACHED photos to
+    CaptionGeneration::VisionGenerator, and every render the growth harness
+    imports is path-only -- but it IS the difference between a caption that
+    describes the photo and one that invents a scene the photo does not show
+    (measured 2026-09-21 on photo 351: vision said "warm cup of coffee and a
+    beautiful autumn morning" for an autumn street scene; the text path shipped
+    "rain drumming on the windowpane ... chamomile tea"). Two things must hold
+    for it to be LIVE rather than history: photos are still being imported
+    without an attachment, and no post in the window was written by the vision
+    path -- which scheduling_posts.caption_metadata now records on BOTH paths
+    (generator: 'vision' / 'text').
+    """
+    if any(v is None for v in (total, attached, recent_unattached, vision_posts)):
+        return None
+    if vision_posts > 0:
+        return None  # the image path is taken -> the condition no longer reproduces
+    if recent_unattached <= 0:
+        return None  # every recent photo carries bytes the vision path can read
+    detail = (
+        f"{recent_unattached} photo(s) imported in the last "
+        f"{IMAGE_GROUNDING_WINDOW_H // 24} days have no ActiveStorage attachment, "
+        f"and 0 post(s) in that window were written by the vision path; corpus "
+        f"{total} photos / {attached} attached"
+    )
+    if newest_attach:
+        detail += f", newest attachment {newest_attach}"
+    return "info", detail
+
+
+def check_caption_image_grounding():
+    """Captions never look at the render: the vision path is unreachable.
+
+    The caller (PostAutomation::GenerateCaption) branches on
+    `photo.image.attached?`, and Growth::ContentGenerator#import_photo creates
+    photos path-only -- so since 2026-05-28 every caption has been generated from
+    context text and CaptionGeneration::VisionGenerator has been dead code in
+    production, silently. Nothing else measures it: check_caption_fallback counts
+    placeholders and check_placeholder_caption_queued counts queued junk, so a
+    caption that is fluent and WRONG about the photo reads green everywhere.
+    The condition is a product decision (Tim's), so this refreshes the record
+    with live numbers instead of closing it.
+    """
+    attached_pred = ("exists (select 1 from active_storage_attachments a "
+                     "where a.record_type = 'ContentPillars::Photo' "
+                     "and a.record_id = p.id)")
+    total = psql("select count(*) from photos p")
+    attached = psql(f"select count(*) from photos p where {attached_pred}")
+    newest = psql("select to_char(max(p.created_at), 'YYYY-MM-DD') from photos p "
+                  f"where {attached_pred}")
+    recent_unattached = psql(
+        f"select count(*) from photos p where not {attached_pred} and "
+        "p.created_at > (now() at time zone 'UTC') - "
+        f"interval '{IMAGE_GROUNDING_WINDOW_H} hours'")
+    vision_posts = psql(
+        "select count(*) from scheduling_posts where "
+        "caption_metadata->>'generator' = 'vision' and created_at > "
+        f"(now() at time zone 'UTC') - interval '{IMAGE_GROUNDING_WINDOW_H} hours'")
+
+    counts = []
+    for raw in (total, attached, recent_unattached, vision_posts):
+        try:
+            counts.append(int(raw))
+        except (TypeError, ValueError):
+            return None
+    verdict = image_grounding_verdict(*counts, newest_attach=newest)
+    if not verdict:
+        return None
+    sev, detail = verdict
+    return (
+        "vision-caption-path-never-taken",
+        "no photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image",
+        sev,
+        detail
+        + ". Growth::ContentGenerator#import_photo creates photos path-only and "
+        "PostAutomation::GenerateCaption routes only attached photos to "
+        "CaptionGeneration::VisionGenerator, so the caption is written from the "
+        "photo's context text: measured 2026-09-21, the text path described "
+        "'rain drumming on the windowpane ... chamomile tea' for a render that "
+        "shows an autumn street scene with a mug, which the vision path "
+        "described correctly. The class itself no longer requires an attachment "
+        "(its guard now accepts a readable local file, spec'd in "
+        "spec/services/caption_generation/vision_generator_spec.rb), so "
+        "switching this on is a one-line change to the branch in "
+        "PostAutomation::GenerateCaption. Measured cost on the live caption "
+        "host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor "
+        "already stripping the model preamble and hashtags. NOT flipped by this "
+        "loop: it changes what a live account PUBLISHES, and the persona's age "
+        "reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes "
+        "automatically once a post in the window records generator='vision'."
+    )
+
+
 def prompt_safety_verdict(guard_wired, db_hits, file_hits):
     """Severity for the prompt-safety condition, or None when it is clean.
 
@@ -2522,6 +2624,7 @@ CHECKS = [
     check_render_for_terminal_run,
     check_caption_fallback,
     check_caption_path_cold,
+    check_caption_image_grounding,
     check_placeholder_caption_queued,
     check_queued_post_hashtags,
     check_pipeline_prompt_safety,
@@ -3353,9 +3456,22 @@ def cmd_selftest(_argv):
     for name, got, want in digest_cases:
         expect(f"human_digest[{name}]", got, want)
 
+    # image_grounding_verdict: does any published caption look at the render?
+    # (total, attached, recent_unattached, vision_posts) -> severity or None.
+    grounding_cases = [
+        ("path-only-live", (337, 141, 12, 0), "info"),
+        ("vision-in-window", (337, 141, 12, 3), None),
+        ("all-recent-attached", (10, 10, 0, 0), None),
+        ("empty-corpus", (0, 0, 0, 0), None),
+        ("unreadable", (None, None, None, None), None),
+    ]
+    for name, args, want in grounding_cases:
+        v = image_grounding_verdict(*args)
+        expect(f"image_grounding_verdict[{name}]", v[0] if v else None, want)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + 21} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

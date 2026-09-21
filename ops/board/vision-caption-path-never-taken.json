@@ -1,18 +1,14 @@
 {
   "key": "vision-caption-path-never-taken",
-  "title": "No photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image (CaptionGeneration::VisionGenerator is dead code in production)",
+  "title": "no photo since 2026-05-28 has an ActiveStorage image, so captions never look at the image",
   "severity": "info",
   "source": "manual",
   "status": "open",
   "first_seen": "2026-09-19T17:10:00-0400",
-  "last_seen": "2026-09-19T17:10:00-0400",
-  "seen_count": 1,
-  "evidence": "Found while diagnosing the placeholder-caption rate. PostAutomation::GenerateCaption branches on photo.image.attached?: attached -> CaptionGeneration::VisionGenerator (sends the image, vision prompt), not attached -> CaptionGeneration::Generator (text-only prompt built from ContextBuilder). Live check: the 6 most recent photos (341-346) all report image.attached? == false, and no ContentPillars::Photo created after 2026-05-28 has an active_storage_attachments row (141 photos have one, newest created 2026-05-28; 152 created in 2026-08 and 36 in 2026-09 have none). Growth::ContentGenerator#import_photo creates photos path-only (persona, path, content_pillar, image_candidate: nil) and never attaches the bytes, so every caption produced by the harness is generated from the photo's context text, not from the image - 'analyze the image carefully' in the vision prompt never runs. Confirmed by the live request trace: the caption call that failed at 20:57 UTC was POST /api/chat with the 27B (the text path's shape), not the vision path with an image payload.",
+  "last_seen": "2026-09-20T20:42:39-0400",
+  "seen_count": 2,
+  "evidence": "32 photo(s) imported in the last 7 days have no ActiveStorage attachment, and 0 post(s) in that window were written by the vision path; corpus 337 photos / 141 attached, newest attachment 2026-05-28. Growth::ContentGenerator#import_photo creates photos path-only and PostAutomation::GenerateCaption routes only attached photos to CaptionGeneration::VisionGenerator, so the caption is written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. The class itself no longer requires an attachment (its guard now accepts a readable local file, spec'd in spec/services/caption_generation/vision_generator_spec.rb), so switching this on is a one-line change to the branch in PostAutomation::GenerateCaption. Measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b, with PostProcessor already stripping the model preamble and hashtags. NOT flipped by this loop: it changes what a live account PUBLISHES, and the persona's age reading (persona-age-read-youthful) is unresolved -- Tim's call. Closes automatically once a post in the window records generator='vision'.",
   "notes": [
-    {
-      "ts": "2026-09-20T13:45:34-0400",
-      "note": "2026-09-20 17:4xZ ops-triage: unchanged product decision for Tim. Live: 337 photos total, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises 'Photo must have attached image' without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
-    },
     {
       "ts": "2026-09-20T14:38:16-0400",
       "note": "2026-09-20 18:3xZ ops-triage: unchanged product decision for Tim. Live: 337 photos, 141 with an ActiveStorage attachment, newest attachment 2026-05-28 13:07Z -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises without an attachment) is dead code in production by design. Needs Tim: wire the vision path on or accept text-only captions."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T19:56:48-0400",
       "note": "2026-09-20 23:5xZ ops-triage: unchanged product decision for Tim. Live psql: 337 photos, 141 with an ActiveStorage attachment, newest attached photo created 2026-05-28 13:07Z -- every render since is path-only, so CaptionGeneration::VisionGenerator (which raises without an attachment) never runs and captions are built from context text. Needs Tim: wire the vision path on (import_photo attaching bytes) or accept text-only captions."
+    },
+    {
+      "ts": "2026-09-20T20:44:20-0400",
+      "note": "2026-09-21 00:4xZ ops-triage: MEASURED this run, and the guard that made it look like a class change is fixed in-repo. Live: 32 photos imported in the last 7 days have no ActiveStorage attachment (corpus 337 / 141 attached, newest attachment 2026-05-28), 0 posts in the window recorded generator=vision. Evidence for the decision: ran the vision path against a live path-only render (photo 351) through the real prompt + real encode + real client -- 15.0s on gemma3:4b for a 1.1 MB render, PostProcessor already strips the preamble and hashtags, and the caption described the actual photo (autumn street scene, mug) while the text path shipped rain-on-the-windowpane/chamomile-tea for the same image. Change landed: CaptionGeneration::VisionGenerator no longer requires an attachment (guard now accepts a readable local file; new spec spec/services/caption_generation/vision_generator_spec.rb is RED on the old guard, 2 failures, and green after), and CaptionGeneration::Generator now records generator: text so both paths are countable. bin/tc_ops.py check_caption_image_grounding refreshes this record with live numbers (selftest 168 assertions / 0 failures). NOT flipped: the branch in PostAutomation::GenerateCaption is now a one-line change, but it alters what a live account PUBLISHES and persona-age-read-youthful is unresolved -- Tim: wire it on (one line) or accept text-only captions."
     }
   ]
 }

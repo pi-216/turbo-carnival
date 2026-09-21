@@ -3,10 +3,13 @@
 require 'base64'
 
 module CaptionGeneration
-  # Image path: sends the photo to a vision model. Note this path is only taken
-  # when the photo has an ActiveStorage attachment (see
-  # PostAutomation::GenerateCaption); renders imported by the growth harness are
-  # path-only, so they take CaptionGeneration::Generator instead.
+  # Image path: sends the photo to a vision model. Note this path is only TAKEN
+  # when the caller routes a photo here (see PostAutomation::GenerateCaption:
+  # it branches on an ActiveStorage attachment); renders imported by the growth
+  # harness are path-only, so today they take CaptionGeneration::Generator
+  # instead. This class itself needs no attachment -- encode_image prefers the
+  # photo's local/NAS file -- so routing path-only renders here is a one-line
+  # change in the caller, not a change to this class.
   class VisionGenerator
     def self.generate(photo:, persona:, content_pillar: nil)
       new(photo: photo, persona: persona, content_pillar: content_pillar).generate
@@ -20,7 +23,7 @@ module CaptionGeneration
 
     def generate
       raise ArgumentError, 'Persona caption_config is required' unless @persona.caption_config
-      raise ArgumentError, 'Photo must have attached image' unless @photo.image.attached?
+      raise ArgumentError, 'Photo must have a readable image' unless image_readable?
 
       # Get image as base64
       image_base64 = encode_image
@@ -67,6 +70,20 @@ module CaptionGeneration
     end
 
     private
+
+    # The guard must match what encode_image can ACTUALLY do: it prefers the
+    # photo's local/NAS file and only falls back to the ActiveStorage blob, so
+    # requiring an ATTACHMENT refused path-only photos this class could encode --
+    # which is every render the growth harness imports. Whether the CALLER routes
+    # a path-only photo here is a separate, deliberate product decision (pinned
+    # in spec/commands/post_automation/generate_caption_spec.rb); this guard only
+    # refuses a photo with no readable bytes at all, so it can never reject work
+    # it is capable of doing. Measured 2026-09-21 on a live path-only render
+    # (photo 351): encode + gemma3:4b vision call = 15.0s, and the caption
+    # described the actual photo while the text path invented a different scene.
+    def image_readable?
+      @photo.image.attached? || @photo.servable_file_path.present?
+    end
 
     # Resolved once per call: which model answers depends on what Ollama has
     # resident right now (see ModelConfig.resolve), and the metadata must record

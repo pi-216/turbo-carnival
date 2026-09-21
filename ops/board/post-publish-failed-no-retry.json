@@ -2,11 +2,11 @@
   "key": "post-publish-failed-no-retry",
   "title": "a post Instagram rejected ends as `failed` -- the slot and its photo are lost, and nothing re-books them",
   "severity": "warn",
-  "evidence": "1 post(s) marked failed in the last 24h (newest 7.9h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. The original failure mode is fixed in-repo -- Instagram::Client retries a 9007 'media not ready' publish 4x/10s and the row persists its reason -- so what lands here has already survived the retry; it ages out of this window on its own.",
+  "evidence": "1 post(s) marked failed in the last 24h (newest 8.7h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). packs/scheduling/lib/tasks/scheduled_posting.rake calls record_failure! with no requeue (the row's failure_reason carries the cause; rows written before 2026-09-20 have none, so grep the post id in log/scheduled_posting.log for those). Nothing else can see it: check_publish_liveness counts only scheduled/draft rows past due, and check_publish_gap measures the newest POSTED post. The original failure mode is fixed in-repo -- Instagram::Client retries a 9007 'media not ready' publish 4x/10s and the row persists its reason -- so what lands here has already survived the retry; it ages out of this window on its own.",
   "status": "open",
   "first_seen": "2026-09-20T12:35:53-0400",
-  "last_seen": "2026-09-20T19:54:38-0400",
-  "seen_count": 32,
+  "last_seen": "2026-09-20T20:42:47-0400",
+  "seen_count": 34,
   "source": "probe",
   "notes": [
     {

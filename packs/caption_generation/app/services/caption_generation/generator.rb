@@ -92,6 +92,11 @@ module CaptionGeneration
         compliant: processed[:compliant],
         cluster: context[:cluster_name],
         persona: @persona.name,
+        # Name the path that produced the caption. VisionGenerator has always
+        # recorded generator: 'vision'; this one recorded nothing, so a post's
+        # metadata could not say whether its caption ever LOOKED at the render --
+        # the only surviving evidence, and the field an ops probe has to count.
+        generator: 'text',
         generated_at: Time.current
       }
     end
