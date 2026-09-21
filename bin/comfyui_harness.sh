@@ -208,6 +208,39 @@ reconcile_own_queue() {
   echo "${own[0]}"
 }
 
+# The ask PERSISTED in a queue record (jobs/<id>.json -> vram_gb). `poll` re-checks
+# THAT number against live free memory at CLAIM time (gpu_scheduler.py:830-855), so
+# an adopted record carries whatever was right when it was minted -- not what fits
+# now. Prints nothing when the record is missing/unreadable.
+queued_job_vram_gb() {
+  python3 - "$SCHED_JOBS_DIR" "$1" <<'PY'
+import json, os, sys
+jobs_dir, jid = sys.argv[1], sys.argv[2]
+try:
+    with open(os.path.join(jobs_dir, f"{jid}.json")) as f:
+        v = json.load(f).get("vram_gb")
+except Exception:
+    sys.exit(0)
+if isinstance(v, (int, float)) and not isinstance(v, bool):
+    print(v)
+PY
+}
+
+# Pure decision, offline-testable (no GPU, no claim) -- same contract as cmd_plan:
+# does a persisted ask EXCEED the live-fit ask? Anything unreadable answers "no"
+# so the caller KEEPS the entry: losing a FIFO place to a parse bug is worse than
+# one refused window. Exit 0 = exceeds, 1 = does not (or cannot be read).
+ask_exceeds() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+try:
+    rec, live = float(sys.argv[1]), float(sys.argv[2])
+except (TypeError, ValueError):
+    sys.exit(1)
+sys.exit(0 if rec > live else 1)
+PY
+}
+
 log() {
   rotate_harness_log
   # Log lines go to STDERR: several callers capture a function's STDOUT as its
@@ -444,6 +477,10 @@ vram_free_mib() { nvidia-smi --query-gpu=memory.free --format=csv,noheader,nouni
 # log from the 01:04-06:05 ticks: "free=18949MiB vs requested 21GiB". The entry is
 # then given up at the FIFO head and re-requested on the NEXT tick, so the cost is
 # a whole render window per occurrence.
+# The ADOPTION half was fixed the same day (measured live 09:01:09: ask=16GiB but
+# the adopted entry's record said 21GiB): cmd_ensure now retires an adopted own
+# entry whose PERSISTED ask exceeds the live-fit ask and re-requests at the live
+# ask, so a record minted under an older policy cannot keep the loop refusing.
 # Asking the floor instead costs nothing: `poll` still refuses anything below the
 # ask, so "nothing is attempted below the floor" is unchanged -- the record is
 # simply claimable at the floor the moment the card frees to it. The floor is the
@@ -636,6 +673,25 @@ cmd_ensure() {
   while [ "$attempts" -lt 2 ]; do
     attempts=$((attempts + 1))
     job="$(reconcile_own_queue)"
+    if [ -n "$job" ]; then
+      # An adopted record's ask was minted at ITS request time, and `poll`
+      # re-checks that persisted number against live free memory at CLAIM time
+      # (not against the ask computed above). So adopting a record that asks more
+      # than the live fit re-arms, on every tick, exactly the self-inflicted
+      # refusal the adaptive ask exists to prevent. Measured live 2026-09-21
+      # 09:01:09: "adaptive fit ... asking 16GiB" followed by "adopting our own
+      # queued entry comfyui-1789992236-4075726-1", whose record asks 21GiB --
+      # refused at the FIFO head the moment the occupant released (~18.9GiB free)
+      # and re-requested a whole window later. Retire ONLY when the record
+      # genuinely exceeds the live-fit ask; equal or smaller keeps our place.
+      local adopted_ask
+      adopted_ask="$(queued_job_vram_gb "$job")"
+      if ask_exceeds "$adopted_ask" "$ask"; then
+        log "ensure: adopted entry $job asks ${adopted_ask}GiB > live-fit ask ${ask}GiB — retiring it and re-requesting at ${ask}GiB so the record is claimable at what is free"
+        cleanup_job "$job" "ask ${adopted_ask}GiB above the live-fit ask ${ask}GiB"
+        job=""
+      fi
+    fi
     if [ -z "$job" ]; then
       # `-${attempts}` keeps the id unique across the retry below: a retired id
       # is single-use forever (request raises FileExistsError), so re-minting the

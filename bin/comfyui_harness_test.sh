@@ -97,6 +97,86 @@ bash "$APP_DIR/bin/comfyui_harness.sh" status > "$SCRATCH/status.out" 2> "$SCRAT
 is "one stdout line" "1" "$(wc -l < "$SCRATCH/status.out")"
 printf '  stdout: %s\n' "$(cat "$SCRATCH/status.out")"
 
+echo "--- offline: the persisted-ask decision (no GPU, no claim) ---"
+bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  ask_exceeds 21 16   && printf "1" || printf "0"
+  ask_exceeds 16 16   && printf "1" || printf "0"
+  ask_exceeds 15.5 16 && printf "1" || printf "0"
+  ask_exceeds "" 16   && printf "1" || printf "0"
+  ask_exceeds 21.0 16 && printf "1" || printf "0"
+' > "$SCRATCH/decisions" 2>/dev/null
+is "ask_exceeds 21>16 / 16=16 / 15.5<16 / unreadable / 21.0>16" "10001" "$(cat "$SCRATCH/decisions")"
+
+bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  printf "%s" "$(queued_job_vram_gb tc-old)"
+' > "$SCRATCH/readvram" 2>/dev/null
+is "queued_job_vram_gb reads the record" "21.0" "$(cat "$SCRATCH/readvram")"
+
+# --- ensure(): an adopted record whose ask EXCEEDS the live fit is retired and
+# --- re-requested at the live ask (the defect measured live 2026-09-21 09:01:09:
+# --- ask=16GiB while the adopted record asked 21GiB).
+echo "--- ensure: stale adopted ask (21GiB) retired, re-requested at 16GiB ---"
+python3 - "$SCHED/jobs2" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
+rec = {"id": "tc-stale", "project": "turbo-carnival", "gpu": "4090",
+       "vram_gb": 21.0, "duration_h": 9.0, "status": "queued",
+       "requested_at": "2026-09-21T12:03:56Z", "submitted_by": "test",
+       "consecutive_failures": 0}
+json.dump(rec, open(os.path.join(d, "tc-stale.json"), "w"), indent=2)
+PY
+TC_SCHED_JOBS_DIR="$SCHED/jobs2" TC_HARNESS_LOG="$SCRATCH/ensure.log" \
+  bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  STATE_FILE="'"$SCRATCH"'/claim.json"; rm -f "$STATE_FILE"
+  vram_free_mib() { echo 13145; }          # -> eff 11GiB < floor, so ask=16GiB
+  comfyui_up() { return 1; }               # down
+  gpu_idle() { return 0; }
+  sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"
+            case "$1" in poll) echo not_my_turn ;; *) : ;; esac; return 0; }
+  cmd_ensure --wait 5; exit 0
+' > "$SCRATCH/ensure.out" 2>/dev/null
+is "stale record retired (cancelled)" "cancelled" "$(field "$SCHED/jobs2/tc-stale.json" status)"
+is "retirement reason names the live-fit ask" "ask 21.0GiB above the live-fit ask 16GiB" \
+   "$(field "$SCHED/jobs2/tc-stale.json" cancelled_reason)"
+is "re-requested at the live-fit ask, not 21" "1" \
+   "$(grep -c 'request --gpu 4090 --project turbo-carnival --vram 16 ' "$SCRATCH/sched.calls")"
+is "no 21GiB request issued" "0" "$(grep -c -- '--vram 21 ' "$SCRATCH/sched.calls")"
+is "retirement logged" "1" "$(grep -c 'retiring it and re-requesting at 16GiB' "$SCRATCH/ensure.log")"
+is "fresh id differs from the retired one" "1" \
+   "$(grep -c 'request --gpu 4090 --project turbo-carnival --vram 16 --duration 9h --job-id comfyui-' "$SCRATCH/sched.calls")"
+
+# --- ensure(): a record whose ask FITS the live ask keeps its FIFO place.
+echo "--- ensure: adopted ask (16GiB) fits — kept, no request minted ---"
+python3 - "$SCHED/jobs3" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
+rec = {"id": "tc-fits", "project": "turbo-carnival", "gpu": "4090",
+       "vram_gb": 16.0, "duration_h": 9.0, "status": "queued",
+       "requested_at": "2026-09-21T12:03:56Z", "submitted_by": "test",
+       "consecutive_failures": 0}
+json.dump(rec, open(os.path.join(d, "tc-fits.json"), "w"), indent=2)
+PY
+rm -f "$SCRATCH/sched.calls"
+TC_SCHED_JOBS_DIR="$SCHED/jobs3" TC_HARNESS_LOG="$SCRATCH/ensure2.log" \
+  bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  STATE_FILE="'"$SCRATCH"'/claim2.json"; rm -f "$STATE_FILE"
+  vram_free_mib() { echo 13145; }
+  comfyui_up() { return 1; }
+  gpu_idle() { return 0; }
+  sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"
+            case "$1" in poll) echo not_my_turn ;; *) : ;; esac; return 0; }
+  cmd_ensure --wait 5; exit 0
+' > "$SCRATCH/ensure2.out" 2>/dev/null
+is "fitting record kept queued (FIFO place held)" "queued" "$(field "$SCHED/jobs3/tc-fits.json" status)"
+is "no request minted when the record fits" "0" "$(grep -c ' request ' "$SCRATCH/sched.calls")"
+is "kept-for-next-tick logged" "1" "$(grep -c 'tc-fits is behind another queued job (not_my_turn' "$SCRATCH/ensure2.log")"
+
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi
 exit "$FAILED"
