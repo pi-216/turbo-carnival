@@ -810,6 +810,69 @@ def check_render_starved():
     return None
 
 
+RENDER_ERR_WINDOW_H = 24
+
+
+def render_error_verdict(rows):
+    """Pure: failed-job error rows (newest first) -> (severity, newest) or None.
+
+    Split from the query so the decision is testable without a database, and the
+    WINDOW is what makes the entry self-close: a one-off node crash ages out
+    instead of pinning the board forever.
+    """
+    if rows is None:
+        return None
+    rows = [r.strip() for r in rows if r and r.strip()]
+    if not rows:
+        return None
+    return ("warn", rows[0])
+
+
+def check_render_execution_errors():
+    """A render that dies INSIDE the workflow -- a node exception, not a timeout.
+
+    Different fault, different fix: a timeout is throughput/GPU, an exception is
+    the workflow or its inputs. Until 2026-09-21 the Rails producer reported both
+    as "render timed out or produced no image", so the cause reached neither the
+    brain's cadence_blocked decision row nor this board. Measured 2026-09-21:
+    run 479 died with `index is out of bounds for dimension with size 0` in the
+    workflow's "Bounded Image Crop with Mask" node (an EMPTY CLIPSeg head mask)
+    and the tick's third render was lost.
+
+    Reconciliation markers ("reconciled ...", written by ReconcileStaleJobs) are
+    excluded on purpose: they are bookkeeping about an orphan, not an execution
+    fault, and they arrive in bulk sweeps.
+
+    The error text is whitespace-collapsed in SQL because ComfyUI's
+    exception_message carries a TRAILING NEWLINE (job 7563, 2026-09-21: 49 bytes,
+    1 newline) -- psql then emits it as two lines and the row count doubles.
+    """
+    rows = psql_lines(
+        "select btrim(regexp_replace(coalesce(error_message, ''), "
+        "E'[\\\\n\\\\r\\\\t ]+', ' ', 'g')) "
+        "|| ' (' || to_char(updated_at, 'MM-DD HH24:MI') || 'Z)' "
+        "from comfyui_jobs where status = 'failed' "
+        "and coalesce(error_message, '') <> '' and error_message not like 'reconciled%' "
+        f"and updated_at > (now() at time zone 'UTC') - interval '{RENDER_ERR_WINDOW_H} hours' "
+        "order by updated_at desc limit 5")
+    v = render_error_verdict(rows)
+    if not v:
+        return None
+    sev, newest = v
+    n = len([r for r in (rows or []) if r and r.strip()])
+    return (
+        "render-execution-error",
+        f"a render died inside the workflow: {newest}",
+        sev,
+        f"{n} ComfyUI execution error(s) in the last {RENDER_ERR_WINDOW_H}h; "
+        f"newest {newest}. The producer now NAMES this (Growth::ContentGenerator "
+        "carries the ComfyUI error into the run's failure reason and the brain's "
+        "decision row) instead of reporting every render death as a timeout; the "
+        "fix for the fault itself is the workflow payload, not the Rails code. "
+        "Reconciled orphans are excluded.",
+    )
+
+
 def publish_verdict(due, oldest_h):
     """Pure: due-but-unpublished posts -> severity (or None when nothing is due)."""
     if due is None or due <= 0:
@@ -3165,6 +3228,7 @@ CHECKS = [
     check_queued_post_hashtags,
     check_pipeline_prompt_safety,
     check_render_acceptance,
+    check_render_execution_errors,
     check_photo_pool,
     check_photo_resolution,
     check_photo_provenance,
@@ -3594,6 +3658,22 @@ def cmd_selftest(_argv):
     ]
     for name, n, age, want in failed_cases:
         expect(f"publish_failed_verdict[{name}]", publish_failed_verdict(n, age), want)
+
+    # render_error_verdict: failed-job error rows (newest first) -> severity. None
+    # means the DB read failed (never a silent "no errors"), [] means a clean
+    # window (the entry self-closes), and any row is a warn naming the newest
+    # cause -- the workflow exception the producer used to call a timeout.
+    rerr_cases = [
+        ("clean-window", [], None),
+        ("db-unreadable", None, None),
+        ("blank-rows", ["", "   "], None),
+        ("one-execution-error",
+         ["index is out of bounds for dimension with size 0 (09-21 11:16Z)"], "warn"),
+        ("several", ["a (09-21 11:16Z)", "b (09-21 09:02Z)"], "warn"),
+    ]
+    for name, rows, want in rerr_cases:
+        v = render_error_verdict(rows)
+        expect(f"render_error_verdict[{name}]", v[0] if v else None, want)
 
     # queued_hashtag_verdict: untagged queued posts -> severity. Zero must be
     # None (the entry self-closes once the publisher's repair fills the queue) and
@@ -4135,6 +4215,24 @@ def cmd_selftest(_argv):
                    adaptive_ask_gb(_free))
             _plan_checks += 1
 
+    # The harness's launch-layer deps gate and this file's own import probe must
+    # AGREE about the venv. Measured 2026-09-21: ensure_comfyui_deps ran
+    # `python -c 'import comfy.storage'` with the harness's OWN cwd (the repo root)
+    # while this file passes cwd=COMFY_DIR -- and `comfy` is ComfyUI's own package,
+    # importable only from the app dir (python -c puts the CWD on sys.path), so the
+    # harness gate logged "ERROR — import still failing after pip install" on a
+    # HEALTHY venv, and ran a pointless pip install, on every launch. That made the
+    # gate useless for the one case it was built for (requirements.txt pin drift).
+    # Both surfaces now ask the same question the same way; this asserts the two
+    # cannot silently drift apart again (a healthy venv must read OK on both).
+    _deps_checks = 0
+    if _harness.exists():
+        _dout, _drc = run([str(_harness), "deps"])
+        _deps_checks = 1
+        expect("harness-deps-agrees-with-board",
+               "deps: OK" in (_dout or ""),
+               check_launch_deps_importable() is None)
+
     # telemetry_peak_mib: the render footprint is READ from the sampler's own
     # file (the number the reservation is sized from), so a malformed line must
     # not throw and an empty file must read as unknown, never as 0.
@@ -4150,7 +4248,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

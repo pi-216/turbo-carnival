@@ -734,6 +734,27 @@ start_heartbeat_loop() {
   log "heartbeat unit ${unit} started (MainPID ${pid:-?}) for $job — every ${HEARTBEAT_INTERVAL}s"
 }
 
+# The launch-layer runtime probe, anchored to the SAME cwd the launch uses.
+# `comfy` is ComfyUI's OWN application package (it is not installed into the
+# venv), so it is importable only from the app directory: `python -c` puts the
+# CWD on sys.path, and the launch itself runs with cwd=$COMFY_DIR. Probing from
+# the harness's own cwd therefore FAILS ON A HEALTHY VENV -- measured 2026-09-21:
+#   repo root  -> ModuleNotFoundError: No module named 'comfy'
+#   $COMFY_DIR -> OK
+# That turned this gate into a permanent false alarm: every launch logged
+# "ERROR — import still failing after pip install; launch will likely fail" and
+# ran a pointless pip install, so the ONE case it exists for (requirements.txt
+# pin drift, e.g. comfy-aimdo 0.5.3 vs 0.5.5 -> "No module named
+# 'comfy_aimdo.storage'") was indistinguishable from the alarm that never stops.
+# tc_ops.py's own probe (check_launch_deps_importable) has always passed
+# cwd=COMFY_DIR; the two surfaces must answer the same question the same way, and
+# `tc_ops.py selftest` now asserts they agree.
+comfy_runtime_import_ok() {
+  local py="$COMFY_DIR/${COMFY_VENV}/bin/python"
+  [ -x "$py" ] || return 1
+  ( cd "$COMFY_DIR" && "$py" -c 'import comfy.storage' ) >/dev/null 2>&1
+}
+
 # ---------------------------------------------------------------------------
 # Self-healing venv provisioning (Tim, 2026-09-19: "if the hourly/nightly
 # monitoring jobs report problems, fix them" — so build the fix into the launch).
@@ -749,7 +770,7 @@ ensure_comfyui_deps() {
   local py="$COMFY_DIR/${COMFY_VENV}/bin/python"
   local pip="$COMFY_DIR/${COMFY_VENV}/bin/pip"
   [ -x "$py" ] && [ -x "$pip" ] || return 0
-  "$py" -c 'import comfy.storage' >/dev/null 2>&1 && return 0
+  comfy_runtime_import_ok && return 0
   log "deps: ComfyUI runtime import FAILED — provisioning venv (pip install)"
   local f
   for f in requirements.txt manager_requirements.txt; do
@@ -757,7 +778,7 @@ ensure_comfyui_deps() {
     ( cd "$COMFY_DIR" && "$pip" install -r "$f" ) >>"$HARNESS_LOG" 2>&1 || \
       log "deps: WARN pip install -r $f returned nonzero"
   done
-  if "$py" -c 'import comfy.storage' >/dev/null 2>&1; then
+  if comfy_runtime_import_ok; then
     log "deps: venv provisioned OK — runtime import now succeeds"
   else
     log "deps: ERROR — import still failing after pip install; launch will likely fail"
@@ -879,16 +900,36 @@ cmd_plan() {
   echo "free=${free_mib}MiB full_ask=${VRAM}GiB min_fit=${VRAM_MIN_FIT}GiB headroom=${FIT_HEADROOM_MIB}MiB ask=${ask}GiB"
 }
 
+# Read-only verdict of the launch-layer runtime gate (no pip, no GPU, no claim).
+# Offline surface on purpose: the deps gate is the thing that decides whether a
+# claim is worth taking, so it has to be answerable without one -- and it is what
+# `tc_ops.py selftest` cross-checks its own import probe against, so the launcher
+# and the board can never disagree about the venv again.
+cmd_deps() {
+  local py="$COMFY_DIR/${COMFY_VENV}/bin/python"
+  if [ ! -x "$py" ]; then
+    echo "deps: UNKNOWN — no venv python at $py"
+    return 2
+  fi
+  if comfy_runtime_import_ok; then
+    echo "deps: OK — 'import comfy.storage' succeeds from $COMFY_DIR"
+    return 0
+  fi
+  echo "deps: FAILED — 'import comfy.storage' fails from $COMFY_DIR (venv drift; ensure would pip-install and a launch would crash)"
+  return 3
+}
+
 case "${1:-}" in
   status)    cmd_status ;;
   ensure)    shift; cmd_ensure "$@" ;;
   heartbeat) cmd_heartbeat ;;
   telemetry) shift; cmd_telemetry "$@" ;;
   plan)      shift; cmd_plan "$@" ;;
+  deps)      cmd_deps ;;
   shutdown)  cmd_shutdown ;;
   ownqueue)  own_queued_jobs ;;
   reconcile) reconcile_own_queue ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|shutdown|ownqueue|reconcile}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile}" >&2
     exit 1 ;;
 esac

@@ -21,6 +21,11 @@ module Growth
 
     attr_reader :goal
 
+    # Set by poll_for_image when ComfyUI reported an execution failure, so the
+    # run's failure reason can name the cause instead of calling every render
+    # death a timeout. See generate_one.
+    attr_reader :render_error
+
     def initialize(goal:, pillar: nil)
       @goal = goal
       @pillar = pillar || default_pillar
@@ -70,8 +75,20 @@ module Growth
       comfyjob = submit.comfyui_job
       image_path = poll_for_image(comfyjob.comfyui_job_id)
       unless image_path
-        finish_run(run, 'failed', reason: 'render timed out or produced no image')
-        return { success: false, error: 'render timed out or produced no image', run_id: run.id, comfyjob_id: comfyjob.id }
+        # NAME the cause. A ComfyUI execution error is not a timeout, and the
+        # difference is the whole diagnosis: measured 2026-09-21, run 479 died in
+        # the workflow with `index is out of bounds for dimension with size 0`
+        # (the "Bounded Image Crop with Mask" node got an EMPTY CLIPSeg head mask)
+        # and every consumer -- the CadenceEngine's cadence_blocked decision row,
+        # the ops board, a human -- saw only "render timed out or produced no
+        # image", so the real fault had to be re-derived from the ComfyUI log.
+        reason = if render_error
+                   "render failed in ComfyUI: #{render_error}"
+                 else
+                   'render timed out or produced no image'
+                 end
+        finish_run(run, 'failed', reason: reason)
+        return { success: false, error: reason, run_id: run.id, comfyjob_id: comfyjob.id }
       end
 
       # NSFW gate: a third-party ViT classifier (Falconsai/nsfw_image_detection)
@@ -236,12 +253,22 @@ module Growth
           subfolder = img[:subfolder] || img['subfolder']
           return File.join(COMFYUI_OUTPUT, subfolder.to_s, filename) if filename
         elsif s[:status] == 'failed'
-          Rails.logger.warn("Growth::ContentGenerator render failed: #{s[:error]}")
+          @render_error = s[:error].to_s.strip.presence || comfyui_job_error(comfyui_job_id)
+          Rails.logger.warn("Growth::ContentGenerator render failed: #{@render_error}")
           return nil
         end
         # not_found → still queued/executing; keep polling
         sleep POLL_INTERVAL
       end
+      nil
+    end
+
+    # The ComfyUI error text for a job, from the record PollJobStatus writes.
+    # Used only as a fallback when the client's own failed-status payload carries
+    # no message, so the caller can still name the cause.
+    def comfyui_job_error(comfyui_job_id)
+      ComfyuiJob.find_by(comfyui_job_id: comfyui_job_id)&.error_message.to_s.strip.presence
+    rescue StandardError
       nil
     end
 

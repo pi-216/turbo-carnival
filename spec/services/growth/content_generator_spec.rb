@@ -95,5 +95,40 @@ RSpec.describe Growth::ContentGenerator do
     ensure
       FileUtils.rm_f(paths)
     end
+
+    # A ComfyUI execution error is NOT a timeout, and the difference is the whole
+    # diagnosis: until this, every render death was recorded as "render timed out
+    # or produced no image" (measured 2026-09-21, run 479: `index is out of bounds
+    # for dimension with size 0` -- the workflow's "Bounded Image Crop with Mask"
+    # node got an EMPTY CLIPSeg head mask), so the brain's cadence_blocked
+    # decision, the ops board and any human saw a cause that named nothing.
+    it 'names the ComfyUI execution error instead of reporting a timeout' do
+      client = double('comfyui client')
+      allow(ComfyuiClient).to receive(:new).and_return(client)
+      allow(client).to receive(:get_job_status)
+        .and_return(status: 'failed', error: 'index is out of bounds for dimension with size 0')
+      allow(generator).to receive(:poll_for_image).and_call_original
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(false)
+      expect(result[:error])
+        .to eq('render failed in ComfyUI: index is out of bounds for dimension with size 0')
+      expect(PipelineRun.find(result[:run_id]).reject_reason)
+        .to eq('render failed in ComfyUI: index is out of bounds for dimension with size 0')
+    end
+
+    # Fallback path: the client's failed payload carries no message (a reconciled
+    # orphan, a restarted ComfyUI), so the cause has to come from the record
+    # PollJobStatus writes -- and an unknown job must read as "unknown", never as
+    # an exception that swallows the failure reason entirely.
+    it 'falls back to the job record for the error text, and tolerates an unknown job' do
+      create(:comfyui_job, :failed, comfyui_job_id: 'job-xyz',
+                                    error_message: 'reconciled: ComfyUI no longer knows prompt job-xyz')
+
+      expect(generator.send(:comfyui_job_error, 'job-xyz'))
+        .to eq('reconciled: ComfyUI no longer knows prompt job-xyz')
+      expect(generator.send(:comfyui_job_error, 'no-such-job')).to be_nil
+    end
   end
 end
