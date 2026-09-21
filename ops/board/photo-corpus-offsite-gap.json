@@ -1,0 +1,13 @@
+{
+  "key": "photo-corpus-offsite-gap",
+  "title": "Corpus backup has two copies, but both are on this site",
+  "severity": "info",
+  "evidence": "The single-copy risk is CLOSED: bin/corpus_backup.sh (commit b962ce3) keeps a verified second copy of the render corpus at <repo>/corpus-backup/ on the local NVMe, nightly via Hermes cron bae1bd85ec35. First snapshot: 59,704 files / 83.02 GB, database check verified 171 resolvable corpus file(s) with missing=0. What is NOT covered is site loss. The NAS and this box are in the same place, so one fire, flood or theft takes both copies at once. Two independent devices is the bar the original item set and that bar is MET; off-site is the NEXT bar, and it is deliberately not being claimed as done. This is ENABLEMENT, not a decision: it needs storage and credentials this box does not have. The ecosystem Backblaze B2 credentials are dead (InvalidAccessKeyId, shared across every ~/source/activity project), so this needs NEW credentials or a different destination, and no agent can obtain those from here. Severity is info because the loss risk is already covered by a real second copy.",
+  "status": "open",
+  "first_seen": "2026-09-21T12:40:04-0400",
+  "last_seen": "2026-09-21T12:40:04-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "tim",
+  "notes": []
+}

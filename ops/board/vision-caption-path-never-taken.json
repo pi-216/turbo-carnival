@@ -5,8 +5,8 @@
   "source": "manual",
   "status": "open",
   "first_seen": "2026-09-19T17:10:00-0400",
-  "last_seen": "2026-09-21T11:25:08-0400",
-  "seen_count": 40,
+  "last_seen": "2026-09-21T12:26:04-0400",
+  "seen_count": 41,
   "evidence": "34 render(s) imported in the last 7 days, and 0 post(s) in that window were written by the vision path; corpus 339 photos / 141 attached, newest attachment 2026-05-28. PostAutomation::GenerateCaption used to branch on photo.image.attached?, and Growth::ContentGenerator#import_photo creates photos path-only, so every production caption was written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. THE BRANCH WAS FLIPPED 2026-09-21 (commit f37136e): it now routes on CaptionGeneration::ImageEncoder.readable?, so a path-only render with a resolvable file takes the vision path -- verified live on photo 353 (generator='vision', gemma3:4b, caption grounded in the image). The attachment count in this evidence is therefore NO LONGER the condition; it is kept only as the count of renders still being produced. The one remaining condition is the second clause: no post in the window has yet been captioned by the vision path. This record closes itself on the next rendered post (measured cost on the live caption host: 15.0s for a 1.1 MB render through gemma3:4b).",
   "notes": [
     {
