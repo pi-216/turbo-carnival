@@ -82,7 +82,7 @@ module CaptionGeneration
     # (photo 351): encode + gemma3:4b vision call = 15.0s, and the caption
     # described the actual photo while the text path invented a different scene.
     def image_readable?
-      @photo.image.attached? || @photo.servable_file_path.present?
+      ImageEncoder.readable?(@photo)
     end
 
     # Resolved once per call: which model answers depends on what Ollama has
@@ -93,35 +93,7 @@ module CaptionGeneration
     end
 
     def encode_image
-      # Prefer the local/NAS file (no B2). Falls back to the ActiveStorage blob.
-      local = @photo.servable_file_path
-      data = if local
-        File.binread(local)
-      else
-        @photo.image.download
-      end
-
-      Base64.strict_encode64(downscaled(data))
-    end
-
-    # Downscale before sending: gemma3 vision cost grows fast with image size.
-    # Any comfy/flux output is far bigger than the ~768-1024px vision models need.
-    MAX_DIMENSION = 1024
-    MAX_PIXELS = MAX_DIMENSION * MAX_DIMENSION
-
-    def downscaled(data)
-      require 'mini_magick'
-      image = MiniMagick::Image.read(data)
-      pixels = image.width * image.height
-      if pixels.nil? || pixels <= MAX_PIXELS # already small enough
-        image.to_blob
-      else
-        image.resize("#{MAX_DIMENSION}x#{MAX_DIMENSION}>") # fit within max dim
-        image.to_blob
-      end
-    rescue StandardError
-      # If downscale fails (no imagemagick, odd format), send original
-      data
+      ImageEncoder.encode_base64(@photo)
     end
 
     def build_vision_prompt

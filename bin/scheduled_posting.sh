@@ -121,6 +121,33 @@ if [ "$RETRY_CODE" -ne 0 ]; then
     log "WARN: failed-post retry exited $RETRY_CODE — publishing anyway"
 fi
 
+log "Checking queued renders for a juvenile apparent-age read (persona age gate)..."
+
+# Hold any queued post whose render reads as a minor (2026-09-21). The account is
+# adult-oriented and NOTHING between a render and Instagram asked how old the
+# person in the image looks: independent vision reads of production renders
+# returned "a young girl, likely a teenager" / "late teens or early twenties"
+# repeatedly, and the newest read ("early teens to early twenties") was on a
+# render the pipeline had already QUEUED. Every existing gate measures something
+# else -- the NSFW gate scored those images 0.0004-0.0722 (comfortably safe), the
+# realism gate measures artifice, and the prompt-safety repair (c016653) fixed
+# the stored workflow's INPUT with no check on the OUTPUT. The publisher is the
+# only path that knows a post is about to become public, so the gate lives here,
+# ahead of scheduling:post_scheduled. GPU-FREE: the read is a vision call on the
+# caption host (~15s per render). Bounded to LIMIT posts per tick, nearest slot
+# first, and each post is read once (the verdict is recorded on the row).
+# Deliberately NON-FATAL, and it FAILS OPEN: a caption-service outage leaves
+# every post publishing exactly as before (the gate records nothing and retries
+# next tick), so it can never stall the queue. A hold clears the post's two
+# publisher clocks, which reopens the cadence shortfall so the next growth tick
+# renders a replacement.
+log "Running persona age gate on queued renders..."
+APPLY=1 LIMIT=2 bundle exec rails growth:age_gate[Sarah] 2>&1 | tee -a "$LOG_FILE"
+AGE_GATE_CODE=${PIPESTATUS[0]}
+if [ "$AGE_GATE_CODE" -ne 0 ]; then
+    log "WARN: age gate exited $AGE_GATE_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

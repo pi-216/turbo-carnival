@@ -36,7 +36,7 @@ namespace :growth do
     puts '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   end
 
-  desc 'Top up the scheduled-post queue to meet cadence targets'
+  desc 'Top up the scheduled-post queue to meet cadence targets (SYNC_BUDGET_SECONDS bounds the work)'
   task :sync_cadence, [:persona_name] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
@@ -45,12 +45,77 @@ namespace :growth do
       goal = Growth::Goal.create!(persona: persona)
     end
 
-    result = Growth::CadenceEngine.new(goal: goal).sync
+    # A caller that is itself time-boxed (the growth tick runs this in the
+    # foreground of a timed tool call) passes its budget here, so the producer
+    # stops BEFORE starting a render it cannot finish instead of being killed
+    # mid-render. Omitted/0 = unbounded, exactly the previous behaviour.
+    budget = ENV['SYNC_BUDGET_SECONDS'].presence&.to_i
+    result = Growth::CadenceEngine.new(goal: goal, budget_seconds: budget).sync
     puts "Cadence sync: existing=#{result[:existing]} target=#{result[:target]} created=#{result[:created]} shortfall=#{result[:shortfall]}"
+    if result[:budget_exhausted]
+      puts "Budget: stopped after #{result[:elapsed_seconds]}s (budget #{budget}s) with shortfall " \
+           "#{result[:shortfall]} still open — the NEXT tick tops up the remainder (sync counts existing posts)."
+    end
     salvage = result[:salvage] || {}
     if salvage[:examined].to_i.positive? || salvage[:recovered].to_i.positive?
       puts "Salvage: examined=#{salvage[:examined]} recovered=#{salvage[:recovered]} rejected=#{salvage[:rejected]} skipped=#{salvage[:skipped]} posts=#{(salvage[:post_ids] || []).inspect}"
     end
+  end
+
+  desc 'Pre-publish age gate: hold queued posts whose render reads juvenile (dry run; APPLY=1 to hold, LIMIT=N)'
+  task :age_gate, [:persona_name] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    apply = ENV['APPLY'] == '1'
+    limit = (ENV['LIMIT'].presence || Growth::PersonaAgeGate::DEFAULT_LIMIT).to_i
+
+    results = Growth::PersonaAgeGate.call(persona: persona, dry_run: !apply, limit: limit)
+
+    if results.empty?
+      puts 'Age gate: nothing to read (no unpublished future post without a recorded read)'
+    end
+
+    results.each do |r|
+      mark = { held: 'HELD', would_hold: 'WOULD HOLD', cleared: 'adult', would_clear: 'adult',
+               skipped: 'unreadable', undecided: 'undecided' }.fetch(r.outcome, r.outcome.to_s)
+      puts "Age gate: post #{r.post_id} (photo #{r.photo_id}) -> #{r.verdict} [#{mark}] " \
+           "model=#{r.model} read=#{r.read.to_s.inspect}"
+      puts "  error: #{r.error}" if r.error
+    end
+
+    held = results.count { |r| r.outcome == :held }
+    would = results.count { |r| r.outcome == :would_hold }
+
+    # Forced holds: a post an EARLIER independent read flagged that the gate's own
+    # structured probe clears. The two reads disagree, so the risk is unresolved
+    # and the conservative action (hold, re-render) is taken explicitly and
+    # audibly -- never by hand-editing the row. HOLD_POSTS=345 HOLD_REASON='...'
+    if ENV['HOLD_POSTS'].present?
+      reason = ENV['HOLD_REASON'].presence || 'forced hold (operator decision)'
+      ENV['HOLD_POSTS'].split(',').map(&:strip).reject(&:empty?).each do |id|
+        post = Scheduling::Post.find_by(id: id.to_i)
+        if post.nil?
+          puts "Age gate: HOLD_POSTS #{id} -- no such post"
+          next
+        end
+        unless apply
+          puts "Age gate: post #{post.id} WOULD BE HELD (forced) — #{reason}"
+          would += 1
+          next
+        end
+        begin
+          r = Growth::PersonaAgeGate.hold!(post: post, read: "forced: #{reason}", reason: reason)
+          puts "Age gate: post #{r.post_id} (photo #{r.photo_id}) -> #{r.verdict} [HELD FORCED] #{reason}"
+          held += 1
+        rescue StandardError => e
+          puts "Age gate: post #{post.id} could not be held: #{e.class} - #{e.message}"
+        end
+      end
+    end
+
+    puts "Age gate: #{results.size} read, #{held} held, #{would} would hold, " \
+         "#{results.count { |r| r.outcome == :skipped }} unreadable (dry_run=#{!apply})"
+    # Deliberately exit 0: a HOLD is the gate working, not a failure. The
+    # publisher treats a non-zero here as a WARN and publishes anyway.
   end
 
   desc 'Recover abandoned renders into the queue (GPU-free; bounded by the cadence shortfall)'

@@ -18,31 +18,61 @@ module Growth
     # successive post a day further out and break the 7-day target window.
     MIN_LEAD_DAYS = 1
 
+    # A render's measured wall-clock cost (three production renders on
+    # 2026-09-21: 174s / 295s / 412s). Used ONLY to decide whether the NEXT
+    # render fits the caller's budget.
+    #
+    # WHY A BUDGET EXISTS: the growth tick runs this producer in the FOREGROUND
+    # of a timed tool call, and the tick's budget is smaller than a multi-render
+    # shortfall (measured: a ~45 min 5-render shortfall inside a 180s budget).
+    # The producer was therefore SIGKILLed mid-render, leaving a run no post was
+    # ever made from -- later recovered by RenderSalvage, but the tick's work was
+    # wasted and the queue kept a hole. Bounding the work to what fits means the
+    # producer always finishes cleanly, releases the GPU at the end of the tick,
+    # and the NEXT tick tops up the remainder (sync counts existing posts, so a
+    # partial run is safe to resume).
+    MEASURED_RENDER_SECONDS = 300
+
     attr_reader :goal
 
-    def initialize(goal:)
+    def initialize(goal:, budget_seconds: nil, clock: nil)
       @goal = goal
+      @budget_seconds = budget_seconds&.to_i
+      @clock = clock || -> { Time.current }
     end
 
     def sync
+      started_at = @clock.call
       target = posts_target
       existing = scheduled_posts_count
 
       # FIRST recover renders a killed producer abandoned (see RenderSalvage):
       # paid-for GPU work that never became a post is queue content, and it is
-      # cheaper to finish it than to render a replacement.
+      # cheaper to finish it than to render a replacement. Never budgeted: this
+      # path needs no GPU and is bounded by the shortfall.
       salvage = salvage_abandoned_render(existing, target)
       existing = scheduled_posts_count if salvage[:recovered].positive?
 
       shortfall = [target - existing, 0].max
 
-      return { created: 0, target: target, existing: existing, shortfall: 0, salvage: salvage } if shortfall.zero?
+      if shortfall.zero?
+        return { created: 0, target: target, existing: existing, shortfall: 0, salvage: salvage,
+                 budget_exhausted: false, elapsed_seconds: elapsed(started_at) }
+      end
 
       created = 0
       failures = []
+      budget_stopped = false
       config = pillar_candidates.to_a.shuffle
 
       while shortfall > 0 && config.any?
+        # Check BEFORE starting a render: a render begun with too little budget
+        # left is the kill this exists to avoid.
+        if budget_exhausted?(started_at)
+          budget_stopped = true
+          break
+        end
+
         result = generate_fresh(MIN_LEAD_DAYS, config.shift)
 
         if result[:success]
@@ -79,7 +109,9 @@ module Growth
         existing: existing + created,
         shortfall: shortfall,
         failures: failures,
-        salvage: salvage
+        salvage: salvage,
+        budget_exhausted: budget_stopped,
+        elapsed_seconds: elapsed(started_at)
       }
     end
 
@@ -106,6 +138,19 @@ module Growth
     end
 
     private
+
+    # Stop BEFORE starting a render that cannot finish inside the caller's
+    # budget. A budget of nil (the default) means unbounded, i.e. exactly the
+    # behaviour every existing caller had.
+    def budget_exhausted?(started_at)
+      return false if @budget_seconds.nil? || @budget_seconds <= 0
+
+      elapsed(started_at) + MEASURED_RENDER_SECONDS > @budget_seconds
+    end
+
+    def elapsed(started_at)
+      (@clock.call - started_at).round
+    end
 
     # Recover renders whose sync producer was killed before the post-actions ran.
     # Bounded by the outstanding shortfall: if the queue is already full there is
