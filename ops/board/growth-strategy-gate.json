@@ -1,0 +1,13 @@
+{
+  "key": "growth-strategy-gate",
+  "title": "Pre-registered gate for the next weekly review: decide GO/PIVOT/KILL on the growth thesis, not another week of knobs",
+  "severity": "info",
+  "evidence": "SOURCE: the weekly review that ran 2026-09-21 09:05 (cron tc-weekly-persona-review, job 8d3ac21799d5) reported 'needs human attention' with two findings and four recommendations, and nothing actioned them -- the 11:25 ops pass closed growth-goal-stalled with 'volume is not the lever' instead. The operating agent OWNS this decision, so it is filed with the criteria LOCKED here rather than re-derived: (1) followers 157 vs the 2.53/day required for 1000 by 2027-08-20 (traj_ratio 0.07); (2) the 10->30 hashtag ramp produced zero engagement lift across five weeks; (3) three pillars (Fashion & Style, Food & Cooking, Lifestyle) carry all of the tiny signal while Beauty/Travel/Fitness/Community sit at 0.0% after 10-14 posts each; (4) reach 1-4 with 0 likes means the synthetic-account distribution is not reaching real people. DECISION (locked now, applied at the 2026-09-28 review): the gate is -- if followers < 170 AND no pillar exceeds 3% average engagement by that review, the thesis gets a GO/PIVOT/KILL decision rather than another tuning pass. Freeze hashtag volume (no further ramps: the ramp is measured to do nothing) and keep the pillar rotation as-is until the gate reads, because the ONE lever that landed today (image-grounded captions, f37136e, verified live on photo 353) has not yet produced a single post it could be judged by -- the 4090 has been held by prx-tg-pixel-posttrain-v3 all day, so renders (and therefore posts) are stalled on a shared resource, not on strategy. Judging the lever before it has run is the same mistake as re-deriving this item every pass.",
+  "status": "open",
+  "first_seen": "2026-09-21T12:58:15-0400",
+  "last_seen": "2026-09-21T12:58:15-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": []
+}
