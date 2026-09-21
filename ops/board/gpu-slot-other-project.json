@@ -2,17 +2,13 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v3) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 9.3h; our queue entries=1",
+  "evidence": "we hold no claim; held 10.1h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T16:50:49-0400",
-  "seen_count": 57,
+  "last_seen": "2026-09-21T17:33:33-0400",
+  "seen_count": 59,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T21:42:25-0400",
-      "note": "2026-09-21 01:4xZ ops-triage: by-design capacity record, untouched. Live scheduler status: 4090 busy, current_job=prx-tg-pixel-posttrain-v2 (16GB, claimed 18:13:02Z, duration 6.5h), our comfyui-1789930863-2431031 (21GB) next in the derived FIFO; strix idle. Rules forbid touching another project's job; nothing to action."
-    },
     {
       "ts": "2026-09-20T22:47:43-0400",
       "note": "2026-09-21 02:4xZ ops-triage: by-design capacity record. Live: 4090 claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down; our queued entry stays in the derived FIFO. No action -- foreign holds are normal sharing and must not be touched. Auto-closes when we next hold the slot."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T13:56:03-0400",
       "note": "2026-09-21 17:5xZ ops-triage: by-design capacity record, unchanged (claim=busy current_job=prx-tg-pixel-posttrain-v3 16GB held 11.0h; ours=no; our entry comfyui-1789999255-213957-1 asks 16.0GB -- the adaptive-fit fix holds -- and is next in the derived FIFO; strix idle). CONVENTION for future passes: this reproduces for as long as another project holds the 4090, and each pass appending 'nothing to action' fills the rolling note window with near-duplicates that then archive. Do NOT append a note unless something MATERIAL changes: the holder job id, our queue position, the held duration crossing a new hour band, or our entry asking for more VRAM than is free. The probe already refreshes evidence/last_seen/seen_count every tick; the note is for a new fact only."
+    },
+    {
+      "ts": "2026-09-21T17:33:50-0400",
+      "note": "2026-09-21 21:4xZ ops-triage: MATERIAL for this item -- the queue now carries a FORECAST, so the cost of the foreign hold is quantified instead of felt. New in-repo: 'tc_ops.py queue' prints dry_out= (the last future publishable clock) and a new probe check queue-runway-short fires when that is inside 72h. Live reading this pass: claim=busy current_job=prx-tg-pixel-posttrain-v3 (held 10.2h), our entry comfyui-1789999255-213957-1 still next, publishable=16 but dry_out=2026-09-27T10:30:00Z -- 5.5d of runway. No action is possible while another project holds the card (unchanged), and this note exists so a later pass reads the BUDGET rather than re-deriving it: if the hold persists past ~09-24, the harness goes silent on 09-27 with no error anywhere."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400",

@@ -35,10 +35,12 @@ then works the open issues and closes them with a note.
                              output when no human is needed, so an escalation job
                              can suppress itself
   tc_ops.py queue            the AUTHORITATIVE photo-queue count: publishable vs
-                             status_rows vs held (the publisher selects on the
-                             two clocks, so a status count overstates by every
-                             age-gate hold and makes a held row look like a
-                             defect to repair)
+                             status_rows vs held, plus dry_out= -- the FORECAST
+                             (the publisher selects on the two clocks, so a status
+                             count overstates by every age-gate hold and makes a
+                             held row look like a defect to repair; and a bare
+                             count cannot say whether the harness has one day of
+                             runway or two weeks)
   tc_ops.py selftest         exercise every pure verdict in this file (no DB, no
                              GPU) -- run it after touching any check
 
@@ -52,6 +54,7 @@ from __future__ import annotations
 import json
 import base64
 import calendar
+import datetime
 import os
 import re
 import subprocess
@@ -3246,6 +3249,137 @@ def check_cron_prompt_queue_counts():
     )
 
 
+# ------------------------------------------------------------------ queue runway
+RUNWAY_ALERT_H = 72
+
+# One query owns the queue question: the publisher's predicate (draft/scheduled
+# AND a future clock), the status-only count that overstates it by the held rows,
+# the held rows themselves, and the LAST future clock -- the forecast.
+QUEUE_SQL = (
+    "select "
+    " (select count(*) from scheduling_posts where status in ('draft','scheduled') "
+    "   and coalesce(scheduled_at, optimal_time_calculated) > (now() at time zone 'UTC')) "
+    " || '|' || "
+    " (select count(*) from scheduling_posts where status in ('draft','scheduled')) "
+    " || '|' || "
+    " (select count(*) from scheduling_posts where status in ('draft','scheduled') "
+    "   and caption_metadata->'age_gate'->>'held' = 'true') "
+    " || '|' || "
+    # The two clocks are `timestamp WITHOUT time zone` holding UTC (Rails' default),
+    # so to_char() on the raw value IS the UTC stamp. Do NOT apply `at time zone
+    # 'UTC'` here: on a naive-UTC timestamp that means "interpret as UTC, then render
+    # in the session tz", which double-shifts the stamp by the session offset
+    # (measured: 10:30Z reported as 06:30Z under TZ=America/New_York).
+    " coalesce((select to_char(max(coalesce(scheduled_at, optimal_time_calculated)), "
+    "   'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') "
+    "   from scheduling_posts where status in ('draft','scheduled') "
+    "   and coalesce(scheduled_at, optimal_time_calculated) > (now() at time zone 'UTC')), '')"
+)
+
+
+def _utc_dt(s):
+    """Parse a scheduler/publisher UTC stamp ('...Z'); None when unparsable."""
+    if s is None:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def queue_runway_verdict(publishable, dry_out_iso, now_iso, alert_h=RUNWAY_ALERT_H):
+    """Pure: how long until the publish queue drains? -> (severity, note) or None.
+
+    A publishable COUNT is a point reading: "publishable=16" cannot say whether the
+    harness has one day of runway or two weeks, and the failure it hides is the one
+    with no error of its own -- on the day the last clock passes, posting goes
+    silent and only the follower count moves. The last future clock IS the forecast,
+    so this fires on the FORECAST (drain inside alert_h) rather than on the empty
+    queue, which render-starved / zero-accepted-output-24h already own.
+
+    Returns None for an empty or unreadable queue: those are not this check's call.
+    """
+    if publishable in (None, "", 0):
+        return None
+    try:
+        publishable = int(publishable)
+    except (TypeError, ValueError):
+        return None
+    if publishable <= 0:
+        return None
+    dry, now = _utc_dt(dry_out_iso), _utc_dt(now_iso)
+    if dry is None or now is None:
+        return None
+    hours = (dry - now).total_seconds() / 3600.0
+    if hours > alert_h:
+        return None
+    return (
+        "warn",
+        f"publishable={publishable} but the last future clock is {dry_out_iso} "
+        f"-- the queue drains in {hours / 24.0:.1f}d",
+    )
+
+
+def queue_runway_note(publishable, dry_out_iso, now_iso=None):
+    """The human line for `tc_ops.py queue`: the forecast, or why it cannot be read."""
+    now_iso = now_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        pub = int(publishable)
+    except (TypeError, ValueError):
+        pub = 0
+    if pub <= 0:
+        return "dry_out=none (nothing publishable -- the queue is ALREADY empty; see render-starved)"
+    dry, now = _utc_dt(dry_out_iso), _utc_dt(now_iso)
+    if dry is None or now is None:
+        return "dry_out=UNREADABLE (last clock unparsable; do NOT read this as empty)"
+    days = (dry - now).total_seconds() / 86400.0
+    return f"dry_out={dry_out_iso} (last publishable clock; queue drains in {days:.1f}d)"
+
+
+def check_queue_runway():
+    """The publish queue drains inside RUNWAY_ALERT_H while nothing tops it up.
+
+    The condition is a FORECAST, not a snapshot, because the failure it precedes has
+    no symptom: posting continues normally until the last scheduled clock passes,
+    then stops. Measured 2026-09-21: the 4090 was held by another project all day
+    (render refusals climbed 2 -> 4 -> 11 -> 12/day) while publishable stayed at 16
+    -- which read as healthy at every tick, yet the last future clock was
+    2026-09-27T10:30Z, i.e. the harness would go silent on 09-27 with no error
+    anywhere if the render loop never got the card back.
+    """
+    row = psql(QUEUE_SQL)
+    if row is None:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    try:
+        pub = int(parts[0])
+    except ValueError:
+        return None
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    v = queue_runway_verdict(pub, parts[3], now)
+    if not v:
+        return None
+    job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
+    refused = psql("select count(*) from growth_decisions where action in "
+                   "('comfyui_unclaimed','cadence_blocked') and decided_at > "
+                   f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
+    extra = f"; holder={job or 'none'}"
+    if refused:
+        extra += f"; render refusals_{STARVE_WINDOW_H}h={refused}"
+    return (
+        "queue-runway-short",
+        "the publish queue drains inside 3 days and the render loop cannot top it up",
+        v[0],
+        v[1] + extra
+        + ". Past dry_out, posting stops with no error of its own (nothing raises, the "
+        "queue is simply empty), so this is the early signal: either top the queue up "
+        "(needs the 4090, which may be another project's to hold) or make a deliberate "
+        "cadence decision -- but make it BEFORE the last clock passes.",
+    )
+
+
 def check_probe_inputs():
     """Coverage guard: a probe that cannot measure must not report green.
 
@@ -3678,6 +3812,7 @@ CHECKS = [
     check_photo_provenance,
     check_publish_gate_readiness,
     check_render_starved,
+    check_queue_runway,
     check_publish_liveness,
     check_publish_gap,
     check_publish_failed_silent,
@@ -4672,6 +4807,31 @@ def cmd_selftest(_argv):
         v = cron_prompt_queue_count_verdict(rows)
         expect(f"cron_prompt_queue_count_verdict[{name}]", v[0] if v else None, want)
 
+    # queue_runway_verdict: the FORECAST, not the count. publishable=16 hides
+    # whether the harness has one day of runway or two weeks, and the failure it
+    # precedes (posting stops on the day the last clock passes) raises nothing.
+    RUNWAY_NOW = "2026-09-21T21:30:00Z"
+    runway_cases = [
+        ("roomy", (16, "2026-09-27T10:30:00Z", RUNWAY_NOW), None),
+        ("inside-three-days", (3, "2026-09-23T00:00:00Z", RUNWAY_NOW), "warn"),
+        ("exact-boundary", (5, "2026-09-24T21:30:00Z", RUNWAY_NOW), "warn"),
+        ("one-hour-over", (5, "2026-09-24T22:30:00Z", RUNWAY_NOW), None),
+        ("empty-queue-not-ours", (0, "2026-09-21T22:00:00Z", RUNWAY_NOW), None),
+        ("unreadable-clock", (16, "", RUNWAY_NOW), None),
+        ("unparsable-now", (16, "2026-09-27T10:30:00Z", "not-a-time"), None),
+        ("negative", (-1, "2026-09-21T22:00:00Z", RUNWAY_NOW), None),
+    ]
+    for name, (pub, dry, now), want in runway_cases:
+        v = queue_runway_verdict(pub, dry, now)
+        expect(f"queue_runway_verdict[{name}]", v[0] if v else None, want)
+
+    expect("queue_runway_note[roomy]", queue_runway_note(16, "2026-09-27T10:30:00Z", RUNWAY_NOW),
+           "dry_out=2026-09-27T10:30:00Z (last publishable clock; queue drains in 5.5d)")
+    expect("queue_runway_note[empty]", queue_runway_note(0, "", RUNWAY_NOW),
+           "dry_out=none (nothing publishable -- the queue is ALREADY empty; see render-starved)")
+    expect("queue_runway_note[unreadable]", queue_runway_note(16, "", RUNWAY_NOW),
+           "dry_out=UNREADABLE (last clock unparsable; do NOT read this as empty)")
+
     # prompt_safety_verdict + _blob_violations: stored render text that directs a
     # minor or conditions against adult features. The 2026-09-20 live case is the
     # production negative prompt (", adult, mature_face,") and the legacy face
@@ -4975,7 +5135,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
@@ -4992,29 +5152,33 @@ def cmd_queue(_argv):
     ("set scheduled_at or reclassify") -- advice that would have published a
     render the age gate read as a minor on a public adult account.
 
-    Prints all three numbers so the discrepancy is impossible to miss, and exits
-    1 (with UNREADABLE) rather than printing a number it could not read.
+    Prints all three numbers so the discrepancy is impossible to miss, plus the
+    FORECAST (`dry_out=` -- the last future clock, and the days of runway left),
+    and exits 1 (with UNREADABLE) rather than printing a number it could not read.
+
+    Why the forecast: publishable=16 read as healthy at every 2026-09-21 tick while
+    the render loop was refused all day (2 -> 4 -> 11 -> 12 refusals/day), and the
+    last future clock was 2026-09-27T10:30Z -- the harness would have gone silent
+    on 09-27 with nothing raised anywhere. A count cannot show that; the last clock
+    can, at no extra cost (same query).
     """
-    row = psql(
-        "select "
-        " (select count(*) from scheduling_posts where status in ('draft','scheduled') "
-        "   and coalesce(scheduled_at, optimal_time_calculated) > (now() at time zone 'UTC')) "
-        " || '|' || "
-        " (select count(*) from scheduling_posts where status in ('draft','scheduled')) "
-        " || '|' || "
-        " (select count(*) from scheduling_posts where status in ('draft','scheduled') "
-        "   and caption_metadata->'age_gate'->>'held' = 'true')")
+    row = psql(QUEUE_SQL)
     if row is None:
         print("queue: UNREADABLE (psql failed; do NOT read this as zero)")
         return 1
+    parts = row.split("|")
+    if len(parts) != 4:
+        print(f"queue: UNREADABLE (unparsable result {row!r})")
+        return 1
     try:
-        pub, status_rows, held = (int(x) for x in row.split("|"))
+        pub, status_rows, held = (int(x) for x in parts[:3])
     except ValueError:
         print(f"queue: UNREADABLE (unparsable result {row!r})")
         return 1
     print(f"publishable={pub} (publisher's predicate: draft/scheduled AND a future clock)")
     print(f"status_rows={status_rows} (status only; OVERSTATES by the held rows)")
     print(f"held={held} (age-gate holds: unpublished with BOTH clocks cleared, never released)")
+    print(queue_runway_note(pub, parts[3]))
     return 0
 
 
