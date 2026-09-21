@@ -43,3 +43,8 @@
 
 # Python bytecode from bin/ ops tooling
 __pycache__/
+
+# Nightly corpus backup (bin/corpus_backup.sh). Machine-local DATA, not source:
+# a second copy of the Sarah render corpus on this box's local NVMe, so a NAS
+# volume loss cannot take the only copy with it. Large and never committed.
+/corpus-backup/
