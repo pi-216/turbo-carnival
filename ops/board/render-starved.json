@@ -1,17 +1,21 @@
 {
   "key": "render-starved",
-  "title": "no photo in 12h while the render request was refused 2x",
+  "title": "no photo in 12h while the render request was refused 11x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=2 holder=prx-tg-latent-sanity-v1 held=0.1h",
-  "status": "closed",
+  "evidence": "photos_12h=0 refusals_12h=11 holder=none; free=18.5GiB vs reservation 21GiB; outside-scheduler holders: 2857312 labeler_spa.py 4.5GiB -- a claim is refused vram_insufficient while something outside the scheduler (co-tenant process or display session) holds the difference",
+  "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-09-20T02:25:20-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-21T00:33:00-0400",
+  "seen_count": 4,
   "source": "probe",
   "notes": [
     {
       "ts": "2026-09-20T02:36:11-0400",
       "note": "2026-09-20 06:4xZ ops-triage: ROOT CAUSE FIXED in-repo (commit pending). The recovery path (Growth::RenderSalvage) lived at the top of CadenceEngine#sync, and the growth tick skips its whole cadence step when it cannot acquire the 4090 -- the right call for RENDERING, but it also gated the ONE path that needs no GPU. While a foreign claim held the card, every hourly tick was refused (comfyui_unclaimed 09-18/09-19/09-20) and three renders that had already been PAID FOR (runs 457/463/471, 2026-09-19 16:41-18:38) sat unposted on disk for 13h+ while the queue drained 21 -> 19. Fix: CadenceEngine#recover_abandoned (GPU-free, bounded by the shortfall, idempotent via the Photo row) + new rake task growth:salvage_abandoned, wired NON-FATALLY into the hourly publisher bin/scheduled_posting.sh -- the only in-repo hook that runs regardless of the GPU gate. VERIFIED: 'Salvage: examined=2 recovered=2 posts=[342, 343] (shortfall=2)' -> queue 19->21 (at target), posts scheduled via PostSlotPlanner at 09-25/09-26 09:00Z with real captions (no placeholder), photos_12h 0->10; re-run prints 'skipped -- queue at target' (idempotent); full publisher run exits 0 with the new step. Suite 385/0 (2 new specs). The check is now false because output resumed, NOT because contention ended: the 4090 is still held by prx-tg (foreign 1.5-96h claims) and the salvage reservoir is finite -- if refusals continue past the ~7-day queue runway this check will re-file and that is the correct escalation."
+    },
+    {
+      "ts": "2026-09-21T00:34:36-0400",
+      "note": "2026-09-21 04:35Z ops-triage: ROOT CAUSE identified and attributed (probe fix in this run's commit). The refusal is no longer a foreign JOB: the 4090 is scheduler-idle with our entry at the FIFO head and poll refuses vram_insufficient because free=18.5GiB is under our 21GiB reservation. The difference is held OUTSIDE the scheduler by the user-managed BT-Net labeler (pid 2857312 labeler_spa.py, 4.5GiB) plus the display session. ComfyUI's own measured peak on this card is 23.2GiB (log/comfyui_telemetry.jsonl, 372 samples of job comfyui-1789826497-1334030, max vram_used 23743MiB), so a render needs a near-empty card: the labeler and flux renders are mutually exclusive. Not fixable in-repo without measurement: lowering the reservation to fit would claim a card ComfyUI does not fit on (harness VRAM=21 says do not lower it to fit), and measuring a lower-VRAM flux config needs the card the co-tenant holds = blocked-on-slot. Impact today is LOW (19 queued, ~5d runway); it turns CRITICAL at about 2026-09-21 16:00 EDT, when 24h pass with 0 photos and zero-accepted-output-24h fires. NEEDS HUMAN: arbitrate labeler vs renders, or fund a lower-VRAM flux config."
     }
   ],
   "closed_at": "2026-09-20T02:36:11-0400"

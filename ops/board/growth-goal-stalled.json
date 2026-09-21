@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T18:36:23-0400",
-      "note": "2026-09-20 22:3xZ ops-triage: unchanged, strategy not defect. Live psql: growth_snapshots 156 (22:01Z) vs 157 (21:04Z, 20:38Z) - flat, 1 is noise. Future posts 09-21=4, then 3/day to 09-26; the configured cap is already 3/day and the review interval gates the next escalation to 2026-09-23. Volume/strategy is Tim call; nothing in-repo to change."
-    },
-    {
       "ts": "2026-09-20T19:56:48-0400",
       "note": "2026-09-20 23:5xZ ops-triage: unchanged, not a repo defect. Live: 156 followers, newest snapshot 23:00:53Z (flat -- earlier snapshots also 156/157), 18 future scheduled, newest posted_at 19:00:26Z today, 1 failed in 24h. posts_per_day is already at the configured cap and the review interval gates the next escalation to 09-23. The 0.08x trajectory is a strategy/volume decision for Tim, not something this loop can edit."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T23:41:18-0400",
       "note": "2026-09-21 03:5xZ ops-triage: unchanged, not a repo defect. Live: snapshots 156@03:04Z (flat -- 156/156/156 across the last three hours), goal 156/1000, required 2.53/day, 19 future scheduled (09-21=4 then 3/day), 3 posts created in 24h, 0 failed in 24h. Cadence is already at the configured cap and the review interval gates the next escalation to 09-23, so the lever is the brain's next review, not an ops-triage edit."
+    },
+    {
+      "ts": "2026-09-21T00:34:43-0400",
+      "note": "2026-09-21 04:36Z: unchanged, not a repo defect. Live: latest snapshot 156 (2026-09-21 04:01Z), goal 156/1000, 19 future scheduled, 3 photos in 24h, cadence at the configured cap; next brain review gates to 2026-09-23. Render throughput is suppressed by GPU contention (see render-starved) but the queue has about 5 days of runway, so this is not yet the binding constraint."
     }
   ]
 }

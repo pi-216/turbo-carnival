@@ -1,0 +1,17 @@
+{
+  "key": "own-queue-blockade",
+  "title": "our queued entry is at the FIFO head while the 4090 is idle and no claim is ours",
+  "severity": "warn",
+  "evidence": "id=comfyui-1789930863-2431031 queued 565 min ago, head of the derived queue, gpu=idle, ours=no \u2014 nothing polls it until the next harness tick, so the card idles",
+  "status": "auto-closed",
+  "first_seen": "2026-09-21T00:25:51-0400",
+  "last_seen": "2026-09-21T00:25:51-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-21T00:32:19-0400",
+      "note": "condition no longer reproduces"
+    }
+  ]
+}

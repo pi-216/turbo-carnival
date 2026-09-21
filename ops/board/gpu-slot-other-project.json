@@ -3,16 +3,12 @@
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v2) with our job(s) queued behind it",
   "severity": "info",
   "evidence": "we hold no claim; held 9.5h; our queue entries=1",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T14:26:35-0400",
   "last_seen": "2026-09-20T23:42:46-0400",
   "seen_count": 33,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T16:43:16-0400",
-      "note": "2026-09-20 20:4xZ ops-triage: by-design capacity record, nothing to action. The 4090 is held by prx-tg-pixel-posttrain-v2 (foreign project, 16 GB); rules forbid touching another project's job, and our render need is absorbed by the queue (18 scheduled). Recorded so the GPU gate is explained rather than re-diagnosed."
-    },
     {
       "ts": "2026-09-20T17:43:54-0400",
       "note": "2026-09-20 21:4xZ ops-triage: by-design capacity record -- and it was masking a REAL defect, now FIXED (a29f8bb). 4090 held by prx-tg-pixel-posttrain-v2 (foreign; ~10.9GB resident, 89 percent util burst), we hold no claim. Our own queue was flooded: TWO own queued entries (19:01Z + 21:00Z). Each tick minted a fresh comfyui-<ts>-<pid> and cancelled it only on the timeout path, so a tick killed mid-wait (tool budget 180s < wait 300s) left its entry queued and the next tick queued BEHIND ITSELF and read not_my_turn from its own predecessor -- blocking us and every project behind us until the 24h expiry, and idling the card had prx-tg released. ensure now adopts the oldest own entry and cancels duplicates; live reconcile cancelled the 21:00Z duplicate (derived queue 3->2, state.json untouched) and ensure adopts 19:01Z in 0.5s. New probe check own-queue-flood / own-queue-blockade guards the regression."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T22:47:43-0400",
       "note": "2026-09-21 02:4xZ ops-triage: by-design capacity record. Live: 4090 claim=busy job=prx-tg-pixel-posttrain-v2 ours=no comfyui=down; our queued entry stays in the derived FIFO. No action -- foreign holds are normal sharing and must not be touched. Auto-closes when we next hold the slot."
+    },
+    {
+      "ts": "2026-09-21T00:25:55-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400"

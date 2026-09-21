@@ -494,7 +494,8 @@ def check_slot():
 OWN_QUEUE_GRACE_MIN = 10   # a just-requested entry is not a blockade yet
 
 
-def own_queue_verdict(q, status, ours, now=None):
+def own_queue_verdict(q, status, ours, now=None, free_mib=None, requested_mib=None,
+                      blockers=None):
     """Our own queued 4090 entries -> (key, title, severity, evidence) or None.
 
     Two shapes, both invisible to every existing check (check_slot only files a
@@ -509,6 +510,11 @@ def own_queue_verdict(q, status, ours, now=None):
       is scheduler-idle and no claim is ours, older than the grace period.
       Nothing polls an entry whose owner is gone, so the card sits physically
       idle until a tick adopts it or the 24h expiry reaps it.
+    * HEAD-CANNOT-FIT: the same head entry, but live free VRAM is below its own
+      reservation, so `poll` refuses `vram_insufficient` -- polling harder can
+      never grant it. That is a co-tenant holding memory outside the scheduler
+      (a labeler, a desktop session), and reporting it as the blockade above
+      sends the fixer after a claim that cannot be taken.
     """
     now = now if now is not None else time.time()
     own = [j for j in (q or []) if j.get("project") == "turbo-carnival"]
@@ -537,6 +543,22 @@ def own_queue_verdict(q, status, ours, now=None):
     age = age_min(j)
     if (head is not None and head.get("id") == j.get("id") and status == "idle"
             and not ours and age is not None and age >= OWN_QUEUE_GRACE_MIN):
+        req_mib = None
+        try:
+            req_mib = float(j.get("vram_gb") or 0) * 1024 or None
+        except (TypeError, ValueError):
+            req_mib = None
+        req_mib = req_mib or requested_mib
+        if free_mib is not None and req_mib and free_mib < req_mib:
+            return (
+                "own-queue-head-vram-blocked",
+                "our entry holds the FIFO head but the card cannot fit it — a co-tenant holds VRAM outside the scheduler",
+                "warn",
+                f"id={j.get('id')} queued {age:.0f} min ago, head of the derived queue, gpu=idle, "
+                f"ours=no; free={free_mib / 1024:.1f}GiB < reservation {req_mib / 1024:.1f}GiB, so "
+                "`poll` refuses vram_insufficient and polling harder cannot grant it"
+                + (f"; outside-scheduler holders: {blockers}" if blockers else ""),
+            )
         return (
             "own-queue-blockade",
             "our queued entry is at the FIFO head while the 4090 is idle and no claim is ours",
@@ -549,7 +571,12 @@ def own_queue_verdict(q, status, ours, now=None):
 
 def check_own_queue_leak():
     status, _job, ours, _ourjob = our_claim()
-    return own_queue_verdict(queue(GPU), status, ours)
+    return own_queue_verdict(
+        queue(GPU), status, ours,
+        free_mib=gpu_vram_free_mib(),
+        requested_mib=(our_reservation_gb() or 0) * 1024 or None,
+        blockers=vram_blocker_note(),
+    )
 
 
 def check_stuck_comfyui_jobs():
@@ -768,12 +795,14 @@ def check_render_starved():
     if photos == 0 and refused >= 1:
         job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
         held = foreign_hold_hours()
+        fit = vram_fit_note()
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
             "warn",
             f"photos_{STARVE_WINDOW_H}h=0 refusals_{STARVE_WINDOW_H}h={refused} "
-            f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else ""),
+            f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else "")
+            + (f"; {fit}" if fit else ""),
         )
     return None
 
@@ -1691,6 +1720,114 @@ def gpu_vram_used_mib():
         return int(out.splitlines()[0].strip())
     except ValueError:
         return None
+
+
+def gpu_vram_free_mib():
+    out, rc = run(["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+    if rc != 0 or not out:
+        return None
+    try:
+        return int(out.splitlines()[0].strip())
+    except ValueError:
+        return None
+
+
+VRAM_HOLDER_MIN_MIB = 128   # a 37 MiB desktop helper is not what blocks a claim
+
+
+def _proc_cmdline(pid):
+    """The local process's argv as one line, or '' when it is not ours to read.
+
+    nvidia-smi reports a comm name that is sometimes just `python3`; the argv is
+    what actually names the blocker (`labeler_spa.py`), and the 4090 is local.
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return fh.read().decode("utf-8", "replace").replace("\0", " ").strip()
+    except Exception:
+        return ""
+
+
+def gpu_vram_holders(min_mib=VRAM_HOLDER_MIN_MIB):
+    """[(pid, name, used_mib)] for processes holding the 4090 OUTSIDE the scheduler.
+
+    The reservation is the only thing that keeps co-tenants off the card, and it
+    cannot see a process that never asked for one: the BT-Net labeler (user-managed,
+    ~4.5 GiB, `labeler_spa.py`) and the desktop session. Without this, a refusal
+    reads `holder=none` while 4.5 GiB sits in someone else's process -- which is how
+    12 h of starvation got re-diagnosed as "nobody is blocking us" every tick.
+    Holders under `min_mib` are dropped so the note names the blocker, not the noise.
+    """
+    out, rc = run(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+                   "--format=csv,noheader,nounits"])
+    if rc != 0 or not out:
+        return []
+    rows = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            pid, mib = int(parts[0]), int(parts[2])
+        except ValueError:
+            continue
+        if mib < min_mib:
+            continue
+        name = parts[1].rsplit("/", 1)[-1] or parts[1]
+        for tok in _proc_cmdline(pid).split()[1:]:
+            if not tok.startswith("-"):
+                name = tok.rsplit("/", 1)[-1] or name
+                break
+        rows.append((pid, name, mib))
+    return rows
+
+
+def vram_blocker_note():
+    """The outside-scheduler holders as one line, or '' when the card is clean."""
+    return ", ".join(f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in gpu_vram_holders())
+
+
+def our_reservation_gb():
+    """Our 4090 reservation in GB -- the live queued entry, else the harness constant.
+
+    Read, never hardcoded: the harness owns the number (`VRAM=21`, sized from a
+    MEASURED 23.2 GiB peak on this card) and a copy here would drift out of step.
+    """
+    for j in queue(GPU):
+        if j.get("project") == "turbo-carnival" and j.get("vram_gb"):
+            try:
+                return float(j["vram_gb"])
+            except (TypeError, ValueError):
+                pass
+    try:
+        m = re.search(r"^VRAM=(\d+(?:\.\d+)?)",
+                      (APP / "bin" / "comfyui_harness.sh").read_text(), re.M)
+        if m:
+            return float(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
+def vram_fit_note():
+    """What stands between us and a claim: free VRAM vs our reservation, plus holders.
+
+    A refusal whose evidence says only `holder=none` is unactionable -- it was the
+    *foreign job* that went away, not the co-tenant *process*. Name both numbers and
+    the process, or the next tick re-diagnoses the same starvation.
+    """
+    free = gpu_vram_free_mib()
+    if free is None:
+        return ""
+    req = our_reservation_gb()
+    note = f"free={free / 1024:.1f}GiB" + (f" vs reservation {req:.0f}GiB" if req else "")
+    blockers = vram_blocker_note()
+    if blockers:
+        note += f"; outside-scheduler holders: {blockers}"
+    if req and free < req * 1024:
+        note += (" -- a claim is refused vram_insufficient while something outside the "
+                 "scheduler (co-tenant process or display session) holds the difference")
+    return note
 
 
 def comfyui_queue_depth():
@@ -3402,6 +3539,27 @@ def cmd_selftest(_argv):
         v = own_queue_verdict(rows, st, ours, now=oq_now)
         expect(f"own_queue_verdict[{name}]", v[2] if v else None, want)
 
+    # ...and the head entry that CANNOT fit is not the blockade: `poll` compares
+    # live free memory against the reservation, so a co-tenant the scheduler cannot
+    # see turns the same queue shape into a different, non-actionable-by-polling
+    # condition (measured 2026-09-21: head entry, gpu=idle, 18.5 GiB free vs a
+    # 21 GiB reservation, 4.5 GiB in the BT-Net labeler).
+    oq_head = [{"id": "a", "project": "turbo-carnival",
+                "requested_at": "2026-09-20T19:00:00Z", "vram_gb": 21.0}]
+    v = own_queue_verdict(oq_head, "idle", False, now=oq_now, free_mib=18939,
+                          blockers="2857312 labeler_spa.py 4.5GiB")
+    expect("own_queue_verdict[head-cannot-fit-key]", v[0] if v else None,
+           "own-queue-head-vram-blocked")
+    expect("own_queue_verdict[head-cannot-fit-sev]", v[2] if v else None, "warn")
+    expect("own_queue_verdict[head-cannot-fit-names-holder]",
+           bool(v and "labeler_spa.py" in v[3] and "18.5GiB" in v[3]), True)
+    v = own_queue_verdict(oq_head, "idle", False, now=oq_now, free_mib=24000)
+    expect("own_queue_verdict[head-fits-is-blockade]", v[0] if v else None,
+           "own-queue-blockade")
+    # Unreadable free memory must NOT be read as "cannot fit" -- accuse only on data.
+    v = own_queue_verdict(oq_head, "idle", False, now=oq_now, free_mib=None)
+    expect("own_queue_verdict[free-unknown]", v[0] if v else None, "own-queue-blockade")
+
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
     tc_ops_board, BOARD_orig = BOARD, None  # noqa: F841 (readability)
@@ -3640,7 +3798,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + 21} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(grounding_cases) + len(prov_cases) + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

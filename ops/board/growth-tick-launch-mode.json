@@ -10,10 +10,6 @@
   "source": "manual",
   "notes": [
     {
-      "ts": "2026-09-20T18:36:23-0400",
-      "note": "2026-09-20 22:3xZ ops-triage: unchanged; the remaining half is Hermes cron config outside this repo (needs Tim: run sync_cadence detached, split into per-slot batches, or raise the tick tool budget above the measured worst case). Repo side re-verified clean this run: probes stuck-run/stuck-job checks quiet, 0 comfyui_jobs created in the last 24h, and the a29f8bb claim fix returns not_my_turn in under 1s so the tick no longer burns its budget polling."
-    },
-    {
       "ts": "2026-09-20T19:56:48-0400",
       "note": "2026-09-20 23:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 in-flight comfyui_jobs, 0 submitted >30min, 18 future scheduled, newest posted 19:00:26Z, decisions 24h = comfyui_unclaimed 9 / salvage_recovered 3 (the GPU-free salvage carries top-ups while prx-tg holds the 4090). Options for Tim unchanged: (a) detach growth:sync_cadence in the tick and defer the end-of-tick release, (b) an in-repo deadline in the rake task, (c) per-slot batches."
     },
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-20T23:41:18-0400",
       "note": "2026-09-21 03:5xZ ops-triage: unchanged, Hermes cron config outside this repo. Repo side re-verified clean live: 0 pending PipelineRuns, 0 in-flight ComfyuiJobs, 19 future scheduled, 0 failed in 24h. The tick's claim path no longer burns its 180s budget polling (a29f8bb returns not_my_turn in under 1s), so the tick keeps its window for actual work."
+    },
+    {
+      "ts": "2026-09-21T00:34:52-0400",
+      "note": "2026-09-21 04:37Z: unchanged, Hermes cron config outside the repo. Repo side re-verified clean: 19 queued, 3 photos in 24h, 0 failed in 24h."
     }
   ]
 }
