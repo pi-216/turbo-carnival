@@ -21,6 +21,10 @@
     {
       "ts": "2026-09-21T16:42:20-0400",
       "note": "2026-09-21 20:3xZ ops-triage: ARTIFACT VERIFIED -- the ask is now a pure one-yes/no with nothing left to build. The staged off-site package corpus-backup/offsite/corpus-20260921T195212Z.tar.gz (175 MiB, built this afternoon) was read back offline this pass: gzip -t OK, 172 entries (171 .png corpus files + the manifest) matching the 339-row manifest's resolvable set, sha256 d5d03c729de8cb9ae49164678629091ee749ca3677aab5250df1c49ca3bc3520. So on approval the whole leg is one command (CORPUS_BACKUP_OFFSITE=1 on the nightly tc-corpus-backup tick, or bin/corpus_backup.sh --offsite), which uploads to s3://tim-training-data/turbo-carnival/corpus/ and compares ContentLength + sha256 metadata on read-back. Destination approval (default s3://tim-training-data/turbo-carnival/corpus/, or name another S3-compatible target) is the only thing standing between this project's published corpus and an off-site copy; the two existing copies (NAS + local NVMe) are still one site. Second half unchanged and still Tim's file: /home/tim/backup.sh:27 rsyncs /mnt/fscache/essdee/ with -x and no --copy-links (re-read this pass), so the nightly backup mirrors ComfyUI/output as a dangling symlink and implies image coverage it does not have."
+    },
+    {
+      "ts": "2026-09-22T05:36:33-0400",
+      "note": "2026-09-22 09:4xZ ops-triage: both legs re-verified today, so the ask stays a pure one-yes/no. Second copy: log/corpus_backup_2026-09-22.log -> verified 178 resolvable corpus file(s); missing=0, EXIT=0, 78G at corpus-backup/snapshots/tue (7 new files, 10 transferred vs the mon link). Off-site package: corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still on disk and intact -- sha256 d5d03c729de8cb9ae49164678629091ee749ca3677aab5250df1c49ca3bc3520, gzip -t OK, 172 entries. Nothing left to build; the only missing fact is the destination."
     }
   ]
 }
