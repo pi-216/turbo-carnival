@@ -2,12 +2,17 @@
   "key": "gate-cohort-starved",
   "title": "the next gate read cannot be a measurement: 4 post-intervention post(s) inside the 09-28 13:00 review window (need 5) while the render loop is refused",
   "severity": "warn",
-  "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 7. Inside that window: 0 already published + 4 queued = 4, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: 4 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window. Not a Tim ask: the holder is another project's live job. Self-closes when the loop stops being refused.",
+  "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 7. Inside that window: 0 already published + 4 queued = 4, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: 5 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window. Not a Tim ask: the holder is another project's live job. Self-closes when the loop stops being refused.",
   "status": "open",
   "first_seen": "2026-09-22T17:59:02-0400",
-  "last_seen": "2026-09-22T17:59:02-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-22T18:50:25-0400",
+  "seen_count": 3,
   "source": "probe",
   "route": "agent",
-  "notes": []
+  "notes": [
+    {
+      "ts": "2026-09-22T18:53:49-0400",
+      "note": "2026-09-22 22:5xZ ops-triage: machinery confirmed live on its second pass. The read it forecasts is now on the board: growth:gate[Sarah] returns gate=extend with cohort=0/5 INVALID over a 7d window of 20 posts, i.e. the current window holds ZERO post-intervention posts (the cohort that can testify about the 09-21 content-mix lever publishes 09-27..09-29), so both upcoming reads are still forecast to fall short of MIN_COHORT_POSTS=5 while the render loop is refused. Nothing to change: the pre-committed handling of a short cohort is :extend (re-read, do NOT act), the entry self-closes when renders resume, and the render loop is refused by a live operator-interactive ComfyUI session (see render-starved for the attribution, which changed this pass)."
+    }
+  ]
 }

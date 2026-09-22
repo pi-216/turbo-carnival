@@ -2449,8 +2449,68 @@ def _proc_cmdline(pid):
         return ""
 
 
+def _proc_parent_comm(pid):
+    """The parent process's comm name for a local pid, or '' when unreadable.
+
+    HOW a holder is parented is what says WHO it belongs to: a human typing into a
+    login shell or a tmux session is normal sharing that only a human can end, while
+    a supervised unit is another project's job and nobody here may touch it.
+    """
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            fields = fh.read().decode("utf-8", "replace").rsplit(")", 1)[-1].split()
+        with open(f"/proc/{fields[1]}/comm", "rb") as fh:  # stat field 4 = ppid
+            return fh.read().decode("utf-8", "replace").strip()
+    except Exception:
+        return ""
+
+
+def _proc_cgroup(pid):
+    """The local pid's cgroup path, or '' when unreadable."""
+    try:
+        with open(f"/proc/{pid}/cgroup", "rb") as fh:
+            line = fh.read().decode("utf-8", "replace").strip().splitlines()[0]
+        return line.split("::", 1)[-1]
+    except Exception:
+        return ""
+
+
+def classify_holder(parent_comm, cgroup):
+    """PURE: whose process holds the card -> 'operator' | 'agent' | 'unit' | ''.
+
+    The class decides the RESPONSE, not the severity: an operator's own interactive
+    session is normal sharing that only a human can end, so an escalation names a
+    person and a session; another project's supervised unit is not ours to touch, so
+    the ask becomes a resource-policy question instead. Hand-deriving this from /proc
+    re-costs a pass every time the holder changes (measured 2026-09-22: three
+    consecutive passes re-derived it by hand), so one owner answers it here.
+    """
+    cg = (cgroup or "").lower()
+    pc = (parent_comm or "").strip().lower()
+    if "tmux" in cg or pc in ("fish", "bash", "sh", "zsh", "dash"):
+        return "operator"
+    if "hermes" in cg:
+        return "agent"
+    if pc == "systemd" or cg.endswith(".service") or ".service/" in cg:
+        return "unit"
+    return ""
+
+
+HOLDER_CLASS_TAGS = {
+    "operator": "operator-interactive session",
+    "agent": "our agent's cgroup",
+    "unit": "supervised unit",
+}
+
+
+def holder_desc(pid, name, mib, klass=""):
+    """One holder as `<pid> <name> <GiB>`, with its class when it is known."""
+    tag = HOLDER_CLASS_TAGS.get(klass or "", "")
+    return f"{pid} {name} {mib / 1024:.1f}GiB" + (f" ({tag})" if tag else "")
+
+
 def gpu_vram_holders(min_mib=VRAM_HOLDER_MIN_MIB):
-    """[(pid, name, used_mib)] for processes holding the 4090 OUTSIDE the scheduler.
+    """[(pid, name, used_mib, class)] for holders of the 4090 OUTSIDE the scheduler.
 
     The reservation is the only thing that keeps co-tenants off the card, and it
     cannot see a process that never asked for one: the BT-Net labeler (user-managed,
@@ -2479,13 +2539,14 @@ def gpu_vram_holders(min_mib=VRAM_HOLDER_MIN_MIB):
             if not tok.startswith("-"):
                 name = tok.rsplit("/", 1)[-1] or name
                 break
-        rows.append((pid, name, mib))
+        rows.append((pid, name, mib,
+                     classify_holder(_proc_parent_comm(pid), _proc_cgroup(pid))))
     return rows
 
 
 def vram_blocker_note():
     """The outside-scheduler holders as one line, or '' when the card is clean."""
-    return ", ".join(f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in gpu_vram_holders())
+    return ", ".join(holder_desc(*row) for row in gpu_vram_holders())
 
 
 def harness_constants():
@@ -2750,8 +2811,7 @@ def vram_fit_note(with_util=False):
     note = f"free={free / 1024:.1f}GiB" + (f" vs ask {req:.0f}GiB" if req else "")
     blockers = gpu_vram_holders()
     if blockers:
-        note += "; outside-scheduler holders: " + ", ".join(
-            f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in blockers)
+        note += "; outside-scheduler holders: " + ", ".join(holder_desc(*row) for row in blockers)
     if req and free < req * 1024:
         util = gpu_util_peak_pct() if with_util else None
         verdict = age = None
@@ -5689,6 +5749,23 @@ def cmd_selftest(_argv):
     for name, (pub, dry, now), want in runway_cases:
         v = queue_runway_verdict(pub, dry, now)
         expect(f"queue_runway_verdict[{name}]", v[0] if v else None, want)
+
+    # WHO holds the card decides the RESPONSE (an operator's own interactive session
+    # is a person to ask; a supervised unit is a resource-policy question), so the
+    # classifier is asserted here rather than re-derived by hand on every pass.
+    holder_cases = [
+        ("tmux-scope", ("python3", "/user.slice/user-1000.slice/user@1000.service/app.slice/tmux-spawn-7c88e29e.scope"), "operator"),
+        ("login-shell-child", ("fish", "/user.slice/user-1000.slice/session-3.scope"), "operator"),
+        ("hermes-worker", ("python3", "/user.slice/user-1000.slice/hermes-worker-cron-abc.scope"), "agent"),
+        ("supervised-unit", ("systemd", "/user.slice/user-1000.slice/user@1000.service/app.slice/btnet-labeler.service"), "unit"),
+        ("unreadable", ("", ""), ""),
+    ]
+    for name, (pc, cg), want in holder_cases:
+        expect(f"classify_holder[{name}]", classify_holder(pc, cg), want)
+    expect("holder_desc[operator]", holder_desc(3662070, "main.py", 22706.0, "operator"),
+           "3662070 main.py 22.2GiB (operator-interactive session)")
+    expect("holder_desc[unknown]",
+           holder_desc(474174, "[No data]", 716.0, ""), "474174 [No data] 0.7GiB")
 
     expect("queue_runway_note[roomy]", queue_runway_note(16, "2026-09-27T10:30:00Z", RUNWAY_NOW),
            "dry_out=2026-09-27T10:30:00Z (last publishable clock; queue drains in 5.5d)")
