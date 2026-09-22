@@ -2531,20 +2531,26 @@ def check_telemetry_oom():
 
 # ------------------------------------------------- ComfyUI torch-level VRAM OOM
 # The CAUSE behind the HTTP-500/timeout rows the board otherwise sees only as a
-# symptom, and nothing else measures it: the cgroup sampler finds no oom_kill
-# (the process survives the failed allocation), and the Rails row carries only
-# whatever the renderer did NEXT. Measured 2026-09-22 00:05Z (job 7564): the card
-# was nearly EMPTY, so ComfyUI sized its dynamic-VRAM budget from free memory
-# ("loaded partially; 21719.11 MB usable, 21448.72 MB loaded"), loaded 21448 MB,
-# then died 78 MiB short at 21.32 GiB allocated on a 23.52 GiB device -- the OOM
-# corrupted its model state and the retry drew the HTTP 500, so ONE over-commit
-# cost two jobs. Offloading is cheap here; over-committing is fatal.
+# symptom. Nothing ON THE BOARD names it: the cgroup sampler finds no oom_kill
+# (the process survives the failed allocation), and the render-execution-error
+# check interpolates only the NEWEST failed row -- measured 2026-09-22, where job
+# 7564 failed carrying the OOM text and job 7566, the very NEXT job, failed with
+# the HTTP 500, so the row the board quoted was the symptom while the cause sat
+# unread one row behind it (and the prose attributed it to the workflow payload).
+# Measured 2026-09-22 00:01Z (job 7564): the card was nearly EMPTY, so ComfyUI
+# sized its dynamic-VRAM budget from free memory ("loaded partially; 21719.11 MB
+# usable, 21448.72 MB loaded"), loaded 21448 MB, then died 78 MiB short at 21.32
+# GiB allocated on a 23.52 GiB device; the bounded retry then recovered by itself
+# (7565 and 7567 both completed), so the cost was two wasted jobs -- this is a
+# throughput/robustness fix, NOT a data-loss one. Offloading is cheap here;
+# over-committing is fatal.
 #
-# Why it earns a check: the fix (bin/comfyui_harness.sh COMFY_RESERVE_VRAM=5 ->
-# --reserve-vram) is judged by exactly these numbers, and an OOM whose retry
-# RECOVERS leaves no failed row anywhere. The flag reaches the budget through TWO
-# paths and one is version-gated: EXTRA_RESERVED_VRAM in comfy/model_management.py,
-# and comfy_aimdo's simple_vram_headroom (main.py calls
+# Why it earns its own check: the fix (bin/comfyui_harness.sh COMFY_RESERVE_VRAM=5
+# -> --reserve-vram) is judged by exactly these numbers PLUS the launch args that
+# were in force, and this entry carries both in one line -- a DB row never says
+# which flags the process ran with. The flag reaches the budget through TWO paths
+# and one is version-gated: EXTRA_RESERVED_VRAM in comfy/model_management.py, and
+# comfy_aimdo's simple_vram_headroom (main.py calls
 # control.init(simple_vram_headroom=...), catches TypeError and falls back to NO
 # headroom). The runtime venv is /mnt/fscache/essdee/ComfyUI/.venv, whose
 # comfy_aimdo is 0.5.5 and does accept it; the sibling venv/ holds 0.4.3 and would
