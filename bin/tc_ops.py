@@ -21,6 +21,10 @@ then works the open issues and closes them with a note.
   tc_ops.py touch KEY        bump an issue (used by fixers to record progress)
   tc_ops.py caption-endpoint is the caption service up? (scanner-safe probe for
                              cron prompts: the shell command carries no raw IP)
+  tc_ops.py holder-class PID  who owns that process: operator|agent|unit|other
+                             (the bash surface for the holder classifier -- the
+                             harness labels the :8188 instance with it, so
+                             `owner=foreign` always carries a WHO)
   tc_ops.py log-health       which repo logs are live, and what are their recent
                              errors? (repo-owned replacement for prompts that
                              hardcode a log path -- a path rots when the writer
@@ -2503,6 +2507,50 @@ HOLDER_CLASS_TAGS = {
 }
 
 
+HOLDER_CLASS_TOKENS = ("operator", "agent", "unit", "other")
+
+
+def holder_token(parent_comm, cgroup):
+    """PURE: classify_holder -> a stable machine token for an attribution line.
+
+    The words in HOLDER_CLASS_TAGS are for a human reading evidence; this token is
+    for a parser (`owner=foreign holder=operator` on the 8188 attribution) and never
+    comes back empty, so a monitor can key on it without a null branch.
+    """
+    return classify_holder(parent_comm, cgroup) or "other"
+
+
+def holder_class_of(pid):
+    """The holder class of a LOCAL pid -> 'operator'|'agent'|'unit'|'other'.
+
+    Never raises: an unreadable /proc (a pid that exited between the pgrep and this
+    read) degrades to 'other', which is the honest answer, not a crash in a monitor.
+    """
+    try:
+        ipid = int(pid)
+    except (TypeError, ValueError):
+        return "other"
+    return holder_token(_proc_parent_comm(ipid), _proc_cgroup(ipid))
+
+
+def cmd_holder_class(argv):
+    """Print the holder class of one pid — the bash surface for the same classifier.
+
+    bin/comfyui_harness.sh must label the instance serving :8188 with WHO owns it, and
+    it is a bash script: without this, the harness would either hand-roll a second
+    copy of the classification (which drifts) or keep saying `owner=foreign` for the
+    operator's own tmux session (measured 2026-09-22: three passes hand-read /proc,
+    and the growth brain's report proposed a "fix on the foreign owner's side" for a
+    session no agent may touch).
+    """
+    if not argv:
+        print(__doc__)
+        return 2
+    token = holder_class_of(argv[0])
+    print(token)
+    return 0 if token in HOLDER_CLASS_TOKENS else 1
+
+
 def holder_desc(pid, name, mib, klass=""):
     """One holder as `<pid> <name> <GiB>`, with its class when it is known."""
     tag = HOLDER_CLASS_TAGS.get(klass or "", "")
@@ -2917,7 +2965,8 @@ def comfyui_attribution():
     except Exception:
         pass
     started = run(["ps", "-o", "lstart=", "-p", pid])[0].strip().replace(" ", "_") or "?"
-    return f"owner={who} pid={pid} cgroup={cg} started={started}"
+    return (f"owner={who} pid={pid} cgroup={cg} started={started} "
+            f"holder={holder_class_of(pid)}")
 
 
 def check_comfyui_vram_unclaimed():
@@ -5762,6 +5811,25 @@ def cmd_selftest(_argv):
     ]
     for name, (pc, cg), want in holder_cases:
         expect(f"classify_holder[{name}]", classify_holder(pc, cg), want)
+    # holder_token: the machine token the 8188 attribution carries. It must never be
+    # empty (a monitor keys on it), and must agree with classify_holder branch for
+    # branch, so `owner=foreign holder=operator` cannot disagree with `holder_desc`.
+    token_cases = [
+        ("tmux-scope", ("python3", "/u/user@1000.service/app.slice/tmux-spawn-abc.scope"), "operator"),
+        ("login-shell-child", ("fish", "/u/session-3.scope"), "operator"),
+        ("hermes-worker", ("python3", "/u/hermes-worker-cron-abc.scope"), "agent"),
+        ("supervised-unit", ("systemd", "/u/app.slice/btnet-labeler.service"), "unit"),
+        ("unreadable-never-empty", ("", ""), "other"),
+        ("hostile-input", (None, None), "other"),
+    ]
+    for name, (pc, cg), want in token_cases:
+        expect(f"holder_token[{name}]", holder_token(pc, cg), want)
+    # holder_class_of: unreadable /proc (pid gone, junk) degrades to 'other' -- a
+    # monitor must not crash on the very race it is reporting.
+    expect("holder_class_of[dead-pid]", holder_class_of(999999), "other")
+    expect("holder_class_of[junk]", holder_class_of("not-a-pid"), "other")
+    expect("holder_class_of[own-pid-is-a-token]",
+           holder_class_of(os.getpid()) in HOLDER_CLASS_TOKENS, True)
     expect("holder_desc[operator]", holder_desc(3662070, "main.py", 22706.0, "operator"),
            "3662070 main.py 22.2GiB (operator-interactive session)")
     expect("holder_desc[unknown]",
@@ -6357,6 +6425,7 @@ def main():
         "close": cmd_close, "touch": cmd_touch, "selftest": cmd_selftest,
         "file": cmd_file, "warm-caption": cmd_warm_caption,
         "caption-endpoint": cmd_caption_endpoint,
+        "holder-class": cmd_holder_class,
         "queue": cmd_queue,
         "log-health": cmd_log_health,
         "checks-audit": cmd_checks_audit,

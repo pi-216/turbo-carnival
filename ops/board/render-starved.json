@@ -1,12 +1,12 @@
 {
   "key": "render-starved",
-  "title": "no photo in 12h while the render request was refused 5x",
+  "title": "no photo in 12h while the render request was refused 6x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=5 holder=none; free=22.7GiB vs ask 21GiB; outside-scheduler holders: 553489 main.py 0.4GiB (operator-interactive session)",
+  "evidence": "photos_12h=0 refusals_12h=6 holder=none; free=4.8GiB vs ask 16GiB; outside-scheduler holders: 553489 main.py 18.2GiB (operator-interactive session) -- free 4.8GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 8% busy over 10s; the :8188 instance is ACTIVELY RENDERING (last prompt 34s ago) -- a batch is driving the card, not idle residue",
   "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-09-22T18:50:25-0400",
-  "seen_count": 25,
+  "last_seen": "2026-09-22T19:31:08-0400",
+  "seen_count": 27,
   "source": "probe",
   "notes": [
     {

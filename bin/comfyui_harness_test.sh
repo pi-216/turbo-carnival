@@ -225,6 +225,7 @@ TC_SCHED_JOBS_DIR="$SCHED/jobs4" TC_HARNESS_LOG="$SCRATCH/refuse.log" \
   comfyui_up() { return 0; }               # an instance IS answering :8188
   comfyui_ours() { return 1; }             # ... not ours
   comfyui_reserve_ok() { return 1; }       # ... and it lacks --reserve-vram
+  comfyui_holder_class() { echo operator; }  # ... and a HUMAN owns it
   gpu_idle() { return 0; }
   sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"
             case "$1" in poll) echo claimed ;; *) : ;; esac; return 0; }
@@ -234,6 +235,36 @@ is "ensure refuses with rc=2" "rc=2" "$(cat "$SCRATCH/refuse.out")"
 is "refusal names the reason" "1" "$(grep -c 'REFUSING this tick' "$SCRATCH/refuse.log")"
 is "foreign un-reserved instance not adopted" "1" "$(grep -c 'NOT adopting it' "$SCRATCH/refuse.log")"
 is "no claim requested (nothing minted, nothing queued)" "0" "$(grep -c 'request --gpu' "$SCRATCH/sched.calls")"
+# WHO holds it decides the response: an operator's session is a human's to end, so
+# the refusal must SAY so (2026-09-22: the brain tick called the same instance a
+# foreign project whose "clean fix" was to relaunch it with flags -- i.e. it
+# proposed re-flagging the operator's own tmux session).
+is "refusal carries the holder class" "1" "$(grep -c 'holder=operator' "$SCRATCH/refuse.log")"
+is "refusal forbids touching the operator's session" "1" \
+   "$(grep -c "the OPERATOR's interactive session" "$SCRATCH/refuse.log")"
+is "refusal does not propose re-flagging the holder" "0" \
+   "$(grep -c 'relaunch their ComfyUI' "$SCRATCH/refuse.log")"
+
+# Same refusal, different holder: the clause must follow the CLASS, not the flag
+# situation -- a supervised unit is another project's to change, not ours.
+echo "--- ensure: the refusal clause follows the holder class (unit) ---"
+TC_SCHED_JOBS_DIR="$SCHED/jobs4" TC_HARNESS_LOG="$SCRATCH/refuse-unit.log" \
+  bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  STATE_FILE="'"$SCRATCH"'/claim3b.json"; rm -f "$STATE_FILE"
+  vram_free_mib() { echo 21500; }
+  comfyui_up() { return 0; }
+  comfyui_ours() { return 1; }
+  comfyui_reserve_ok() { return 1; }
+  comfyui_holder_class() { echo unit; }
+  gpu_idle() { return 0; }
+  sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"; return 0; }
+  cmd_ensure --wait 5; exit 0
+' > /dev/null 2>&1
+is "unit holder named as another project's" "1" \
+   "$(grep -c "another project's supervised unit" "$SCRATCH/refuse-unit.log")"
+is "unit clause is NOT the operator wording" "0" \
+   "$(grep -c "OPERATOR's interactive session" "$SCRATCH/refuse-unit.log")"
 
 echo "--- ensure: a flagged instance is still adopted (not a blanket refusal) ---"
 : > "$SCRATCH/sched.calls"
@@ -257,6 +288,11 @@ echo "--- status: the refusal condition is visible to monitors ---"
 if grep -q 'comfyui=up' "$SCRATCH/status.out"; then
   is "status carries reserve=<ok|missing>" "1" \
      "$(grep -cE 'comfyui=up.*reserve=(ok|missing)' "$SCRATCH/status.out")"
+  # holder= is what turns `owner=foreign` into a WHO: without it a monitor has to
+  # hand-read /proc to learn whether the blocker is a human's session (yield) or
+  # another project's unit (policy), which cost three consecutive triage passes.
+  is "status carries holder=<class>" "1" \
+     "$(grep -cE 'comfyui=up.*holder=(operator|agent|unit|other|unknown)' "$SCRATCH/status.out")"
 else
   printf '  SKIP  nothing answering :8188 at test time (%s)\n' "$(cat "$SCRATCH/status.out")"
 fi

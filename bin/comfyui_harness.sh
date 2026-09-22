@@ -349,6 +349,43 @@ comfyui_reserve_ok() {
   return 1
 }
 
+# WHO the pid serving :8188 belongs to — operator | agent | unit | other | unknown.
+# WHY: `owner=foreign` is TRUE for a human's tmux session, another project's
+# supervised unit and an agent-owned orphan alike, and those three have OPPOSITE
+# correct responses -- so without this the reader either hand-reads /proc (three
+# consecutive ops-triage passes did, 2026-09-22) or proposes the wrong fix: the
+# 19:04 EDT growth-brain tick reported the blocker as a foreign instance whose
+# "clean fix is on the foreign owner's side: relaunch their ComfyUI with
+# --reserve-vram" when it was the OPERATOR's own interactive session, which no
+# agent may touch, restart or re-flag (measured: holder=operator, pid 553489,
+# tmux-spawn-*.scope, 22.6 GiB, actively rendering).
+# The classifier is owned by bin/tc_ops.py (classify_holder + holder_token, with
+# their own selftest assertions); this is only the call, so the harness and the
+# board can never disagree about who a pid is. Never fails the caller: a missing
+# script, a timeout or an unexpected token degrades to `unknown`.
+comfyui_holder_class() {
+  local pid="${1:-}" out
+  [ -n "$pid" ] || pid="$(comfyui_running_pid)"
+  [ -n "$pid" ] || { echo unknown; return 0; }
+  out="$(timeout 5 "$PY3" "$APP_DIR/bin/tc_ops.py" holder-class "$pid" 2>/dev/null | head -1)"
+  case "$out" in
+    operator|agent|unit|other) echo "$out" ;;
+    *) echo unknown ;;
+  esac
+}
+
+# The response clause for an attribution log line: the CLASS decides what may be
+# done, so it is spelled out where the refusal is recorded rather than left to the
+# reader to infer from a cgroup path.
+holder_response_note() {
+  case "${1:-}" in
+    operator) echo "the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change)" ;;
+    unit)     echo "another project's supervised unit -- its launch line is that project's to change; yield, do not touch it" ;;
+    agent)    echo "one of OUR agent cgroups -- our own launch path dropped the flag; fix the launch line in this repo, not the process" ;;
+    *)        echo "holder unattributable -- yield and report it; never restart an instance we did not launch" ;;
+  esac
+}
+
 # Who is actually serving port 8188: ours (pid recorded in our state file) or a
 # foreign instance started outside this harness (a byobu/tmux shell, another
 # agent). WHY: `comfyui=up` on its own cannot be attributed, so a co-tenant's
@@ -369,7 +406,10 @@ comfyui_attribution() {
   # --reserve-vram cannot be rendered through (see comfyui_reserve_ok), so a
   # monitor reading `status` sees the refusal condition before a tick hits it.
   if comfyui_reserve_ok "$pid"; then reserve=ok; else reserve=missing; fi
-  echo "owner=$who pid=$pid cgroup=${cg:-?} started=${started// /_} reserve=$reserve"
+  # holder= is the WHO half of the same attribution: owner=foreign covers a human's
+  # tmux session, another project's unit and an agent orphan, and only the class
+  # says which response is legal (see holder_response_note).
+  echo "owner=$who pid=$pid cgroup=${cg:-?} started=${started// /_} reserve=$reserve holder=$(comfyui_holder_class "$pid")"
 }
 
 # Discover the running ComfyUI's pid and record it in the state file as ours.
@@ -749,7 +789,10 @@ cmd_ensure() {
   # This fires on the ARGS, not on ownership: a launch line that drops the flag
   # must stop the render wherever it came from.
   if comfyui_up && ! comfyui_reserve_ok; then
-    log "ensure: REFUSING this tick — ComfyUI is up (pid $(comfyui_running_pid), owner $(comfyui_ours && echo ours || echo foreign)) but was launched WITHOUT --reserve-vram; rendering through it re-arms the over-commit OOM (see COMFY_RESERVE_VRAM). Not ours to restart — no claim requested, nothing to release, no render attempted."
+    local rpid rholder
+    rpid="$(comfyui_running_pid)"
+    rholder="$(comfyui_holder_class "$rpid")"
+    log "ensure: REFUSING this tick — ComfyUI is up (pid $rpid, owner $(comfyui_ours && echo ours || echo foreign), holder=$rholder) but was launched WITHOUT --reserve-vram; rendering through it re-arms the over-commit OOM (see COMFY_RESERVE_VRAM). Holder: $(holder_response_note "$rholder"). No claim requested, nothing to release, no render attempted."
     return 2
   fi
 
