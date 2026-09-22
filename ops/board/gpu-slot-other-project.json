@@ -2,17 +2,13 @@
   "key": "gpu-slot-other-project",
   "title": "4090 held by another project (prx-tg-pixel-posttrain-v4) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 1.3h; our queue entries=1",
+  "evidence": "we hold no claim; held 1.9h; our queue entries=1",
   "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T21:48:57-0400",
-  "seen_count": 66,
+  "last_seen": "2026-09-21T22:25:56-0400",
+  "seen_count": 67,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T12:54:11-0400",
-      "note": "2026-09-21 16:5xZ ops-triage: ACCEPTED STANDING INFO ITEM -- decision recorded so passes stop re-deriving it. Current state (re-read this pass): 4090 claim=busy current_job=prx-tg-pixel-posttrain-v3 (16GB, ~11h, not ours), our entry comfyui-1789999255-213957-1 (16GB, 9h, requested 14:00:55Z) queued behind it, comfyui=down as expected. Our launcher is behaving exactly as designed (comfyui_harness.log: adaptive fit asks 16GiB against 13.2GiB free, adopts the existing entry to keep FIFO position, retires and re-mints only when the persisted ask exceeds the live fit). NO ACTION IS POSSIBLE OR WANTED: our rules forbid touching another project's job, and the real starvation signals (render-starved, zero-acceptance-24h) are separate checks that are green (photos_24h=3, our queued entry is not refused at the head). The check self-closes the moment we hold the claim, so this needs no close by hand -- the sightings are a queue heartbeat, not a defect."
-    },
     {
       "ts": "2026-09-21T13:56:03-0400",
       "note": "2026-09-21 17:5xZ ops-triage: by-design capacity record, unchanged (claim=busy current_job=prx-tg-pixel-posttrain-v3 16GB held 11.0h; ours=no; our entry comfyui-1789999255-213957-1 asks 16.0GB -- the adaptive-fit fix holds -- and is next in the derived FIFO; strix idle). CONVENTION for future passes: this reproduces for as long as another project holds the 4090, and each pass appending 'nothing to action' fills the rolling note window with near-duplicates that then archive. Do NOT append a note unless something MATERIAL changes: the holder job id, our queue position, the held duration crossing a new hour band, or our entry asking for more VRAM than is free. The probe already refreshes evidence/last_seen/seen_count every tick; the note is for a new fact only."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T21:45:06-0400",
       "note": "2026-09-22 01:4xZ ops-triage: MATERIAL -- the HOLDER CHANGED, and that is what makes this a chain rather than one long job: prx-tg-pixel-posttrain-v3 released and v4 claimed (v4 requested_at 2026-09-22T00:30:42Z, ~11 min after we released our own 20:00-20:19 window). So the foreign hold re-occupies the card attempt after attempt -- read the hold as multi-job and the runway forecast against THAT, not against a single 11h job. Unchanged otherwise: our entry comfyui-1790038865-1557706-1 (16GB, requested 01:01:05Z) is second in the derived FIFO behind v4; publishable=17, dry_out=2026-09-27T10:30:00Z (5.4d runway), so posting is not yet at risk. No action is possible or wanted: another project job, leave it alone."
+    },
+    {
+      "ts": "2026-09-21T22:51:43-0400",
+      "note": "2026-09-22 02:5xZ ops-triage: HOLDER RELEASED, and we took the slot and released it cleanly. prx-tg-pixel-posttrain-v4 released 4090 status=completed at 02:27:19Z (~2h into its 13h reservation), which made our entry comfyui-1790038865-1557706-1 the FIFO head; this pass claimed it at 02:34:21Z, rendered once (ComfyuiJob 7568, 02:35:25Z-02:42:19Z, the reserve-vram verification), and released at 02:47:12Z -- harness log: 'clean -- port closed, GPU idle (VRAM 612 MiB)'; the derived queue is now empty and the 4090 is idle. MATERIAL, measured while v4 still held its claim: that hold had NO GPU consumer -- 6 nvidia-smi samples over 12s read 0% utilization, 612 MiB used, ~27 W idle, '--query-compute-apps' EMPTY, and no prx-tg process on this box -- while state.json carried a FRESH heartbeat (02:25:33Z) with vram_used_gb=0. So 'held by another project' did not mean 'the card was in use' for that window: never infer GPU work from a foreign claim's heartbeat alone, and never from the claim itself. SECOND OBSERVATION, our own side: between the release (02:27Z) and this pass's claim (02:34Z) the card sat IDLE while our own unclaimed entry blocked the FIFO for everything behind it (poll returns not_my_turn for any later requested_at). That window is bounded by the growth tick's hourly cadence and no co-tenant was queued, so no machinery was added; if a co-tenant is ever seen starved behind our unclaimed head entry, the fix is to shorten OUR claim cadence, not to cancel the entry (cancelling loses the FIFO place)."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400",

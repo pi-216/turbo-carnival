@@ -5,14 +5,10 @@
   "evidence": "3 ComfyUI execution error(s) in the last 24h; newest ComfyUI API error: HTTP 500 (09-22 00:05Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. TWO classes land here and only one is the payload: (a) the workflow dying on its input -- an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node, `index is out of bounds` (2026-09-21 11:16Z); (b) ComfyUI running out of VRAM mid-render, whose NEXT job then fails with the HTTP 500 seen here (2026-09-22 00:05Z). Class (b) is tracked with its budget numbers as `comfyui-torch-oom` -- read that entry for the cause instead of re-deriving it from this row. Neither is Rails code. Reconciled orphans are excluded.",
   "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-21T21:48:58-0400",
-  "seen_count": 37,
+  "last_seen": "2026-09-21T22:25:57-0400",
+  "seen_count": 38,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T09:52:10-0400",
-      "note": "2026-09-21 13:5xZ ops-triage: unchanged, blocked on a session holding the 4090 (no claim taken -- prx-tg-pixel-posttrain-v3 holds it). New evidence: ComfyuiJob 7563 (run 479, step 40 / pipeline 21) failed 11:16:30Z at retry_count=0 -- it was created 11:13:32Z, ~2h before the retry-once landed (81e8c4a), so the retry could not fire; the containment cannot be judged until the next post-fix render death. Root cause unchanged and DB-side: node 16 ApplyCLIPSeg+ prompt \"head\" -> node 45 GrowMaskWithBlur -> nodes 10/11 Bounded Image Crop with Mask, which indexes the mask bbox and dies on an empty CLIPSeg mask. The workflow lives only in pipeline_steps.comfy_workflow_json (no repo file), so the payload fix needs a GPU-owning session. Checked this pass: step 40 was rewritten at 11:13:32Z (\"adult, mature_face\" removed -- the pipeline:prompt_safety repair) with no presafety backup for that stamp; diffing it against ops/backups/pipeline_step_40_presafety_20260920T203703Z.json shows ONLY node 79 (negative prompt) changed, so that rewrite did NOT cause the empty mask."
-    },
     {
       "ts": "2026-09-21T10:05:32-0400",
       "note": "DECISION 2026-09-21 (operating agent, route=agent): ACCEPT the containment; do NOT escalate. The single bounded re-submit (81e8c4a) fits the observed rate -- 260 rows all-time in bursts (211 on 2025-12-10, 36 on 12-11, 12 on 2026-05-26, 1 on 2026-09-21) -- and cannot loop because the retry is bounded to one. The deeper fix (pre-empting an empty CLIPSeg mask before the WAS Bounded Image Crop node indexes its bbox) is AGENT work in the DB payload, not a Tim ask; it needs a GPU-owning session to verify, so it stays blocked-on-slot and is not escalated. This entry self-closes 24h after the last execution error."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T21:45:06-0400",
       "note": "2026-09-22 01:4xZ ops-triage: the CHECK OWN EVIDENCE TEXT was misattributing this row, so it was corrected in the repo rather than annotated here. It read \"The fault itself is the workflow payload (an empty CLIPSeg head/hand mask reaching the WAS Bounded Image Crop with Mask node)\" -- true for the 11:16Z class, WRONG for the 00:05Z class, which was a torch OOM whose NEXT job drew the HTTP 500 (now tracked with its budget numbers as comfyui-torch-oom). The evidence now names BOTH classes and points at that entry, so the next pass reads the cause instead of re-deriving it from this row. Verified: tc_ops.py selftest 292 assertions / 0 failures; probe re-filed this item with the corrected text. Item stays probe-managed and self-closes 24h after the last error (00:05Z 09-23)."
+    },
+    {
+      "ts": "2026-09-21T22:51:43-0400",
+      "note": "2026-09-22 02:5xZ ops-triage: class (b) -- the OOM-then-HTTP-500 pair -- did NOT recur on the first render after the fix. ComfyuiJob 7568 completed 02:42:19Z with no execution error of any kind, so the newest execution error still stands at 09-22 00:05Z and this entry self-closes 2026-09-23 ~00:05Z if none lands. The cause of that 00:05Z row is now VERIFIED fixed and carried with its numbers on comfyui-torch-oom (budget 21719 MB -> 16888 MB, render completed, no OOM). Class (a) -- the empty CLIPSeg head/hand mask reaching WAS 'Bounded Image Crop with Mask' ('index is out of bounds', last seen 11:16Z) -- is unchanged and remains the decided no-in-repo-fix: the workflow lives only in pipeline_steps.comfy_workflow_json and the only verification is a render, so an unverified edit to the 75-node production graph would risk the only render path. Nothing new to fix here; read this row as 'the workflow can die on this input', not as 'a render was lost'."
     }
   ],
   "route": "agent"
