@@ -17,6 +17,10 @@
     {
       "ts": "2026-09-22T00:38:52-0400",
       "note": "2026-09-22 04:3xZ ops-triage: FIXED (commit 16ae76d) -- this was a FALSE POSITIVE, and the check was unsound rather than the condition real. A dead pid cannot hold VRAM, and the sampler's vram_used_mib is CARD-level (nvidia-smi memory.used), so the reading on the exit record belongs to whatever else is on the card. Measured case: 2026-09-22 00:16:54Z was a CLEAN harness shutdown after a render that COMPLETED (ComfyuiJob 7570, 'Prompt executed in 00:11:51'; harness log 'shutdown: clean -- port closed, GPU idle (VRAM 3230 MiB)'), and the 3230 MiB is a co-tenant/transient -- the desktop baseline alone measures ~450-620 MiB and any ordinary co-tenant produces the same number, so no threshold on it can separate a leak from sharing. The branch now fires only on an UNEXPLAINED exit, judged by two sources: an explicit {\"intent\": \"shutdown\"} record the harness writes into the telemetry stream before SIGTERM (exercised live this pass: the marker landed), and the harness log's own shutdown: lines, which is what makes this historical record read as intentional. Leak-adjacent conditions keep their own sound checks (comfyui-oom-kill, comfyui-vram-unclaimed, comfyui-down-while-claimed). Verified: check_telemetry_oom() returns None on the live telemetry file, tc_ops.py selftest 292 assertions / 0 failures (+14 new cases), probe re-run 0 critical / 2 warn / 1 info and this item auto-closed."
+    },
+    {
+      "ts": "2026-09-22T00:51:43-0400",
+      "note": "2026-09-22 04:5xZ ops-triage: CORRECTION -- the fix's CODE is in commit 1fe8404 (16ae76d carried only the file rename; its message was written as if the code were included). Same content, same verification: selftest 292 assertions / 0 failures, check_telemetry_oom() returns None on the live telemetry file, item auto-closed."
     }
   ]
 }

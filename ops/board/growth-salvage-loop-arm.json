@@ -21,6 +21,10 @@
     {
       "ts": "2026-09-22T00:50:47-0400",
       "note": "2026-09-22 04:5xZ ops-triage: END-TO-END PROOF, same pass as the fix -- the loop recovered real work with NO GPU and no human. The 00:19 EDT growth tick's producer was SIGKILLed mid-render at the ~420s tool ceiling (run 484); the render itself completed in ComfyUI at 04:13:35Z (ImageCandidate 3196, PNG on disk, no Photo/Post). At 04:47:53Z the armed worker (pid 1960691 -- the SAME process that could not resolve the class before the fix) ran and at 04:48:33Z logged: 'salvage_recovered: run 484 - recovered an abandoned render into post 351 (photo 359); producer was killed before the post-actions ran' and 'recovered=1 {target: 21, existing: 20, shortfall: 1, post_ids=[351]}'. Queue publishable 20 -> 21 (shortfall 1 -> 0), dry_out 2026-09-28T10:30Z -> 14:00Z. This is the failure the enablement ask existed for (renders sitting unposted during a foreign GPU hold / after a producer kill) now closing itself in ~35 min."
+    },
+    {
+      "ts": "2026-09-22T00:51:43-0400",
+      "note": "2026-09-22 04:5xZ ops-triage: CORRECTION on the commit reference above -- the fix's CODE is in 1fe8404, not 16ae76d. 16ae76d carried only the file RENAME: a git add whose pathspec included a directory the move had already removed staged nothing, while the message was written as if the code were included. The behaviour verified above is unchanged (the tree contained all of it when the worker ran and recovered post 351); only the citation was wrong, and it is corrected here so the next reader finds the diff."
     }
   ],
   "closed_at": "2026-09-22T00:38:43-0400"
