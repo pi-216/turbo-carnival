@@ -5,8 +5,8 @@
   "evidence": "20 post(s) published in the last 14d, 17 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=47 (mean reach 2.8/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-22T07:26:00-0400",
-  "seen_count": 5,
+  "last_seen": "2026-09-22T08:45:51-0400",
+  "seen_count": 7,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -21,6 +21,10 @@
     {
       "ts": "2026-09-22T06:38:29-0400",
       "note": "2026-09-22 10:3xZ ops-triage: MEASUREMENT PATH VERIFIED LIVE, so this zero is a datum and not missing data \u2014 the one way this counter could mislead the 09-28 gate. Read from scheduling_posts directly: insights_updated_at is FRESH on the measured rows (09-22 07:00Z / 08:00Z / 09:00Z, the collector runs hourly), and the three newest posted rows (post 329 @ 07:00Z, 321 @ 06:00Z, 337 @ 09-21 18:00Z) carry no insights yet \u2014 correctly EXCLUDED from the measured set rather than counted as zero acceptance, which is exactly the property the check was written for. Measured set unchanged: 17 posts, likes=0 comments=0 saves=0, reach 47 (1-4 per post). Decision unchanged: keep cadence and keep publishing; the GO/PIVOT/KILL call stays with the pre-registered 09-28 gate. No new code needed."
+    },
+    {
+      "ts": "2026-09-22T08:45:45-0400",
+      "note": "2026-09-22 12:2xZ ops-triage: the zero is a DATUM WITH A TREND, and the only fabrication in its measurement path is now closed. Measured from scheduling_posts (insights-backed rows, 129 with collected insights): reach per post 7.77 all-time vs 2.76 over the last 14 days (17 posts), likes 16 across all 129 rows and 0 in the last 14d -- reach is DECLINING, not flat, which is the distribution-suppression shape and the reason the pre-registered pivot candidate is DISTRIBUTION/REACH rather than another content lever. The zero itself was re-confirmed live this pass (post 328 reach=4, post 320 reach=1, post 315 reach=2; insights_updated_at fresh on all three, so this is collected data, not stale). Fixed the one way the number could mislead: CollectPostInsights defaulted a MISSING reach metric to 1, which is the denominator of the engagement rate the 3% gate criterion reads -- a fabricated 1 understates reach and inflates the rate, and 8 of 129 rows sit at reach==1 indistinguishable from real 1s. It now records nil plus a warning (commit eeaba39, spec asserts a reach-less API response yields nil and rate 0.0). This item stays open BY DESIGN as the gate acceptance counter and self-closes on the first engaged post."
     }
   ]
 }
