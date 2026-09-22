@@ -5,8 +5,8 @@
   "evidence": "1 post(s) held in the window; 1 still in the held state (unpublished, both clocks cleared, so never released by the publisher). The gate holds a post whose render's apparent-age read comes back juvenile and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its clock: that publishes the render the gate rejected. A hold drops the post out of the cadence count, so the producer owes a replacement render; check_future_queue_empty only fires once the queue reaches zero, days later. The INPUT half of the fix is the adult age anchor in the persona's positive prompt (PersonaAgeAnchor); >= 3 holds in the window means that anchor is not landing. Held rows: #345 (photo 353): forced: photo 353 had an independent free-form read of early-teens-to-early-twenties while the structured probe said young adult; the prompt carried n",
   "status": "open",
   "first_seen": "2026-09-21T13:50:20-0400",
-  "last_seen": "2026-09-22T08:45:46-0400",
-  "seen_count": 36,
+  "last_seen": "2026-09-22T09:44:54-0400",
+  "seen_count": 40,
   "source": "probe",
   "route": "agent",
   "notes": [
