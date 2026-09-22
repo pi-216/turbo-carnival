@@ -176,6 +176,15 @@ module Growth
       sched = Scheduling::Post.create!(
         persona: persona,
         photo: photo,
+        # Link the post to the run that produced it. Without this the post is
+        # orphaned from its render, and Growth::RenderSalvage#already_posted? --
+        # whose whole job is "a run that already produced a post is done,
+        # whatever its status says" -- cannot see it (measured 2026-09-22: posts
+        # 345/347/353 carry pipeline_run_id NULL while every salvaged post 348-352
+        # carries it). The Photo row is the primary idempotency marker, so this
+        # was latent rather than duplicate-posting, but a guard that cannot see
+        # the rows it guards is not a guard.
+        pipeline_run: run,
         caption: caption,
         hashtags: hashtags_for(photo),
         caption_metadata: CaptionGeneration::CaptionMetadata.for_result(cap, placeholder: !captioned),

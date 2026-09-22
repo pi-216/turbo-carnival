@@ -55,6 +55,10 @@ RSpec.describe Growth::ContentGenerator do
       expect(post.caption_metadata['model']).to eq('gemma3:4b')
       expect(post.caption_metadata['model_selection']).to eq('preferred_not_resident(gemma3:27b)')
       expect(post.caption_metadata).not_to have_key('placeholder')
+      # The post must carry the run that produced it: Growth::RenderSalvage's
+      # already_posted? guard reads exactly this column, so a NULL here makes the
+      # guard blind to producer-created posts.
+      expect(post.pipeline_run_id).to eq(result[:run_id])
     end
 
     it 'ships the placeholder but records why when the caption call fails' do
