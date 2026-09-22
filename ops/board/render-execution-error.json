@@ -5,8 +5,8 @@
   "evidence": "2 ComfyUI execution error(s) in the last 24h; newest ComfyUI API error: HTTP 500 (09-22 00:05Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. TWO classes land here and only one is the payload: (a) the workflow dying on its input -- an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node, `index is out of bounds` (2026-09-21 11:16Z); (b) ComfyUI running out of VRAM mid-render, whose NEXT job then fails with the HTTP 500 seen here (2026-09-22 00:05Z). Class (b) is tracked with its budget numbers as `comfyui-torch-oom` -- read that entry for the cause instead of re-deriving it from this row. Neither is Rails code. Reconciled orphans are excluded.",
   "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-22T12:25:35-0400",
-  "seen_count": 62,
+  "last_seen": "2026-09-22T13:25:30-0400",
+  "seen_count": 63,
   "source": "probe",
   "notes": [
     {
