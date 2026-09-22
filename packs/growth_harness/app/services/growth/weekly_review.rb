@@ -18,6 +18,20 @@ module Growth
     MIN_POSTS_TOTAL = 5   # across all pillars before reweighting
     MIN_POSTS_PILLAR = 3  # per pillar before its engagement is trusted
     TRAJ_EQUAL_OK   = 0.5
+    # The window the per-pillar read covers. This class has always DOCUMENTED a
+    # weekly read (line 8: "per-pillar content performance"; the content-mix task
+    # cites "the 7 days ending that date") but `posted_posts` carried NO time
+    # bound, so `pillar_stats` averaged every post the persona ever made -- 143 of
+    # them, back to 2025-12-16, measured 2026-09-22. That is not a cosmetic
+    # mislabel: a lifetime mean moves ~15% a week, every recent post scores 0, so
+    # the read could only drift DOWN and could never show a lever landing. The
+    # 2026-09-21 review recorded Fashion & Style posts=35 eng=1.952 -- exactly the
+    # all-time figure -- and the pre-registered 2026-09-28 GO/PIVOT/KILL criterion
+    # ("no pillar exceeds 3% average engagement by that review") is read off this
+    # number, so the gate was unreadable by construction. A weekly review must
+    # judge the week; the lifetime count stays available via `posted_posts` for
+    # account maturity (`evidence_for_verdict`).
+    REVIEW_WINDOW_DAYS = 7
     # Gate margins for the persona experiment: these pre-register the
     # falsifiable expectation that must hold for a change to "stick" on the
     # following week's review. If the gate fails, the change is reverted.
@@ -34,12 +48,17 @@ module Growth
       @goal = goal
     end
 
-    # Returns the created Growth::Review. With `apply: false` it only audits
-    # (dry-run) without mutating the persona / writing a review.
+    # Returns the created Growth::Review. With `apply: false` it audits ONLY:
+    # no review row is written and no gate-driven revert runs. Both halves were
+    # wrong before (measured 2026-09-22): `Growth::Review.create!` ran
+    # unconditionally and so did `evaluate_previous_gates`, which calls
+    # revert_content_pillar / revert_tags_to_baseline / relax_tags on a failed
+    # gate -- so a documented "dry run" mutated the persona AND left a review row
+    # that the NEXT review reads as `prev` when evaluating its gates.
     def review(apply: true, force: false)
       return build_review(need_data_review) if evidence_for_verdict.nil?
 
-      gate_results = evaluate_previous_gates
+      gate_results = apply ? evaluate_previous_gates : { actions: [], kept: [], reverted: [] }
       audit = gather_audit
       persona_dir = persona_direction(audit)
       evolution = apply ? PersonaEvolution.new(goal: goal) : nil
@@ -81,7 +100,7 @@ module Growth
         end
       end
 
-      review = Growth::Review.create!(
+      review = Growth::Review.new(
         goal: goal,
         reviewed_at: Time.current,
         followers: goal.latest_followers,
@@ -96,6 +115,7 @@ module Growth
         recommendations: recommendations,
         applied_changes: changes
       )
+      review.save! if apply
 
       build_review(review)
     end
@@ -173,10 +193,12 @@ module Growth
       @authority ||= Growth::Authority.new(goal: goal)
     end
 
-    # Aggregate engagement per content pillar from posted posts + insights.
+    # Aggregate engagement per content pillar from posted posts + insights
+    # INSIDE the review window -- see REVIEW_WINDOW_DAYS for why the window is
+    # load-bearing rather than cosmetic.
     def pillar_stats
       rows = {}
-      posted_posts.includes(photo: :content_pillar).find_each do |post|
+      window_posts.includes(photo: :content_pillar).find_each do |post|
         pillar_name = post.photo&.content_pillar&.name || 'Uncategorized'
         r = (rows[pillar_name] ||= { name: pillar_name, posts: 0, engagement: 0.0, reach: 0, likes: 0, saved: 0, follows_est: 0 })
         r[:posts] += 1
@@ -187,7 +209,11 @@ module Growth
       end
       rows.values.map do |r|
         avg = r[:posts].positive? ? (r[:engagement] / r[:posts]).round(3) : 0.0
-        { name: r[:name], posts: r[:posts], engagement: avg, reach: r[:reach], likes: r[:likes], saved: r[:saved] }
+        # window_days rides on every row so the recorded number is
+        # self-describing: a bare "engagement=1.952" was read as a weekly
+        # figure for months while it was a lifetime mean.
+        { name: r[:name], posts: r[:posts], engagement: avg, reach: r[:reach], likes: r[:likes],
+          saved: r[:saved], window_days: REVIEW_WINDOW_DAYS }
       end.sort_by { |p| [-p[:engagement], -p[:posts]] }
     end
 
@@ -375,11 +401,20 @@ module Growth
       PersonaEvolution.new(goal: goal).enforce_tag_baseline
     end
 
+    # LIFETIME posted posts -- account maturity, not the review window. Used by
+    # `evidence_for_verdict` (do we have enough history to review at all). Any
+    # ENGAGEMENT read must use `window_posts` instead: judging a weekly lever on
+    # a lifetime mean is the defect REVIEW_WINDOW_DAYS documents.
     def posted_posts
       Scheduling::Post
         .where(persona: goal.persona)
         .where(status: 'posted')
         .where.not(photo_id: nil)
+    end
+
+    # The review WINDOW: published posts inside REVIEW_WINDOW_DAYS.
+    def window_posts
+      posted_posts.where('posted_at >= ?', REVIEW_WINDOW_DAYS.days.ago)
     end
   end
 end

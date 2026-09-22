@@ -108,4 +108,68 @@ RSpec.describe Growth::WeeklyReview do
       expect(persona.reload.hashtag_strategy.max_tags).to eq(30)
     end
   end
+
+  # The per-pillar read feeds the pre-registered GO/PIVOT/KILL criterion, and it
+  # averaged the persona's LIFETIME posts (143 of them, back to 2025-12-16)
+  # while this class documented a weekly read. A lifetime mean cannot show a
+  # lever landing: it moves ~15% a week and every recent post scores 0.
+  describe 'the per-pillar read window' do
+    let(:pillar) { create(:content_pillar, persona: persona, name: 'Fashion & Style') }
+
+    def posted(at:, engagement: 0.0)
+      photo = ContentPillars::Photo.create!(persona: persona, path: "spec-#{SecureRandom.hex(4)}.png",
+                                            content_pillar: pillar)
+      Scheduling::Post.create!(persona: persona, photo: photo, caption: 'a real caption',
+                               status: 'posted', posted_at: at, engagement_rate: engagement,
+                               provider_post_id: "ig-#{SecureRandom.hex(6)}")
+    end
+
+    it 'averages only posts INSIDE the window, not the persona lifetime' do
+      # Lifetime history: 20 posts at 5.0%, all older than the window.
+      Array.new(20) { posted(at: 30.days.ago, engagement: 5.0) }
+      # The week under review: 3 posts at 0.0%.
+      Array.new(3) { posted(at: 2.days.ago, engagement: 0.0) }
+
+      stats = reviewer.send(:pillar_stats).first
+
+      expect(stats[:posts]).to eq(3)
+      expect(stats[:engagement]).to eq(0.0)
+      expect(stats[:window_days]).to eq(Growth::WeeklyReview::REVIEW_WINDOW_DAYS)
+    end
+
+    it 'reads an empty window as empty rather than falling back to history' do
+      Array.new(20) { posted(at: 30.days.ago, engagement: 5.0) }
+
+      expect(reviewer.send(:pillar_stats)).to eq([])
+      # Account maturity still sees the lifetime history.
+      expect(reviewer.send(:posted_posts).count).to eq(20)
+    end
+  end
+
+  # A documented dry run used to write a review row AND run the gate evaluation,
+  # which reverts content pillars / hashtags on a failed gate -- so DRY=1 mutated
+  # the persona and left a row the NEXT review reads as `prev`.
+  describe 'a dry run (apply: false)' do
+    before do
+      goal.snapshots.create!(followers: 150, taken_at: 2.days.ago)
+      goal.snapshots.create!(followers: 151, taken_at: Time.current)
+      allow(reviewer).to receive(:posted_posts).and_return([ double ] * 5)
+      allow(reviewer).to receive(:gather_audit).and_return(
+        followers_delta: 1, measured: 0.5, verdict: 'behind',
+        pillars: [], hashtag_signal: {}, caption_signal: :none
+      )
+    end
+
+    it 'writes no review row and runs no gate revert' do
+      expect(reviewer).not_to receive(:evaluate_previous_gates)
+
+      result = nil
+      expect { result = reviewer.review(apply: false, force: true) }
+        .not_to change { Growth::Review.count }
+
+      expect(result[:review]).to be_a(Growth::Review)
+      expect(result[:review]).not_to be_persisted
+      expect(result[:verdict]).to eq('behind')
+    end
+  end
 end
