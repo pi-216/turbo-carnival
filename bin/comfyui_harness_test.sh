@@ -177,6 +177,19 @@ is "fitting record kept queued (FIFO place held)" "queued" "$(field "$SCHED/jobs
 is "no request minted when the record fits" "0" "$(grep -c ' request ' "$SCRATCH/sched.calls")"
 is "kept-for-next-tick logged" "1" "$(grep -c 'tc-fits is behind another queued job (not_my_turn' "$SCRATCH/ensure2.log")"
 
+echo "--- launch flags: the offline plan surface carries the VRAM-headroom flag ---"
+# ComfyUI sizes its OWN VRAM budget from the free memory it sees, so an EMPTY
+# card makes it over-commit and OOM instead of offloading (measured 2026-09-22
+# 00:05Z: 21719 MB budget -> torch OOM 78 MiB short on a 23.52 GiB device -> the
+# retry then drew "ComfyUI API error: HTTP 500"). --reserve-vram is the fix and
+# it must be visible on the surface that needs no GPU and no claim, so a launch
+# line that silently drops it fails HERE rather than at the next render.
+PLAN="$("$APP_DIR/bin/comfyui_harness.sh" plan 18939 2>/dev/null)"
+is "plan exposes the launch args" "1" "$(printf '%s' "$PLAN" | grep -cF -- '--reserve-vram 5')"
+is "plan still answers the fit question" "1" "$(printf '%s' "$PLAN" | grep -cF -- 'ask=17GiB')"
+is "reserve is overridable" "1" \
+   "$(COMFY_RESERVE_VRAM=9 "$APP_DIR/bin/comfyui_harness.sh" plan 18939 2>/dev/null | grep -cF -- '--reserve-vram 9')"
+
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi
 exit "$FAILED"

@@ -59,6 +59,32 @@ PROJECT=turbo-carnival
 VRAM=21
 VRAM_MIN_FIT=16        # GiB: below this ask no render is attempted at all
 FIT_HEADROOM_MIB=1024  # MiB left free for the desktop + ComfyUI's own slack
+# ComfyUI's OWN VRAM budget headroom (GiB) -> `--reserve-vram` on the launch line.
+#
+# WHY (measured 2026-09-22; this is the render-execution-error root cause):
+# ComfyUI's dynamic-VRAM manager sizes its per-model budget from the free VRAM it
+# sees, so the EMPTIER the card, the MORE it loads -- and past the card's real
+# limit it OOMs instead of offloading. Same workflow, same session, same persona:
+#   * co-tenants holding ~8 GiB -> "loaded partially; 15275.11 MB usable, 14914.72
+#     MB loaded, 7785.37 MB offloaded" -> "Prompt executed in 95.61 seconds" (the
+#     FASTEST prompts of that job: offloading is cheap on this path)
+#   * card otherwise empty      -> "loaded partially; 21719.11 MB usable, 21448.72
+#     MB loaded, 1251.42 MB offloaded" -> torch.OutOfMemoryError 78 MiB short at
+#     21.32 GiB allocated on a 23.52 GiB device (job 7564, 2026-09-22T00:05Z),
+#     with SDXL + CLIP still cached from the first stage.
+# The OOM then left ComfyUI's model state broken, so the retry drew "ComfyUI API
+# error: HTTP 500" from the Impact-Pack handler ('NoneType' has no attribute
+# 'values'): ONE over-commit cost two failed jobs and a lost render.
+# 5 GiB puts ComfyUI's budget back near ~16 GiB -- the envelope the 15.3 GiB
+# "usable" render above already PROVED -- and the reserve is for ComfyUI's own
+# transient sampler/inductor buffers, not for a co-tenant (we hold the claim).
+# Override with COMFY_RESERVE_VRAM; see cmd_plan / the launch instrumentation.
+COMFY_RESERVE_VRAM="${COMFY_RESERVE_VRAM:-5}"
+# The ONE owner of ComfyUI's launch flags. The launch line, the offline `plan`
+# surface and the launch instrumentation all read this array, so a flag cannot
+# reach the launch path without also showing up where a GPU-free check can see
+# it (bin/comfyui_harness_test.sh asserts exactly that).
+COMFY_LAUNCH_ARGS=(--listen 0.0.0.0 --reserve-vram "$COMFY_RESERVE_VRAM")
 DURATION=9h
 COMFY_DIR=/mnt/fscache/essdee/ComfyUI
 COMFY_VENV=.venv
@@ -355,7 +381,7 @@ tele_unit() { echo "comfyui-tele-${1#comfyui-}"; }
 pid_cgroup_of() { [ -n "${1:-}" ] && cat "/proc/$1/cgroup" 2>/dev/null | cut -d: -f3; }
 
 instrument_comfyui() {
-  local job="$1" cp="$2" cg
+  local job="$1" cp="$2" cg cmdline
   cg="$(pid_cgroup_of "$cp")"
   log "instrument: comfy pid $cp cgroup=${cg:-unknown}"
   case "$cg" in
@@ -365,6 +391,17 @@ instrument_comfyui() {
       log "instrument: ERROR — comfy pid $cp is INSIDE a hermes cron worker cgroup (${cg}); the 4 GiB cap will OOM-kill it. Fix the launch path before spending the claim." ;;
     *)
       log "instrument: WARN — unexpected cgroup for comfy pid $cp: ${cg:-unknown}" ;;
+  esac
+  # Assert the VRAM-headroom flag reached the PROCESS, not just the script: this
+  # is the difference between "offload the rest" and "fill the card and OOM"
+  # (2026-09-22T00:05Z: 21719 MB budget -> torch OOM 78 MiB short -> the retry
+  # drew HTTP 500). A launch line that silently drops it must say so HERE.
+  cmdline="$(tr '\0' ' ' < "/proc/$cp/cmdline" 2>/dev/null || true)"
+  case "$cmdline" in
+    *--reserve-vram*)
+      log "instrument: OK — ComfyUI launched with --reserve-vram ${COMFY_RESERVE_VRAM}GiB (its own budget headroom)" ;;
+    *)
+      log "instrument: ERROR — comfy pid $cp was launched WITHOUT --reserve-vram; it will size its VRAM budget to the whole card and OOM on a two-stage workflow (see COMFY_RESERVE_VRAM)" ;;
   esac
   start_telemetry "$job" "$cp"
 }
@@ -888,12 +925,16 @@ launch_comfyui() {
   # observed 69 GiB working set) and --enable-manager (registry network fetches at
   # every startup). The venv is pre-provisioned with requirements.txt +
   # manager_requirements.txt, so no pip step belongs in the launch path.
-  log "launching ComfyUI (${COMFY_DIR}) in unit ${unit} (MemoryMax=${COMFY_MEM_MAX}) — log: ${slog}"
+  # 2026-09-22: --reserve-vram IS part of the known-good line now (see
+  # COMFY_RESERVE_VRAM). It is not a compensating flag: it removes an over-commit
+  # ComfyUI makes on its own when the card is empty, measured from this install's
+  # own log (21719 MB "usable" -> OOM; 15275 MB "usable" -> 95.6s render).
+  log "launching ComfyUI (${COMFY_DIR}) in unit ${unit} (MemoryMax=${COMFY_MEM_MAX}) args='${COMFY_LAUNCH_ARGS[*]}' — log: ${slog}"
   systemd-run --user --unit="$unit" --collect \
     --property MemoryMax="${COMFY_MEM_MAX}" --property MemoryAccounting=yes \
     --property StandardOutput=append:"$slog" --property StandardError=append:"$slog" \
     --working-directory "$COMFY_DIR" \
-    "$COMFY_DIR/${COMFY_VENV}/bin/python" main.py --listen 0.0.0.0 >/dev/null 2>&1 \
+    "$COMFY_DIR/${COMFY_VENV}/bin/python" main.py "${COMFY_LAUNCH_ARGS[@]}" >/dev/null 2>&1 \
     || log "WARNING: systemd-run failed to start unit ${unit}"
 
   local waited=0
@@ -971,7 +1012,7 @@ cmd_plan() {
   local free_mib="${1:-}" ask
   [ -n "$free_mib" ] || free_mib="$(vram_free_mib)"
   ask="$(vram_ask_for_free "$free_mib")"
-  echo "free=${free_mib}MiB full_ask=${VRAM}GiB min_fit=${VRAM_MIN_FIT}GiB headroom=${FIT_HEADROOM_MIB}MiB ask=${ask}GiB"
+  echo "free=${free_mib}MiB full_ask=${VRAM}GiB min_fit=${VRAM_MIN_FIT}GiB headroom=${FIT_HEADROOM_MIB}MiB ask=${ask}GiB launch_args=${COMFY_LAUNCH_ARGS[*]}"
 }
 
 # Read-only verdict of the launch-layer runtime gate (no pip, no GPU, no claim).
