@@ -87,14 +87,23 @@ module Growth
 
     private
 
-    # Candidates of sync-produced runs that have been untouched past the grace,
-    # still have their file, and have no Photo row yet.
+    # Candidates of sync-produced runs whose render landed past the grace, still
+    # have their file, and have no Photo row yet.
+    #
+    # THE ABANDONMENT CLOCK IS THE CANDIDATE's created_at, NOT the run's
+    # updated_at (fixed 2026-09-22). ReconcileStaleRuns -- run by JobPollerWorker
+    # every 5 min -- writes a terminal status onto exactly these runs, which
+    # BUMPS updated_at and therefore RESTARTED the grace: measured, run 483 was
+    # reconciled at 03:38:07 and its candidate (rendered 03:08:06, producer dead
+    # well before) stayed unrecoverable until 04:08. The producer's post-actions
+    # happen within seconds of the render landing, so the candidate's created_at
+    # is the honest start of the wait; our own bookkeeping must not move it. A
+    # render still in flight has no candidate at all.
     def abandoned_candidates
       runs = PipelineRun
              .where(persona_id: goal.persona_id)
              .where("(pipeline_runs.variables ->> :key) IS NOT NULL", key: SYNC_PRODUCER_KEY)
              .where('pipeline_runs.updated_at > ?', MAX_AGE.ago)
-             .where('pipeline_runs.updated_at < ?', ABANDONED_AFTER.ago)
              .order(:id)
 
       runs = runs.reject { |run| gate_rejected?(run) || already_posted?(run) }
@@ -102,6 +111,8 @@ module Growth
 
       candidates = ImageCandidate
                    .where(pipeline_run_id: runs.map(&:id), status: 'active')
+                   .where('image_candidates.created_at > ?', MAX_AGE.ago)
+                   .where('image_candidates.created_at < ?', ABANDONED_AFTER.ago)
                    .order(:id)
                    .to_a
 
@@ -140,20 +151,20 @@ module Growth
       nsfw = Growth::NsfwGate.new.call(image_path: path)
       unless nsfw.safe
         record(run, 'salvage_rejected', "nsfw gate re-run rejected the recovered render (#{nsfw.error || "label=#{nsfw.label} score=#{nsfw.nsfw_score}"})")
-        return [:rejected, nil]
+        return [ :rejected, nil ]
       end
 
       realism = Growth::RealismGate.new.call(image_path: path)
       unless realism.safe
         record(run, 'salvage_rejected', "realism gate re-run rejected the recovered render (#{realism.error || realism.reason})")
-        return [:rejected, nil]
+        return [ :rejected, nil ]
       end
 
       photo = import_photo(run, path)
-      return [:skipped, nil] unless photo
+      return [ :skipped, nil ] unless photo
 
       post = schedule_post(run, photo, nsfw, realism)
-      return [:skipped, nil] unless post
+      return [ :skipped, nil ] unless post
 
       run.update!(quality_metrics: run.quality_metrics.merge(
         'nsfw_score' => nsfw.nsfw_score,
@@ -162,7 +173,7 @@ module Growth
         'salvaged_post_id' => post.id
       ))
       record(run, 'salvage_recovered', "recovered an abandoned render into post #{post.id} (photo #{photo.id}); producer was killed before the post-actions ran")
-      [:recovered, post.id]
+      [ :recovered, post.id ]
     end
 
     def import_photo(run, path)

@@ -36,6 +36,9 @@ RSpec.describe Growth::RenderSalvage do
     FileUtils.mkdir_p(File.dirname(image_path))
     File.binwrite(image_path, 'not-really-a-png')
     run.update_column(:updated_at, 2.hours.ago)
+    # The abandonment clock is the CANDIDATE's created_at (the render landing),
+    # so the fixture has to age it too -- see abandoned_candidates.
+    candidate.update_column(:created_at, 2.hours.ago)
 
     allow(Growth::NsfwGate).to receive(:new).and_return(double('nsfw_gate', call: nsfw_ok))
     allow(Growth::RealismGate).to receive(:new).and_return(double('realism_gate', call: realism_ok))
@@ -73,13 +76,26 @@ RSpec.describe Growth::RenderSalvage do
       expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(1)
     end
 
-    it 'never races a live producer: a run untouched inside the grace is skipped' do
-      run.update_column(:updated_at, 2.minutes.ago)
+    it 'never races a live producer: a render that just landed is skipped' do
+      candidate.update_column(:created_at, 2.minutes.ago)
 
       result = salvage.call(limit: 3)
 
       expect(result.examined).to eq(0)
       expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(0)
+    end
+
+    # Regression (2026-09-22): ReconcileStaleRuns writes a terminal status onto
+    # exactly these runs and BUMPED their updated_at, which used to restart the
+    # grace and make a dead producer's finished render unrecoverable for another
+    # 30 min per reconcile. Our own bookkeeping must not move the clock.
+    it 'recovers when our own reconciler touched the run after the render landed' do
+      run.update_column(:updated_at, 1.minute.ago)
+
+      result = salvage.call(limit: 3)
+
+      expect(result.recovered).to eq(1)
+      expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(1)
     end
 
     it 're-runs the NSFW gate and records a rejection instead of scheduling' do
@@ -143,7 +159,7 @@ RSpec.describe Growth::RenderSalvage do
     it 'records a placeholder caption on the post when the captioner fails' do
       allow(captioner).to receive(:call).and_return(
         double('caption result', success?: false, caption: nil, caption_metadata: nil,
-               errors: double(full_messages: ['Caption generation failed: timeout']))
+               errors: double(full_messages: [ 'Caption generation failed: timeout' ]))
       )
 
       post = Scheduling::Post.find(salvage.call(limit: 3).post_ids.first)

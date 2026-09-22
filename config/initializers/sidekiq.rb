@@ -8,6 +8,10 @@ Sidekiq.configure_server do |config|
     Rails.logger.info "Starting ComfyUI background workers..."
     JobPollerWorker.perform_async
     JobSubmitterWorker.perform_async
+    # GPU-free abandoned-render recovery on its own 5-min loop: RenderSalvage's
+    # only other driver is the growth tick's sync, which a tick that cannot
+    # acquire the 4090 never reaches. See Growth::AbandonedRenderWorker.
+    Growth::AbandonedRenderWorker.perform_async
   end
 end
 
