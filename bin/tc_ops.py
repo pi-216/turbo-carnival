@@ -161,6 +161,18 @@ RETRY_MARKER = 'retry#'
 # a live path is always well inside a day; a day of silence means nothing invoked
 # it (measured 2026-09-20: newest insights write 2026-05-27, i.e. ~4 months).
 INSIGHTS_STALE_WARN_H = 24
+# ACCEPTANCE, not freshness: a pipeline can publish at full cadence while nothing
+# it publishes is accepted. Measured 2026-09-22 -- the account published 36 posts
+# in September with 0 likes, 0 comments, 0 saves and a mean reach of ~3.5/post
+# (February: ~15/post), and no surface anywhere said so: every render completed,
+# every post landed, the queue stayed at target. Genome #43 ("output != accepted
+# output"): the acceptance counter is the signal, and its absence is why this
+# reads as a healthy harness right up to the 2026-09-28 GO/PIVOT/KILL gate.
+# Window is trailing so the entry self-closes the moment engagement returns, and
+# only posts whose insights were actually COLLECTED are counted -- missing data
+# must never masquerade as zero acceptance.
+ENGAGEMENT_WINDOW_DAYS = int(os.environ.get("TC_ENGAGEMENT_WINDOW_DAYS", "14"))
+ENGAGEMENT_MIN_POSTS = int(os.environ.get("TC_ENGAGEMENT_MIN_POSTS", "10"))
 # The caption model server. /api/ps answers "is a caption model warm" without
 # paying a cold load; the WARM-UP below is the only honest way to answer "can a
 # cold load complete", because that is the failure mode that shipped the
@@ -1319,6 +1331,78 @@ def check_insights_stale():
         "insights column silently zeroes its only content signal. Producer: "
         "scheduling:collect_insights (bin/scheduled_posting.sh, hourly). Measured "
         "2026-09-20: newest write 2026-05-27 with 107 items NULL.",
+    )
+
+
+def engagement_acceptance_verdict(n_posts, likes, comments, saved):
+    """Pure: measured posts in the trailing window -> severity (None = accepted).
+
+    `n_posts` counts ONLY posts whose insights were actually collected, so an
+    unmeasured post can never be read as zero engagement. Below
+    ENGAGEMENT_MIN_POSTS the sample cannot support a verdict, and an empty or
+    unreadable window returns None: a probe must never invent a dead pipeline.
+    Zero -- not "low" -- is the bound, because zero is unambiguous and needs no
+    threshold anyone has to defend later.
+    """
+    if not n_posts or n_posts < ENGAGEMENT_MIN_POSTS:
+        return None
+    if (likes or 0) + (comments or 0) + (saved or 0) == 0:
+        return "warn"
+    return None
+
+
+def check_engagement_acceptance():
+    """OUTPUT != ACCEPTED OUTPUT: full-cadence publishing that nobody accepts.
+
+    Distinct from check_insights_stale, which asks whether the measurement path
+    runs at all; this asks what it measured. The harness renders one image an
+    hour, the publisher releases 3/day, the queue sits at target, every gate
+    reads green -- and the account's own numbers say the audience never engaged.
+    Nothing else on this board reports that, because every other check measures
+    the MACHINE (renders, captions, queue, VRAM) and none measures the RESULT.
+
+    Read it as the 2026-09-28 gate's evidence, not as an in-repo fault: no code
+    change makes an audience engage. It is filed so the GO/PIVOT/KILL decision
+    is made against a number that was tracked continuously rather than
+    reconstructed after the fact.
+    """
+    win = ENGAGEMENT_WINDOW_DAYS
+    row = psql(
+        "with w as (select * from scheduling_posts where status = 'posted' "
+        f"and posted_at > (now() at time zone 'UTC') - interval '{win} days' "
+        "and persona_id = (select persona_id from growth_goals where status = "
+        "'active' order by id desc limit 1)) "
+        "select (select count(*) from w) || '|' || "
+        "(select count(*) from w where insights_updated_at is not null) || '|' || "
+        "coalesce((select sum(likes_count) from w where insights_updated_at is not null), 0) || '|' || "
+        "coalesce((select sum(comments_count) from w where insights_updated_at is not null), 0) || '|' || "
+        "coalesce((select sum(saved_count) from w where insights_updated_at is not null), 0) || '|' || "
+        "coalesce((select sum(reach) from w where insights_updated_at is not null), 0)"
+    )
+    if row is None:
+        return None
+    try:
+        posts, measured, likes, comments, saved, reach = (int(x) for x in row.split("|"))
+    except ValueError:
+        return None
+    sev = engagement_acceptance_verdict(measured, likes, comments, saved)
+    if not sev:
+        return None
+    mean_reach = round(reach / measured, 1) if measured else 0.0
+    return (
+        "zero-engagement-at-production-rate",
+        f"nothing published in {win}d was accepted: {measured} measured post(s), "
+        f"{likes} like(s), {comments} comment(s), {saved} save(s)",
+        sev,
+        f"{posts} post(s) published in the last {win}d, {measured} with insights "
+        f"collected; totals over the measured set: likes={likes} comments={comments} "
+        f"saves={saved} reach={reach} (mean reach {mean_reach}/post). The harness is "
+        "producing normally -- renders complete, posts land, the queue holds at "
+        "target -- so every machine-level check stays green while the RESULT is "
+        "zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL "
+        "gate; a flat engagement read there is this condition, not a starved "
+        "pipeline. Self-closes when a published post is engaged with (any "
+        "like/comment/save in the window).",
     )
 
 
@@ -4088,6 +4172,7 @@ CHECKS = [
     check_publish_gap,
     check_publish_failed_silent,
     check_insights_stale,
+    check_engagement_acceptance,
     check_future_queue_empty,
     check_post_slot_bursts,
     check_post_schedule_shape,
@@ -4710,6 +4795,24 @@ def cmd_selftest(_argv):
     ]
     for name, age, want in insights_cases:
         expect(f"insights_verdict[{name}]", insights_verdict(age), want)
+
+    # engagement_acceptance_verdict: measured posts in the trailing window ->
+    # severity. Zero is the bound; an under-sized sample or an unreadable window
+    # must stay silent rather than invent a dead pipeline.
+    engagement_cases = [
+        ("accepted", 20, 3, 1, 0, None),
+        ("zero-at-production-rate", 36, 0, 0, 0, "warn"),
+        ("at-floor", ENGAGEMENT_MIN_POSTS, 0, 0, 0, "warn"),
+        ("below-floor", ENGAGEMENT_MIN_POSTS - 1, 0, 0, 0, None),
+        ("nothing-measured", 0, 0, 0, 0, None),
+        ("none-sample", None, 0, 0, 0, None),
+        ("one-like-is-acceptance", 12, 1, 0, 0, None),
+        ("one-comment-is-acceptance", 12, 0, 1, 0, None),
+        ("one-save-is-acceptance", 12, 0, 0, 1, None),
+    ]
+    for name, n, l, c, s, want in engagement_cases:
+        expect(f"engagement_acceptance_verdict[{name}]",
+               engagement_acceptance_verdict(n, l, c, s), want)
 
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [
@@ -5466,7 +5569,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(engagement_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
