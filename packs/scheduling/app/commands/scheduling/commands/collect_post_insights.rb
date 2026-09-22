@@ -101,10 +101,25 @@ module Scheduling
 
         likes    = metrics["likes"] || 0
         comments = metrics["comments"] || 0
-        reach    = metrics["reach"] || 1
+        # nil == the API did not report reach. Recorded as UNKNOWN, never as a
+        # number: the previous `|| 1` fabricated a denominator, and the growth
+        # review's per-pillar engagement (likes+comments+saved)/reach -- the
+        # number the pre-registered 3% criterion is read from -- is computed off
+        # it. At the reach this account actually sees (median ~3) a fabricated 1
+        # both understates reach and inflates the rate. Measured 2026-09-22: 8 of
+        # 129 collected rows sit at reach==1 and are indistinguishable from real
+        # 1s, which is exactly why the default cannot be a number.
+        reach    = metrics["reach"]
         saved    = (metrics["saved"] || 0) + (metrics["shares"] || 0)
 
-        engagement = reach.positive? ? ((likes + comments + saved).to_f / reach * 100).round(2) : 0
+        if reach.nil?
+          Rails.logger.warn(
+            "CollectPostInsights: post #{post.id} returned no `reach` metric " \
+            "(metrics=#{metrics.keys.sort.join(',')}) -- recorded nil, not a default"
+          )
+        end
+
+        engagement = reach.to_i.positive? ? ((likes + comments + saved).to_f / reach * 100).round(2) : 0
 
         [ :ok, {
           likes_count: likes,

@@ -120,6 +120,19 @@ module Growth
       build_review(review)
     end
 
+    # Public read of the review WINDOW -- the relation `pillar_stats` aggregates
+    # and `REVIEW_WINDOW_DAYS` documents -- plus its per-pillar stats, so the
+    # pre-registered gate (`Growth::GateRead`) reads the SAME window this class
+    # judges on. ONE owner for the window math: a gate that re-derived the window
+    # would be free to disagree with the review it gates.
+    def gate_inputs
+      {
+        pillars: pillar_stats,
+        window_days: REVIEW_WINDOW_DAYS,
+        window_posts: window_posts
+      }
+    end
+
     private
 
     # Returns verdict nil when we need more data (so caller skips audit work).

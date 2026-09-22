@@ -225,6 +225,38 @@ namespace :growth do
          "need=#{shortfall.positive? ? 'yes' : 'no'} claim=#{gate.claim_state} comfy=#{gate.comfyui_up ? 'up' : 'down'}"
   end
 
+  # The pre-registered GO/PIVOT/KILL criterion lived only as PROSE on the ops
+  # board, and its cohort-validity rule (whether the engagement leg is a
+  # measurement at all) took a full ops pass to derive from the data. Run this
+  # instead of re-deriving it: it reads the SAME window the weekly review judges
+  # on, via Growth::WeeklyReview#gate_inputs. Read-only -- no writes, no persona
+  # mutation, exit 0 on every verdict (only a missing goal is a failure).
+  desc 'Pre-registered GO/PIVOT/KILL gate read for the growth thesis (read-only)'
+  task :gate, [:persona_name] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    goal = Growth::Goal.active.for_persona(persona).first
+    if goal.nil?
+      puts "gate: no active goal for #{persona&.name || 'any persona'}"
+      exit 1
+    end
+
+    read = Growth::GateRead.new(goal: goal).call
+    f = read[:followers]
+    e = read[:engagement]
+
+    puts "gate=#{read[:verdict]} " \
+         "followers=#{f[:value]}/#{f[:ceiling]}#{f[:pass] ? ' PASS' : ' FAIL'} " \
+         "max_pillar_eng=#{e[:max]}%#{e[:pass] ? ' PASS' : ' FAIL'} " \
+         "(floor #{e[:floor]}%, top=#{e[:max_pillar]}) " \
+         "window=#{e[:window_days]}d posts=#{e[:window_posts]} " \
+         "cohort=#{e[:cohort]}/#{e[:min_cohort]}#{e[:cohort_valid] ? '' : ' INVALID'}"
+    puts "reason: #{read[:reason]}"
+    puts 'pillars in window:'
+    read[:pillars].each do |p|
+      puts "  #{p[:name].ljust(28)} posts=#{p[:posts]} avg_eng=#{p[:engagement]}% reach=#{p[:reach]} likes=#{p[:likes]}"
+    end
+  end
+
   desc 'Weekly step-back review: trajectory + per-pillar engagement + persona evolution (DRY=1 audits without changing)'
   task :weekly_review, [:persona_name] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first

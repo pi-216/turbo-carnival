@@ -111,4 +111,23 @@ RSpec.describe 'scheduling:collect_insights' do
 
     expect(gone.reload.insights_updated_at).to be_nil
   end
+
+  # The denominator of the growth review's per-pillar engagement. A default here
+  # is not a convenience: it fabricates the number the pre-registered 3%
+  # GO/PIVOT/KILL criterion is read from.
+  it 'records a missing `reach` metric as unknown (nil), never as a default' do
+    post = posted(at: 3.days.ago)
+    stub_insights_api(body: { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 2 }] },
+                                        { 'name' => 'comments', 'values' => [{ 'value' => 0 }] }] })
+
+    expect(Rails.logger).to receive(:warn).with(/no `reach` metric/).at_least(:once)
+
+    expect { run_task }.not_to raise_error
+
+    post.reload
+    expect(post.insights_updated_at).to be_present
+    expect(post.reach).to be_nil          # UNKNOWN, not 1
+    expect(post.likes_count).to eq(2)
+    expect(post.engagement_rate).to eq(0.0) # no denominator => no rate, not a fabricated one
+  end
 end
