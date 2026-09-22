@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_21_040000) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_22_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -330,6 +330,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_21_040000) do
     t.float "engagement_rate"
     t.datetime "insights_updated_at"
     t.text "failure_reason"
+    t.datetime "insights_unavailable_at"
     t.index ["content_suggestion_id"], name: "index_scheduling_posts_on_content_suggestion_id"
     t.index ["persona_id"], name: "index_scheduling_posts_on_persona_id"
     t.index ["photo_id", "persona_id"], name: "index_posts_on_photo_id_and_persona_id", unique: true

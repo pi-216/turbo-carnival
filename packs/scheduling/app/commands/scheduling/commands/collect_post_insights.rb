@@ -10,8 +10,18 @@ module Scheduling
       # Measured 2026-09-20: ids 133-143 answer "(#100) Tried accessing
       # nonexisting field (insights)" and id 148 "Object with ID ... does not
       # exist, cannot be loaded due to missing permissions" -- 11 posts the
-      # query will re-select on every run forever.
+      # query re-selected on every run. Since 2026-09-22 that verdict is RECORDED
+      # (insights_unavailable_at), so a terminal row stops consuming a slot until
+      # the retry window below elapses.
       TERMINAL_API_CODES = [ 100 ].freeze
+
+      # How long a row the API called terminal waits before it is asked again.
+      # Not "never": code 100 covers a media that is gone AND one this token
+      # cannot read, so a token/permission change must be able to recover a row.
+      # The cost of the backoff is one wasted call per dead media per window
+      # (11 calls/30d) against 11 calls on EVERY run (measured: 55 runs' worth of
+      # warnings in the dev log) -- and 44% of the 25-row per-run budget.
+      INSIGHTS_RETRY_AFTER = 30.days
 
       # The counts the caller needs to tell "nothing to do" from "the API failed":
       # a run with candidates but zero refreshes is a failure, not a no-op.
@@ -35,7 +45,15 @@ module Scheduling
 
         candidates.each do |post|
           outcome, insights = fetch_insights(post)
-          unavailable << post.id if outcome == :unavailable
+          if outcome == :unavailable
+            unavailable << post.id
+            # Record the verdict, so this row stops re-entering the selection
+            # every run (see INSIGHTS_RETRY_AFTER). update_columns, not update!:
+            # a terminal row can be old and carry a nil scheduled_at, and a
+            # validation failure here would abort the whole collection run --
+            # the marker must never cost the other 14 candidates their refresh.
+            post.update_columns(insights_unavailable_at: Time.current)
+          end
           next unless insights
 
           post.update!(insights)
@@ -48,13 +66,16 @@ module Scheduling
         Rails.logger.info("CollectPostInsights: updated #{collected} of #{candidates.size} candidate posts")
         return if unavailable.empty?
 
-        # A warning, not silence: these ids are re-requested on every run (the
-        # query cannot tell a deleted media from a never-collected one), so the
-        # budget they consume is visible and the ids are named for an operator.
+        # A warning, not silence: these ids are named for an operator. They no
+        # longer re-enter every run -- the verdict is recorded on
+        # insights_unavailable_at and the selection skips a marked row for
+        # INSIGHTS_RETRY_AFTER -- so this line fires once per terminal media per
+        # retry window instead of once per run.
         Rails.logger.warn(
           "CollectPostInsights: #{unavailable.size} of #{candidates.size} candidate post(s) can never be " \
           "refreshed (Instagram 400/code #{TERMINAL_API_CODES.join('/')}: media deleted or inaccessible): " \
-          "ids=#{unavailable.join(',')} -- they re-enter every run because nothing records the terminal state"
+          "ids=#{unavailable.join(',')} -- recorded on insights_unavailable_at, not re-selected until " \
+          "#{INSIGHTS_RETRY_AFTER.inspect} has passed"
         )
       end
 
@@ -67,6 +88,13 @@ module Scheduling
       # (newest id 327), while ids 29-57 were re-collected, i.e. the newest write
       # was 2026-05-27. Never-collected first, then newest first: the recent posts
       # are the ones Growth::WeeklyReview reads for per-pillar engagement.
+      #
+      # The insights_unavailable_at filter is the second half of that fix. Rows the
+      # API has already called terminal are "never collected" by definition, so
+      # they sorted to the FRONT of this selection and spent 11 of its 25 slots on
+      # calls that cannot succeed (measured 2026-09-22: ids 133-143 + 148, on every
+      # run, 55 runs' worth of warnings in the dev log). Marked rows are skipped
+      # until the retry window passes; nothing is excluded permanently.
       def posts_needing_insights
         Scheduling::Post
           .where(persona_id: Persona.find_by(name: "Sarah")&.id)
@@ -74,6 +102,7 @@ module Scheduling
           .where.not(provider_post_id: nil)
           .where("posted_at < ?", 24.hours.ago)
           .where("insights_updated_at IS NULL OR insights_updated_at < ?", 6.hours.ago)
+          .where("insights_unavailable_at IS NULL OR insights_unavailable_at < ?", INSIGHTS_RETRY_AFTER.ago)
           .order(Arel.sql("insights_updated_at IS NULL DESC, posted_at DESC"))
           .limit(25) # Instagram rate limit: 200 calls/hour
       end

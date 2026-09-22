@@ -101,7 +101,7 @@ RSpec.describe 'scheduling:collect_insights' do
 
     # Measured in production 2026-09-20: 11 posts answer 400/code 100 forever
     # (media deleted / inaccessible) and, because the query orders never-collected
-    # rows first, they re-enter every run. Before this the non-200 returned nil
+    # rows first, they re-entered every run. Before this the non-200 returned nil
     # with no log line at all, so the publisher printed "refreshed 14 of 25" and
     # the 11 unexplained failures were indistinguishable from a transient blip.
     expect(Rails.logger).to receive(:warn).with(/media returned HTTP 400/).at_least(:once)
@@ -110,6 +110,38 @@ RSpec.describe 'scheduling:collect_insights' do
     expect { run_task }.not_to raise_error
 
     expect(gone.reload.insights_updated_at).to be_nil
+    # ...and the verdict is RECORDED, which is what stops the row re-entering the
+    # selection on the next run (11 of the 25 slots, every run, forever before).
+    expect(gone.reload.insights_unavailable_at).to be_present
+  end
+
+  # The budget is 25 rows/run against a 200-call/hour API limit, so a row that can
+  # never be refreshed must not keep spending slots: measured 2026-09-22, 11 such
+  # rows took 11 slots on every run while only 14 remained for real work.
+  it 'does not re-select a post the API has already called terminal' do
+    gone = posted(at: 3.days.ago)
+    gone.update_columns(insights_unavailable_at: 1.hour.ago)
+    live = posted(at: 2.days.ago)
+    stub_insights_api
+
+    run_task
+
+    # The dead row was not asked about again, and its slot went to real work.
+    expect(gone.reload.insights_updated_at).to be_nil
+    expect(live.reload.reach).to eq(100)
+  end
+
+  # Not a tombstone: code 100 also covers a media THIS token cannot read, so a
+  # permission/token change must be able to recover a row. After the retry window
+  # the row is asked about again rather than being dead forever.
+  it 're-probes a terminal post once the retry window has passed' do
+    old = posted(at: 40.days.ago)
+    old.update_columns(insights_unavailable_at: 31.days.ago)
+    stub_insights_api
+
+    run_task
+
+    expect(old.reload.insights_updated_at).to be_present
   end
 
   # The denominator of the growth review's per-pillar engagement. A default here
