@@ -190,6 +190,77 @@ is "plan still answers the fit question" "1" "$(printf '%s' "$PLAN" | grep -cF -
 is "reserve is overridable" "1" \
    "$(COMFY_RESERVE_VRAM=9 "$APP_DIR/bin/comfyui_harness.sh" plan 18939 2>/dev/null | grep -cF -- '--reserve-vram 9')"
 
+echo "--- reserve check: the launch-arg discriminator (no GPU) ---"
+# Positive/negative control on comfyui_reserve_ok itself. argv is set with
+# `exec -a`, so the string under test is the SAME field production reads
+# (/proc/<pid>/cmdline). The dummy argv deliberately does NOT match the
+# 'main.py --listen' discovery pattern, so a concurrent cron tick can never
+# mistake a dummy for the live ComfyUI.
+bash -c 'exec -a "dummy-comfy --reserve-vram 5" sleep 20' & DUMMY_OK=$!
+bash -c 'exec -a "dummy-comfy --enable-manager"   sleep 20' & DUMMY_NO=$!
+sleep 1
+bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  comfyui_reserve_ok '"$DUMMY_OK"' && printf "1" || printf "0"
+  comfyui_reserve_ok '"$DUMMY_NO"' && printf "1" || printf "0"
+  comfyui_reserve_ok 999999        && printf "1" || printf "0"
+' > "$SCRATCH/reserve" 2>/dev/null
+kill "$DUMMY_OK" "$DUMMY_NO" 2>/dev/null || true
+is "flagged argv=ok / unflagged=missing / dead pid=missing" "100" "$(cat "$SCRATCH/reserve")"
+
+# --- ensure(): a ComfyUI that is UP but was launched WITHOUT --reserve-vram is
+# --- never rendered through. Adoption is the hole: `launch_comfyui` adopts an
+# --- instance already answering :8188 instead of relaunching, so the launch line
+# --- is not ours to choose -- and a co-tenant's un-reserved instance sizes its
+# --- budget to the whole card, which is the over-commit that OOMed at 00:05Z.
+# --- The refusal must happen BEFORE a claim is requested, so it costs a window
+# --- and nothing else.
+echo "--- ensure: refuses to render through an instance launched without --reserve-vram ---"
+: > "$SCRATCH/sched.calls"
+TC_SCHED_JOBS_DIR="$SCHED/jobs4" TC_HARNESS_LOG="$SCRATCH/refuse.log" \
+  bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  STATE_FILE="'"$SCRATCH"'/claim3.json"; rm -f "$STATE_FILE"
+  vram_free_mib() { echo 21500; }          # 21GiB free: ONLY the missing flag can stop us
+  comfyui_up() { return 0; }               # an instance IS answering :8188
+  comfyui_ours() { return 1; }             # ... not ours
+  comfyui_reserve_ok() { return 1; }       # ... and it lacks --reserve-vram
+  gpu_idle() { return 0; }
+  sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"
+            case "$1" in poll) echo claimed ;; *) : ;; esac; return 0; }
+  cmd_ensure --wait 5; printf "rc=%s" "$?"
+' > "$SCRATCH/refuse.out" 2>/dev/null
+is "ensure refuses with rc=2" "rc=2" "$(cat "$SCRATCH/refuse.out")"
+is "refusal names the reason" "1" "$(grep -c 'REFUSING this tick' "$SCRATCH/refuse.log")"
+is "foreign un-reserved instance not adopted" "1" "$(grep -c 'NOT adopting it' "$SCRATCH/refuse.log")"
+is "no claim requested (nothing minted, nothing queued)" "0" "$(grep -c 'request --gpu' "$SCRATCH/sched.calls")"
+
+echo "--- ensure: a flagged instance is still adopted (not a blanket refusal) ---"
+: > "$SCRATCH/sched.calls"
+TC_SCHED_JOBS_DIR="$SCHED/jobs5" TC_HARNESS_LOG="$SCRATCH/adopt.log" \
+  bash -c '
+  source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+  STATE_FILE="'"$SCRATCH"'/claim4.json"; rm -f "$STATE_FILE"
+  vram_free_mib() { echo 21500; }
+  comfyui_up() { return 0; }
+  comfyui_ours() { return 1; }
+  comfyui_reserve_ok() { return 0; }       # the running instance carries the flag
+  gpu_idle() { return 0; }
+  sched() { printf "%s\n" "$*" >> "'"$SCRATCH"'/sched.calls"
+            case "$1" in poll) echo not_my_turn ;; *) : ;; esac; return 0; }
+  cmd_ensure --wait 5; exit 0
+' > "$SCRATCH/adopt.out" 2>/dev/null
+is "flagged instance is NOT refused" "0" "$(grep -c 'REFUSING this tick' "$SCRATCH/adopt.log")"
+is "claim requested at the live-fit ask" "1" "$(grep -c 'request --gpu 4090 --project turbo-carnival --vram 19 ' "$SCRATCH/sched.calls")"
+
+echo "--- status: the refusal condition is visible to monitors ---"
+if grep -q 'comfyui=up' "$SCRATCH/status.out"; then
+  is "status carries reserve=<ok|missing>" "1" \
+     "$(grep -cE 'comfyui=up.*reserve=(ok|missing)' "$SCRATCH/status.out")"
+else
+  printf '  SKIP  nothing answering :8188 at test time (%s)\n' "$(cat "$SCRATCH/status.out")"
+fi
+
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi
 exit "$FAILED"

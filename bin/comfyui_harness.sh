@@ -325,6 +325,30 @@ comfyui_ours() {
   [ -n "$pid" ] && [ "$pid" = "$want" ]
 }
 
+# The pid of whatever is serving :8188 (ours or a co-tenant's). Single owner of
+# the discovery pattern so the attribution, the reserve check and the refusal
+# cannot disagree about WHICH process they are talking about.
+comfyui_running_pid() { pgrep -f 'main\.py --listen' 2>/dev/null | head -1; }
+
+# Does the RUNNING ComfyUI carry the VRAM-headroom flag? The flag is the
+# discriminator for the over-commit OOM (see COMFY_RESERVE_VRAM): measured across
+# every no-reserve run on record, OOMs recurred at a material rate -- 3 OOMs in
+# 27 renders (09-17), 3 in 12 (09-17), 6 in 35 (09-19), 3 in 3 (09-22 00:0xZ,
+# the job that then drew HTTP 500 from the broken model state) -- while every
+# render since the flag went on the launch line (2026-09-22 02:34Z) has had
+# zero. The args are readable only from /proc, and they are the ONLY thing that
+# distinguishes a renderable instance from a trap, so this is what `ensure`
+# refuses on (see the guard in cmd_ensure) and what `status` reports as
+# reserve=<ok|missing>. Optional PID argument so it is testable without a GPU.
+comfyui_reserve_ok() {
+  local pid="${1:-}" cmdline
+  [ -n "$pid" ] || pid="$(comfyui_running_pid)"
+  [ -n "$pid" ] || return 1
+  cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+  case "$cmdline" in *--reserve-vram*) return 0 ;; esac
+  return 1
+}
+
 # Who is actually serving port 8188: ours (pid recorded in our state file) or a
 # foreign instance started outside this harness (a byobu/tmux shell, another
 # agent). WHY: `comfyui=up` on its own cannot be attributed, so a co-tenant's
@@ -335,13 +359,17 @@ comfyui_ours() {
 # pid + cgroup + start time are the discriminators; the tokens are appended so
 # the existing `claim=/job=/ours=/comfyui=` parse is untouched.
 comfyui_attribution() {
-  local pid cg started who=foreign
-  pid="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
+  local pid cg started who=foreign reserve
+  pid="$(comfyui_running_pid)"
   [ -n "$pid" ] || { echo "owner=unknown"; return 0; }
   comfyui_ours && who=ours
   cg="$(sed -n 's/^0:://p' "/proc/$pid/cgroup" 2>/dev/null)"
   started="$(ps -o lstart= -p "$pid" 2>/dev/null | xargs)"
-  echo "owner=$who pid=$pid cgroup=${cg:-?} started=${started// /_}"
+  # reserve= is the launch-arg half of the same attribution: an instance without
+  # --reserve-vram cannot be rendered through (see comfyui_reserve_ok), so a
+  # monitor reading `status` sees the refusal condition before a tick hits it.
+  if comfyui_reserve_ok "$pid"; then reserve=ok; else reserve=missing; fi
+  echo "owner=$who pid=$pid cgroup=${cg:-?} started=${started// /_} reserve=$reserve"
 }
 
 # Discover the running ComfyUI's pid and record it in the state file as ours.
@@ -699,9 +727,30 @@ cmd_ensure() {
       else
         log "ensure: our orphaned ComfyUI has queued renders — NOT shutting down (queue-first); acquiring claim to adopt it"
       fi
-    else
+    elif comfyui_reserve_ok; then
       log "ensure: unclaimed ComfyUI NOT launched by us (foreign) — leaving it untouched; acquiring claim to adopt it"
+    else
+      log "ensure: unclaimed FOREIGN ComfyUI (pid $(comfyui_running_pid)) was launched WITHOUT --reserve-vram — NOT adopting it (see the refusal below)"
     fi
+  fi
+
+  # INVARIANT (2026-09-22): never submit a render to a ComfyUI that was not
+  # launched with --reserve-vram. Adoption is the hole this closes: a running
+  # instance answering :8188 is adopted rather than relaunched (queue-first,
+  # 2026-09-07) so the launch line is NOT ours to choose -- and a co-tenant's
+  # tmux ComfyUI (observed 2026-09-22 12:57 EDT: `--listen 0.0.0.0
+  # --enable-manager`, no reserve, 17.1 GiB held) would then run OUR two-stage
+  # flux workflow at a budget sized to the whole card, which is precisely the
+  # over-commit that OOMed 78 MiB short at 00:05Z and then drew HTTP 500 from
+  # the broken model state. We cannot change a running process's args and a
+  # foreign instance is not ours to restart, so the only correct move is to yield
+  # the window -- and to yield it BEFORE requesting a claim, so the refusal costs
+  # nothing but the hour (the queue absorbs it: see `tc_ops.py queue` dry_out=).
+  # This fires on the ARGS, not on ownership: a launch line that drops the flag
+  # must stop the render wherever it came from.
+  if comfyui_up && ! comfyui_reserve_ok; then
+    log "ensure: REFUSING this tick — ComfyUI is up (pid $(comfyui_running_pid), owner $(comfyui_ours && echo ours || echo foreign)) but was launched WITHOUT --reserve-vram; rendering through it re-arms the over-commit OOM (see COMFY_RESERVE_VRAM). Not ours to restart — no claim requested, nothing to release, no render attempted."
+    return 2
   fi
 
   # GPU held by another agent (or we never had a job): adopt our own queued
