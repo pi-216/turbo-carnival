@@ -1,6 +1,32 @@
 # frozen_string_literal: true
 
 namespace :growth do
+  # ONE owner for the pre-registered gate LINE, shared by `growth:gate` and
+  # `growth:weekly_review`. The criterion below is judged "by that review", so the
+  # review is where it has to be emitted -- until 2026-09-22 the read existed only
+  # as `growth:gate`, a command nothing scheduled invoked, so the 09-28 review the
+  # gate names would have run without printing it and the GO/PIVOT/KILL decision
+  # would have waited on an agent remembering to ask. Two call sites, one
+  # implementation, so the two can never report the gate differently.
+  print_gate_read = lambda do |goal|
+    read = Growth::GateRead.new(goal: goal).call
+    f = read[:followers]
+    e = read[:engagement]
+
+    puts "gate=#{read[:verdict]} " \
+         "followers=#{f[:value]}/#{f[:ceiling]}#{f[:pass] ? ' PASS' : ' FAIL'} " \
+         "max_pillar_eng=#{e[:max]}%#{e[:pass] ? ' PASS' : ' FAIL'} " \
+         "(floor #{e[:floor]}%, top=#{e[:max_pillar]}) " \
+         "window=#{e[:window_days]}d posts=#{e[:window_posts]} " \
+         "cohort=#{e[:cohort]}/#{e[:min_cohort]}#{e[:cohort_valid] ? '' : ' INVALID'}"
+    puts "reason: #{read[:reason]}"
+    puts 'pillars in window:'
+    read[:pillars].each do |p|
+      puts "  #{p[:name].ljust(28)} posts=#{p[:posts]} avg_eng=#{p[:engagement]}% reach=#{p[:reach]} likes=#{p[:likes]}"
+    end
+    read
+  end
+
   desc 'Run the full growth harness loop (snapshot, cadence, review) for a persona'
   task :run_all, [:persona_name] => :environment do |_t, args|
     harness = Growth::Harness.new(persona_name: args[:persona_name])
@@ -240,21 +266,7 @@ namespace :growth do
       exit 1
     end
 
-    read = Growth::GateRead.new(goal: goal).call
-    f = read[:followers]
-    e = read[:engagement]
-
-    puts "gate=#{read[:verdict]} " \
-         "followers=#{f[:value]}/#{f[:ceiling]}#{f[:pass] ? ' PASS' : ' FAIL'} " \
-         "max_pillar_eng=#{e[:max]}%#{e[:pass] ? ' PASS' : ' FAIL'} " \
-         "(floor #{e[:floor]}%, top=#{e[:max_pillar]}) " \
-         "window=#{e[:window_days]}d posts=#{e[:window_posts]} " \
-         "cohort=#{e[:cohort]}/#{e[:min_cohort]}#{e[:cohort_valid] ? '' : ' INVALID'}"
-    puts "reason: #{read[:reason]}"
-    puts 'pillars in window:'
-    read[:pillars].each do |p|
-      puts "  #{p[:name].ljust(28)} posts=#{p[:posts]} avg_eng=#{p[:engagement]}% reach=#{p[:reach]} likes=#{p[:likes]}"
-    end
+    print_gate_read.call(goal)
   end
 
   desc 'Weekly step-back review: trajectory + per-pillar engagement + persona evolution (DRY=1 audits without changing)'
@@ -276,30 +288,38 @@ namespace :growth do
     if review.is_a?(Hash) # need_data
       puts "verdict: #{review[:verdict]}"
       puts "  snapshots=#{review[:snapshots]} posts=#{review[:posts]} (need >=2 snapshots and >=5 posts)"
-      exit 0
+    else
+      puts "verdict:        #{review.verdict}"
+      puts "followers:      #{review.followers} (delta #{review.followers_delta})"
+      puts "trajectory:     required #{review.required_daily}/day vs measured #{review.measured_daily}/day (ratio #{review.trajectory_ratio})"
+      puts "persona:        #{review.persona_direction}"
+      puts ''
+      puts 'pillar engagement:'
+      (review.pillar_engagement || {}).each do |name, p|
+        puts "  #{name.ljust(28)} posts=#{p['posts']} avg_eng=#{p['engagement']}% reach=#{p['reach']} likes=#{p['likes']}"
+      end
+      puts ''
+      puts 'recommendations:'
+      (review.recommendations || []).each { |r| puts "  - #{r}" }
+      puts ''
+      if (review.applied_changes || []).any?
+        puts 'changes applied (bounded, reversible):'
+        review.applied_changes.each { |c| next unless c.is_a?(Hash); puts "  [#{c['kind']}] #{c['reason']}: #{c['from'].inspect} -> #{c['to'].inspect}" }
+        puts ''
+        puts "DRY RUN: audit only, no changes made" unless apply
+      else
+        puts 'no persona changes applied this cycle'
+      end
     end
 
-    puts "verdict:        #{review.verdict}"
-    puts "followers:      #{review.followers} (delta #{review.followers_delta})"
-    puts "trajectory:     required #{review.required_daily}/day vs measured #{review.measured_daily}/day (ratio #{review.trajectory_ratio})"
-    puts "persona:        #{review.persona_direction}"
+    # The pre-registered GO/PIVOT/KILL criterion names "that review" as the moment
+    # it is read, so the review EMITS it. Last, deliberately: the weekly cron pipes
+    # this task through `tail`, and a criterion printed above the review body is the
+    # first thing a tail truncates. Single exit path so the need_data branch cannot
+    # skip it. Read-only -- the gate never mutates the persona.
     puts ''
-    puts 'pillar engagement:'
-    (review.pillar_engagement || {}).each do |name, p|
-      puts "  #{name.ljust(28)} posts=#{p['posts']} avg_eng=#{p['engagement']}% reach=#{p['reach']} likes=#{p['likes']}"
-    end
-    puts ''
-    puts 'recommendations:'
-    (review.recommendations || []).each { |r| puts "  - #{r}" }
-    puts ''
-    if (review.applied_changes || []).any?
-      puts 'changes applied (bounded, reversible):'
-      review.applied_changes.each { |c| next unless c.is_a?(Hash); puts "  [#{c['kind']}] #{c['reason']}: #{c['from'].inspect} -> #{c['to'].inspect}" }
-      puts ''
-      puts "DRY RUN: audit only, no changes made" unless apply
-    else
-      puts 'no persona changes applied this cycle'
-    end
+    puts 'pre-registered gate (GO/PIVOT/KILL criterion, over this same window):'
+    print_gate_read.call(goal)
     puts '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   end
 end

@@ -129,6 +129,17 @@ POST_SLOT_PLANNER_LANDED = calendar.timegm(
 RELEASE_PLAN_RAKE = APP / "packs" / "scheduling" / "lib" / "tasks" / "scheduled_posting.rake"
 RELEASE_PLAN_SRC = (APP / "packs" / "scheduling" / "app" / "services"
                     / "scheduling" / "post_release_plan.rb")
+# The pre-registered GO/PIVOT/KILL criterion, asserted rather than assumed: the
+# weekly review must still EMIT the gate read, and the two locked thresholds must
+# not drift silently. See check_weekly_review_gate_wired.
+GROWTH_RAKE = APP / "packs" / "growth_harness" / "lib" / "tasks" / "growth.rake"
+GATE_READ_SRC = (APP / "packs" / "growth_harness" / "app" / "services"
+                 / "growth" / "gate_read.rb")
+GATE_WIRED = re.compile(r"GateRead|print_gate_read")
+GATE_FOLLOWER_CEILING_RE = re.compile(r"FOLLOWER_CEILING\s*=\s*([\d.]+)")
+GATE_PILLAR_FLOOR_RE = re.compile(r"PILLAR_ENGAGEMENT_FLOOR\s*=\s*([\d.]+)")
+GATE_FOLLOWER_CEILING = 170
+GATE_PILLAR_FLOOR = 3.0
 # Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
@@ -1664,6 +1675,83 @@ def check_release_pacing():
         "the publisher's one-post-per-tick pacing is not wired",
         v[0],
         v[1] + f" (checked {RELEASE_PLAN_RAKE.name} + {RELEASE_PLAN_SRC.name})",
+    )
+
+
+def weekly_gate_wired_verdict(rake_src, gate_src):
+    """Pure: does the weekly review still EMIT the pre-registered gate read?
+
+    Returns None when the wiring holds, else (severity, evidence). A REGRESSION
+    GUARD, not a shape check, and the reason it exists is measured: the
+    GO/PIVOT/KILL criterion names "that review" as the moment it is read, but
+    until 2026-09-22 the read lived only in `growth:gate` -- a command nothing
+    scheduled invoked -- so the 09-28 review the gate names would have run
+    without printing it, and the decision would have waited on an agent
+    remembering to ask. `growth:weekly_review` now emits it (shared helper with
+    `growth:gate`), and nothing else asserts that survives a refactor: a revert
+    leaves every board signal green while the criterion goes dark again.
+
+    Also asserts the two LOCKED thresholds, because a pre-registered bound that
+    can be edited silently is not pre-registered -- changing one is a decision to
+    change the pre-registration, not a config tweak, and it has to show up as an
+    event rather than as a quiet diff.
+    """
+    if not rake_src:
+        return ("warn", f"cannot read the weekly review task ({GROWTH_RAKE.name})")
+    idx = rake_src.find("task :weekly_review")
+    if idx < 0:
+        return ("warn", "growth:weekly_review is gone from the growth tasks, so "
+                        "nothing emits the pre-registered gate read")
+    body = rake_src[idx:]
+    nxt = re.search(r"\n\s*task\s+:", body)
+    if nxt:
+        body = body[:nxt.start()]
+    if not GATE_WIRED.search(body):
+        return (
+            "warn",
+            "growth:weekly_review no longer emits the pre-registered GO/PIVOT/KILL "
+            "gate read -- the criterion is judged 'by that review', so a read that "
+            "lives only in `growth:gate` needs an agent to remember to run it (the "
+            "2026-09-21 state, where the review would have run without the gate)",
+        )
+    if gate_src:
+        ceiling = GATE_FOLLOWER_CEILING_RE.search(gate_src)
+        floor = GATE_PILLAR_FLOOR_RE.search(gate_src)
+        if ceiling and float(ceiling.group(1)) != GATE_FOLLOWER_CEILING:
+            return ("warn",
+                    f"pre-registered follower ceiling is now {ceiling.group(1)} "
+                    f"(registered at {GATE_FOLLOWER_CEILING}) -- a threshold change is "
+                    "a decision to change the pre-registration, not a config edit")
+        if floor and float(floor.group(1)) != GATE_PILLAR_FLOOR:
+            return ("warn",
+                    f"pre-registered pillar engagement floor is now {floor.group(1)}% "
+                    f"(registered at {GATE_PILLAR_FLOOR}%) -- same as above")
+    return None
+
+
+def check_weekly_review_gate_wired():
+    """Assert the pre-registered gate is emitted by the review it names.
+
+    The gate was registered on the ops board as PROSE, then implemented as code
+    (Growth::GateRead) -- but a read nobody schedules is still prose in practice.
+    Measured 2026-09-22: `growth:gate` existed and was run only by hand on an ops
+    pass, while the weekly review the criterion references printed no gate line
+    at all.
+    """
+    def read(p):
+        try:
+            return p.read_text()
+        except OSError:
+            return ""
+
+    v = weekly_gate_wired_verdict(read(GROWTH_RAKE), read(GATE_READ_SRC))
+    if not v:
+        return None
+    return (
+        "weekly-review-gate-unwired",
+        "the weekly review no longer emits the pre-registered GO/PIVOT/KILL gate read",
+        v[0],
+        v[1] + f" (checked {GROWTH_RAKE.name} + {GATE_READ_SRC.name})",
     )
 
 
@@ -4197,6 +4285,7 @@ CHECKS = [
     check_post_slot_bursts,
     check_post_schedule_shape,
     check_release_pacing,
+    check_weekly_review_gate_wired,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_comfyui_torch_oom,
@@ -5018,6 +5107,28 @@ def cmd_selftest(_argv):
     for name, rake_src, plan_src, want in pacing_cases:
         v = release_pacing_verdict(rake_src, plan_src)
         expect(f"release_pacing_verdict[{name}]", v[0] if v else None, want)
+
+    # weekly_gate_wired_verdict: (rake source, gate_read source) -> (severity, evidence)
+    # or None. The guard exists because the pre-registered criterion names "that
+    # review" as when it is read, and until 2026-09-22 nothing scheduled emitted it.
+    gate_ok = "  FOLLOWER_CEILING        = 170\n  PILLAR_ENGAGEMENT_FLOOR = 3.0\n"
+    review_wired = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n")
+    review_dark = ("  task :weekly_review do\n    puts review.verdict\n  end\n")
+    gate_cases = [
+        ("wired", review_wired, gate_ok, None),
+        ("wired-inline", "  task :weekly_review do\n    Growth::GateRead.new(goal: goal).call\n  end\n",
+         gate_ok, None),
+        ("review-dropped-the-gate", review_dark, gate_ok, "warn"),
+        ("task-renamed", "  task :weekly_something_else do\n    print_gate_read.call(goal)\n  end\n",
+         gate_ok, "warn"),
+        ("ceiling-moved", review_wired, "  FOLLOWER_CEILING        = 250\n", "warn"),
+        ("floor-moved", review_wired, "  PILLAR_ENGAGEMENT_FLOOR = 1.0\n", "warn"),
+        ("rake-unreadable", "", gate_ok, "warn"),
+        ("gate-src-unreadable", review_wired, "", None),
+    ]
+    for name, rake_src, gate_src, want in gate_cases:
+        v = weekly_gate_wired_verdict(rake_src, gate_src)
+        expect(f"weekly_gate_wired_verdict[{name}]", v[0] if v else None, want)
 
     # cron_delivery_verdict: job records -> severity. The delivery failure is
     # silent from inside the repo (the run succeeds, the output file exists), so
