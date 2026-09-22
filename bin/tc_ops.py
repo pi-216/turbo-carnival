@@ -902,9 +902,14 @@ def check_render_execution_errors():
         "base seed + the new ComfyuiJob id -- so the retry draws a different "
         "sample). A retry that RECOVERS still leaves this failed row, so read this "
         "entry as 'the workflow can die on this input', not as 'a render was "
-        "lost'. The fault itself is the workflow payload (an empty CLIPSeg "
-        "head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node), not "
-        "the Rails code. Reconciled orphans are excluded.",
+        "lost'. TWO classes land here and only one is the payload: (a) the "
+        "workflow dying on its input -- an empty CLIPSeg head/hand mask reaching "
+        "the WAS 'Bounded Image Crop with Mask' node, `index is out of bounds` "
+        "(2026-09-21 11:16Z); (b) ComfyUI running out of VRAM mid-render, whose "
+        "NEXT job then fails with the HTTP 500 seen here (2026-09-22 00:05Z). "
+        "Class (b) is tracked with its budget numbers as `comfyui-torch-oom` -- "
+        "read that entry for the cause instead of re-deriving it from this row. "
+        "Neither is Rails code. Reconciled orphans are excluded.",
     )
 
 
@@ -2524,6 +2529,168 @@ def check_telemetry_oom():
     return None
 
 
+# ------------------------------------------------- ComfyUI torch-level VRAM OOM
+# The CAUSE behind the HTTP-500/timeout rows the board otherwise sees only as a
+# symptom, and nothing else measures it: the cgroup sampler finds no oom_kill
+# (the process survives the failed allocation), and the Rails row carries only
+# whatever the renderer did NEXT. Measured 2026-09-22 00:05Z (job 7564): the card
+# was nearly EMPTY, so ComfyUI sized its dynamic-VRAM budget from free memory
+# ("loaded partially; 21719.11 MB usable, 21448.72 MB loaded"), loaded 21448 MB,
+# then died 78 MiB short at 21.32 GiB allocated on a 23.52 GiB device -- the OOM
+# corrupted its model state and the retry drew the HTTP 500, so ONE over-commit
+# cost two jobs. Offloading is cheap here; over-committing is fatal.
+#
+# Why it earns a check: the fix (bin/comfyui_harness.sh COMFY_RESERVE_VRAM=5 ->
+# --reserve-vram) is judged by exactly these numbers, and an OOM whose retry
+# RECOVERS leaves no failed row anywhere. The flag reaches the budget through TWO
+# paths and one is version-gated: EXTRA_RESERVED_VRAM in comfy/model_management.py,
+# and comfy_aimdo's simple_vram_headroom (main.py calls
+# control.init(simple_vram_headroom=...), catches TypeError and falls back to NO
+# headroom). The runtime venv is /mnt/fscache/essdee/ComfyUI/.venv, whose
+# comfy_aimdo is 0.5.5 and does accept it; the sibling venv/ holds 0.4.3 and would
+# silently fall back -- so a budget still reading ~21 GB usable under a launch line
+# that carries --reserve-vram points at the headroom path, not at the flag.
+COMFY_LOG_DIR = SCHED_DIR / "logs"
+COMFY_OOM_WINDOW_H = float(os.environ.get("TC_COMFY_OOM_WINDOW_H", "48"))
+COMFY_OOM_TAIL_BYTES = 512 * 1024
+COMFY_LAUNCH_TAIL_BYTES = 256 * 1024
+COMFY_OOM_PAT = re.compile(
+    r"torch\.OutOfMemoryError: Allocation on device \d+ would exceed allowed memory")
+COMFY_OOM_FACT_PAT = re.compile(
+    r"^\s*(Currently allocated|Requested|Device limit)\s*:\s*(.+?)\s*$")
+COMFY_USABLE_PAT = re.compile(
+    r"loaded (?:partially|completely); ([0-9.]+) MB usable, ([0-9.]+) MB loaded")
+
+
+def tail_text(path, nbytes):
+    """Last `nbytes` of a file as text, or "" -- never raises, never loads it all."""
+    try:
+        st = path.stat()
+        with open(path, "rb") as fh:
+            if st.st_size > nbytes:
+                fh.seek(st.st_size - nbytes)
+                fh.readline()  # drop the partial first line of the window
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def comfy_oom_hit(path):
+    """The NEWEST torch-OOM block in one ComfyUI log, or None.
+
+    Tail-bounded on purpose: the OOM's own evidence (the allocated / requested /
+    device-limit triple) sits within a few lines of the message, so a bounded read
+    keeps the hourly probe cheap on a job log that reaches a few MB.
+    """
+    text = tail_text(path, COMFY_OOM_TAIL_BYTES)
+    if not text:
+        return None
+    lines = text.splitlines()
+    idx = None
+    for i, ln in enumerate(lines):
+        if COMFY_OOM_PAT.search(ln):
+            idx = i
+    if idx is None:
+        return None
+    facts = {}
+    for ln in lines[idx:idx + 8]:
+        m = COMFY_OOM_FACT_PAT.match(ln)
+        if m:
+            facts[m.group(1)] = m.group(2)
+    usable = None
+    for ln in reversed(lines[:idx]):
+        m = COMFY_USABLE_PAT.search(ln)
+        if m:
+            usable = f"{m.group(1)} MB usable / {m.group(2)} MB loaded"
+            break
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    return {"log": path.name, "mtime": mtime,
+            "allocated": facts.get("Currently allocated"),
+            "requested": facts.get("Requested"),
+            "limit": facts.get("Device limit"), "usable": usable}
+
+
+def comfy_oom_scan():
+    """Newest-first torch-OOM hits across the recent ComfyUI job logs."""
+    try:
+        logs = sorted(COMFY_LOG_DIR.glob("comfyui-*.log"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return []
+    hits = []
+    for p in logs[:6]:
+        h = comfy_oom_hit(p)
+        if h:
+            hits.append(h)
+    hits.sort(key=lambda h: h["mtime"], reverse=True)
+    return hits
+
+
+def newest_comfy_launch_args():
+    """Launch args of the newest ComfyUI start, as the harness itself logged them.
+
+    The harness prints them verbatim ("launching ComfyUI ... args='...'"), so the
+    evidence can show whether --reserve-vram was actually in force for the process
+    whose log carries the OOM -- the flag being set in the script is not the same
+    fact as the flag reaching the budget.
+    """
+    text = tail_text(HARNESS_LOG, COMFY_LAUNCH_TAIL_BYTES)
+    last = None
+    for m in re.finditer(r"launching ComfyUI .*?args='([^']*)'", text):
+        last = m.group(1)
+    return last
+
+
+def comfy_oom_verdict(hits, now=None, window_h=COMFY_OOM_WINDOW_H, launch_args=None):
+    """Newest in-window torch OOM -> (severity, evidence) or None.
+
+    `now` and `window_h` are parameters so the self-closing behaviour -- the
+    window is what lets the entry leave the board once the fix holds -- is
+    testable without waiting for one.
+    """
+    now = time.time() if now is None else now
+    live = [h for h in hits if 0 <= (now - h.get("mtime", 0)) <= window_h * 3600]
+    if not live:
+        return None
+    h = live[0]
+    bits = [f"newest {h['log']} ({(now - h['mtime']) / 3600.0:.1f}h old)"]
+    if h.get("allocated"):
+        bits.append(f"died at {h['allocated']} allocated"
+                    + (f", {h['requested']} requested" if h.get("requested") else "")
+                    + (f", device limit {h['limit']}" if h.get("limit") else ""))
+    if h.get("usable"):
+        bits.append(f"the budget was {h['usable']}")
+    if launch_args:
+        bits.append(f"newest launch args: {launch_args}")
+    return ("warn", f"{len(live)} ComfyUI torch-OOM(s) in the last {window_h:g}h; "
+                    + "; ".join(bits))
+
+
+def check_comfyui_torch_oom():
+    hits = comfy_oom_scan()
+    v = comfy_oom_verdict(hits, launch_args=newest_comfy_launch_args())
+    if not v:
+        return None
+    sev, evidence = v
+    return (
+        "comfyui-torch-oom",
+        "a render ran out of VRAM inside ComfyUI (torch OOM)",
+        sev,
+        evidence + ". This is the CAUSE of the HTTP-500 / timeout rows tracked as "
+        "render-execution-error: ComfyUI sizes its dynamic-VRAM budget from FREE "
+        "memory, so the emptier the card the MORE it loads -- over-committing is "
+        "fatal, offloading is merely slower. Judge the fix by the budget line: a "
+        "launch carrying --reserve-vram (bin/comfyui_harness.sh COMFY_RESERVE_VRAM) "
+        "should hold 'usable' well under the ~21719 MB that failed; if it still "
+        "reads ~21 GB, the flag did not reach the budget (check comfy_aimdo's "
+        "simple_vram_headroom path against the runtime .venv). Self-closes when no "
+        "OOM is inside the window.",
+    )
+
+
 LOG_HEALTH_FILES = ("log/scheduled_posting.log", "log/development.log",
                     "log/comfyui_harness.log")
 # Paths a prompt still points at but nothing writes: named here so a monitoring run
@@ -3823,6 +3990,7 @@ CHECKS = [
     check_release_pacing,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
+    check_comfyui_torch_oom,
     check_harness_log_growth,
     check_queue_growth,
     check_scheduler_dispatcher,
@@ -5133,9 +5301,34 @@ def cmd_selftest(_argv):
         expect("telemetry_peak_mib[missing-file]",
                telemetry_peak_mib(Path(_d) / "nope.jsonl"), None)
 
+    # comfy_oom_verdict: a torch OOM inside ComfyUI is the CAUSE behind the
+    # HTTP-500 rows, and the window is what makes the entry self-closing.
+    _now = time.time()
+    _oom = lambda age_h, **kw: dict(
+        {"log": "comfyui-comfyui-x.log", "mtime": _now - age_h * 3600,
+         "allocated": "21.32 GiB", "requested": "78.00 MiB",
+         "limit": "23.52 GiB",
+         "usable": "21719.11 MB usable / 21448.72 MB loaded"}, **kw)
+    oom_cases = [
+        ("none", comfy_oom_verdict([], now=_now), None),
+        ("in-window", (comfy_oom_verdict([_oom(2.0)], now=_now) or ("",))[0], "warn"),
+        ("out-of-window-self-closes", comfy_oom_verdict([_oom(60.0)], now=_now), None),
+        ("at-window-edge", (comfy_oom_verdict([_oom(COMFY_OOM_WINDOW_H)], now=_now) or ("",))[0], "warn"),
+        ("bare-hit-still-fires", (comfy_oom_verdict([{"log": "l.log", "mtime": _now}], now=_now) or ("",))[0], "warn"),
+        ("future-mtime-not-live", comfy_oom_verdict([_oom(-3.0)], now=_now), None),
+    ]
+    for name, got, want in oom_cases:
+        expect(f"comfy_oom_verdict[{name}]", got, want)
+    _v = comfy_oom_verdict([_oom(1.0)], now=_now, launch_args="--reserve-vram 5")
+    _ev = _v[1] if _v else ""
+    expect("comfy_oom_verdict[names-budget]", "21719.11 MB usable" in _ev, True)
+    expect("comfy_oom_verdict[names-launch-args]", "--reserve-vram 5" in _ev, True)
+    expect("comfy_oom_verdict[names-allocation]",
+           "21.32 GiB allocated" in _ev and "78.00 MiB requested" in _ev, True)
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 

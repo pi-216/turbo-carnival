@@ -1,18 +1,14 @@
 {
   "key": "gpu-slot-other-project",
-  "title": "4090 held by another project (prx-tg-pixel-posttrain-v3) with our job(s) queued behind it",
+  "title": "4090 held by another project (prx-tg-pixel-posttrain-v4) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 12.1h; our queue entries=1",
-  "status": "auto-closed",
+  "evidence": "we hold no claim; held 1.2h; our queue entries=1",
+  "status": "open",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T19:36:46-0400",
-  "seen_count": 62,
+  "last_seen": "2026-09-21T21:45:35-0400",
+  "seen_count": 65,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T09:52:11-0400",
-      "note": "2026-09-21 13:5xZ ops-triage: normal shared-resource state, nothing to fix. claim=busy current_job=prx-tg-pixel-posttrain-v3 (16GB, ~11h), ours=no, comfyui=down as expected; our entry comfyui-1789992236-4075726-1 sits behind it (not_my_turn). Note: that entry still asks 21.0GB, but the next tick now re-mints it at the live-fit ask (cb0f36d) instead of waiting for a refusal at the head. No claim taken, no process or state file touched."
-    },
     {
       "ts": "2026-09-21T12:54:11-0400",
       "note": "2026-09-21 16:5xZ ops-triage: ACCEPTED STANDING INFO ITEM -- decision recorded so passes stop re-deriving it. Current state (re-read this pass): 4090 claim=busy current_job=prx-tg-pixel-posttrain-v3 (16GB, ~11h, not ours), our entry comfyui-1789999255-213957-1 (16GB, 9h, requested 14:00:55Z) queued behind it, comfyui=down as expected. Our launcher is behaving exactly as designed (comfyui_harness.log: adaptive fit asks 16GiB against 13.2GiB free, adopts the existing entry to keep FIFO position, retires and re-mints only when the persisted ask exceeds the live fit). NO ACTION IS POSSIBLE OR WANTED: our rules forbid touching another project's job, and the real starvation signals (render-starved, zero-acceptance-24h) are separate checks that are green (photos_24h=3, our queued entry is not refused at the head). The check self-closes the moment we hold the claim, so this needs no close by hand -- the sightings are a queue heartbeat, not a defect."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-21T20:25:47-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-21T21:45:06-0400",
+      "note": "2026-09-22 01:4xZ ops-triage: MATERIAL -- the HOLDER CHANGED, and that is what makes this a chain rather than one long job: prx-tg-pixel-posttrain-v3 released and v4 claimed (v4 requested_at 2026-09-22T00:30:42Z, ~11 min after we released our own 20:00-20:19 window). So the foreign hold re-occupies the card attempt after attempt -- read the hold as multi-job and the runway forecast against THAT, not against a single 11h job. Unchanged otherwise: our entry comfyui-1790038865-1557706-1 (16GB, requested 01:01:05Z) is second in the derived FIFO behind v4; publishable=17, dry_out=2026-09-27T10:30:00Z (5.4d runway), so posting is not yet at risk. No action is possible or wanted: another project job, leave it alone."
     }
   ],
   "closed_at": "2026-09-19T21:37:33-0400",
