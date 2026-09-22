@@ -146,6 +146,43 @@ RSpec.describe Growth::WeeklyReview do
     end
   end
 
+  # scheduling_posts also holds TEST-FIXTURE rows (caption 'test',
+  # provider_post_id NULL, reach pinned at 1000). They sit at status='posted'
+  # with a photo, so a bare status filter counts them as account history --
+  # measured 2026-09-22: 208 lifetime posts where the account published 143,
+  # and 2181 phantom likes in the aggregate.
+  describe 'fixture rows are not account history' do
+    let(:pillar) { create(:content_pillar, persona: persona, name: 'Fashion & Style') }
+
+    def row(caption:, provider_post_id:, reach: 0, likes: 0)
+      photo = ContentPillars::Photo.create!(persona: persona, path: "spec-#{SecureRandom.hex(4)}.png",
+                                            content_pillar: pillar)
+      Scheduling::Post.create!(persona: persona, photo: photo, caption: caption,
+                               status: 'posted', posted_at: 1.day.ago, reach: reach,
+                               likes_count: likes, provider_post_id: provider_post_id)
+    end
+
+    it 'excludes a fixture row from the lifetime count and the pillar read' do
+      # The fixture carries the pinned values that inflate every aggregate.
+      row(caption: 'test', provider_post_id: nil, reach: 1000, likes: 52)
+      row(caption: 'a real caption', provider_post_id: 'ig-real-1')
+
+      expect(reviewer.send(:posted_posts).count).to eq(1)
+      stats = reviewer.send(:pillar_stats).first
+      expect(stats[:posts]).to eq(1)
+      expect(stats[:likes]).to eq(0)
+      expect(stats[:reach]).to eq(0)
+    end
+
+    it 'keeps a real post even before insights are collected' do
+      # Insights lag publication; a fresh real post must still count.
+      Scheduling::Post.where(persona: persona).delete_all
+      row(caption: 'a real caption', provider_post_id: 'ig-real-2')
+
+      expect(reviewer.send(:posted_posts).count).to eq(1)
+    end
+  end
+
   # A documented dry run used to write a review row AND run the gate evaluation,
   # which reverts content pillars / hashtags on a failed gate -- so DRY=1 mutated
   # the persona and left a row the NEXT review reads as `prev`.

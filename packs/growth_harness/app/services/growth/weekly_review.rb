@@ -418,11 +418,22 @@ module Growth
     # `evidence_for_verdict` (do we have enough history to review at all). Any
     # ENGAGEMENT read must use `window_posts` instead: judging a weekly lever on
     # a lifetime mean is the defect REVIEW_WINDOW_DAYS documents.
+    #
+    # `published_to_platform` is load-bearing, not cosmetic (measured
+    # 2026-09-22): scheduling_posts holds 65 TEST-FIXTURE rows (caption 'test',
+    # provider_post_id NULL, reach pinned at 1000) sitting at status='posted'
+    # with a photo, so a bare status filter counts 208 lifetime posts where the
+    # account published 143 -- and with 2181 phantom likes in the aggregate. The
+    # live reads survived only by accident (the 7-day window and GateRead's
+    # insights filter both happen to exclude them); a wider window, or any
+    # future consumer legitimately widening it, would silently fold fixtures
+    # into an engagement read. Filtering here is the single chokepoint.
     def posted_posts
       Scheduling::Post
         .where(persona: goal.persona)
         .where(status: 'posted')
         .where.not(photo_id: nil)
+        .published_to_platform
     end
 
     # The review WINDOW: published posts inside REVIEW_WINDOW_DAYS.

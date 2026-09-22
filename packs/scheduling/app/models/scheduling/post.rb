@@ -15,6 +15,15 @@ module Scheduling
     scope :with_strategy, ->(strategy_name) { where(strategy_name: strategy_name) }
     scope :awaiting_photo, -> { where(photo_id: nil) }
     scope :with_photo, -> { where.not(photo_id: nil) }
+    # A post the platform actually published: Instagram returned a media id,
+    # which UpdatePostWithInstagramId persists as provider_post_id. The
+    # discriminator matters because scheduling_posts also holds rows written
+    # straight into the table (test fixtures) -- measured 2026-09-22, 65 rows
+    # with caption 'test', provider_post_id NULL and reach pinned at 1000,
+    # carrying 2181 of the account's apparent likes and inflating EVERY
+    # aggregate that filters on a bare `status: 'posted'`. Any count of what
+    # the account actually did must go through this scope.
+    scope :published_to_platform, -> { where.not(provider_post_id: nil) }
 
     state_machine :status, initial: :draft do
       state :draft           # Created, may or may not have image yet
