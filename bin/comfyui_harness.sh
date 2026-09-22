@@ -962,9 +962,10 @@ cmd_heartbeat() {
 }
 
 cmd_shutdown() {
-  local job_id hb_pid
+  local job_id hb_pid comfy_pid
   job_id="$(read_state | head -1)"
   hb_pid="$(read_state | sed -n '2p')"
+  comfy_pid="$(read_state | sed -n '3p')"
 
   # Queue-first guard (2026-09-07): never SIGTERM a ComfyUI whose native
   # queue still holds renders (running or pending). Killing live queued work
@@ -979,6 +980,17 @@ cmd_shutdown() {
       log "shutdown: stopping heartbeat unit $(hb_unit "$job_id")"
     fi
     stop_heartbeat "$job_id"
+  fi
+
+  # Record the INTENT in the telemetry stream BEFORE the SIGTERM. A dead pid
+  # cannot hold VRAM, so the sampler's exit record can never say whether a stop
+  # was ours -- and its card-level vram_used_mib (co-tenants included) is exactly
+  # the number a naive check reads as "leaked VRAM". Measured false positive
+  # 2026-09-22 00:16:54 on a CLEAN shutdown after a render that completed.
+  # tc_ops.py -> exit_was_intentional() reads this record; keep the key stable.
+  if [ -f "$TELE_FILE" ]; then
+    printf '{"ts": "%s", "pid": %s, "job": "%s", "intent": "shutdown"}\n' \
+      "$(date +%FT%T%z)" "${comfy_pid:-0}" "${job_id:-}" >> "$TELE_FILE"
   fi
 
   kill_comfyui

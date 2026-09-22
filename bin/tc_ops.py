@@ -2507,6 +2507,99 @@ def check_comfyui_vram_unclaimed():
     )
 
 
+# A dead pid cannot hold VRAM, so "exited while still holding VRAM" is not an
+# observable state -- and the sampler's vram_used_mib is CARD-level
+# (`nvidia-smi memory.used`), so a reading taken seconds after the process died
+# belongs to whatever ELSE is on the card (the desktop baseline measures
+# ~450-620 MiB; other projects' processes; and a dying render's own children --
+# ComfyUI's own shutdown logged a leaked loky/multiprocessing worker semaphore).
+# Measured FALSE POSITIVE 2026-09-22 00:16:54: a CLEAN harness shutdown after a
+# render that COMPLETED (ComfyuiJob 7570, "Prompt executed in 00:11:51", harness
+# log "shutdown: clean -- port closed, GPU idle (VRAM 3230 MiB)") was filed as
+# "exited while still holding VRAM 3230 MiB". No threshold on a card-level
+# reading can separate a leak from ordinary sharing, because a co-tenant
+# produces the same number.
+#
+# What IS answerable is whether the stop was OURS, so this branch fires only on
+# an UNEXPLAINED exit, and bin/comfyui_harness.sh now writes the intent into the
+# telemetry stream before SIGTERM. The genuine leak-adjacent conditions have
+# their own sound checks: a cgroup OOM kill (the branch above), a live ComfyUI
+# pinning VRAM with no claim (comfyui-vram-unclaimed), and ComfyUI down while we
+# hold the claim (comfyui-down-while-claimed).
+SHUTDOWN_INTENT_WINDOW_S = 300
+HARNESS_SHUTDOWN_PAT = re.compile(
+    r"^\[([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})\]\s*shutdown:")
+
+
+def iso_epoch(ts):
+    """Epoch for a telemetry ts (ISO8601 with offset), or None."""
+    try:
+        return datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def local_epoch(ts):
+    """Epoch for a harness-log stamp (`[%Y-%m-%d %H:%M:%S]`, local), or None."""
+    try:
+        return datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def shutdown_intent_epoch(records, log_text):
+    """Newest "this stop was ours" marker from EITHER source, or None.
+
+    Two sources on purpose. The telemetry stream carries an explicit
+    {"intent": "shutdown"} record, written by the harness immediately before
+    SIGTERM, so it shares the exit record's clock and needs no log parsing. The
+    harness log's own `shutdown:` lines cover exits that predate that marker and
+    any path that bypasses it -- which is exactly how the historical record
+    reads as intentional rather than as a leak.
+    """
+    newest = None
+    for rec in records or []:
+        if rec.get("intent") != "shutdown":
+            continue
+        e = iso_epoch(rec.get("ts"))
+        if e is not None and (newest is None or e > newest):
+            newest = e
+    for line in (log_text or "").splitlines():
+        m = HARNESS_SHUTDOWN_PAT.match(line)
+        if not m:
+            continue
+        e = local_epoch(m.group(1))
+        if e is not None and (newest is None or e > newest):
+            newest = e
+    return newest
+
+
+def exit_was_intentional(exit_rec, records, log_text,
+                         window_s=SHUTDOWN_INTENT_WINDOW_S):
+    """True when a harness-initiated stop explains this telemetry exit record."""
+    e = iso_epoch(exit_rec.get("ts"))
+    intent = shutdown_intent_epoch(records, log_text)
+    if e is None or intent is None:
+        return False
+    return abs(e - intent) <= window_s
+
+
+def telemetry_records(limit=200):
+    """The last `limit` telemetry records (newest last); [] when unreadable."""
+    try:
+        with open(TELE_FILE) as fh:
+            lines = fh.read().strip().splitlines()[-limit:]
+    except Exception:
+        return []
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
+
+
 def check_telemetry_oom():
     rec = last_telemetry()
     if not rec:
@@ -2520,11 +2613,16 @@ def check_telemetry_oom():
                         ("ts", "cgroup", "mem_peak_mb", "oom_kill_events")}),
         )
     if rec.get("exited") and rec.get("cgroup") and rec.get("vram_used_mib", 0) > 2000:
+        if exit_was_intentional(rec, telemetry_records(),
+                                tail_text(HARNESS_LOG, COMFY_LAUNCH_TAIL_BYTES)):
+            return None
         return (
             "comfyui-exited-with-vram",
-            "ComfyUI exited while still holding VRAM",
+            "ComfyUI exited UNEXPECTEDLY (no shutdown was requested)",
             "warn",
-            json.dumps({k: rec.get(k) for k in ("ts", "vram_used_mib")}),
+            json.dumps({k: rec.get(k) for k in ("ts", "vram_used_mib")})
+            + " -- card-level VRAM (co-tenants included) on a stop nobody asked"
+              " for; read comfyui-down-while-claimed for the claim half",
         )
     return None
 
@@ -5306,6 +5404,40 @@ def cmd_selftest(_argv):
         expect("telemetry_peak_mib[empty]", telemetry_peak_mib(_p), None)
         expect("telemetry_peak_mib[missing-file]",
                telemetry_peak_mib(Path(_d) / "nope.jsonl"), None)
+
+    # shutdown intent: a dead pid cannot hold VRAM, so the only answerable
+    # question about an exit record is whether the stop was OURS -- and BOTH
+    # sources (the harness's telemetry marker, its log's `shutdown:` line) must
+    # read as intentional, while a stale one must not.
+    _exit = {"ts": "2026-09-22T00:16:54-0400", "vram_used_mib": 3230,
+             "exited": True, "cgroup": "/user.slice/x.service"}
+    _marker = {"ts": "2026-09-22T00:16:43-0400", "intent": "shutdown"}
+    _clean = ("[2026-09-22 00:16:43] shutdown: clean -- port closed, "
+              "GPU idle (VRAM 3230 MiB)")
+    _stale = ("[2026-09-21 23:12:52] shutdown: stopping heartbeat unit "
+              "comfyui-hb-x")
+    intent_cases = [
+        ("iso-epoch-parses", iso_epoch("2026-09-22T00:16:54-0400") is not None, True),
+        ("iso-epoch-bad", iso_epoch("nope"), None),
+        ("iso-epoch-none", iso_epoch(None), None),
+        ("local-epoch-parses", local_epoch("2026-09-22 00:16:43") is not None, True),
+        ("local-epoch-bad", local_epoch(""), None),
+        ("marker-found", shutdown_intent_epoch([_marker], "") is not None, True),
+        ("log-found", shutdown_intent_epoch([], _clean) is not None, True),
+        ("no-source", shutdown_intent_epoch([], "nothing here"), None),
+        ("intentional-via-marker", exit_was_intentional(_exit, [_marker], ""), True),
+        ("intentional-via-log", exit_was_intentional(_exit, [], _clean), True),
+        ("stale-marker-not-intentional",
+         exit_was_intentional(
+             _exit, [{"ts": "2026-09-21T23:12:00-0400", "intent": "shutdown"}], ""),
+         False),
+        ("stale-log-not-intentional", exit_was_intentional(_exit, [], _stale), False),
+        ("no-source-not-intentional", exit_was_intentional(_exit, [], ""), False),
+        ("unparsable-exit-not-intentional",
+         exit_was_intentional({"ts": None}, [_marker], ""), False),
+    ]
+    for name, got, want in intent_cases:
+        expect(f"shutdown_intent[{name}]", got, want)
 
     # comfy_oom_verdict: a torch OOM inside ComfyUI is the CAUSE behind the
     # HTTP-500 rows, and the window is what makes the entry self-closing.

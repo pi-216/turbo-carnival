@@ -28,9 +28,24 @@ module Growth
     # The producer was therefore SIGKILLed mid-render, leaving a run no post was
     # ever made from -- later recovered by RenderSalvage, but the tick's work was
     # wasted and the queue kept a hole. Bounding the work to what fits means the
-    # producer always finishes cleanly, releases the GPU at the end of the tick,
-    # and the NEXT tick tops up the remainder (sync counts existing posts, so a
-    # partial run is safe to resume).
+    # producer stops after the renders that fit, releases the GPU at the end of
+    # the tick, and the NEXT tick tops up the remainder (sync counts existing
+    # posts, so a partial run is safe to resume).
+    #
+    # READ THIS BEFORE "CORRECTING" THE CONSTANT (2026-09-22). The name promises
+    # the measured render time; the value is NOT it, and must not be raised to
+    # it. The tick's foreground tool call is SIGKILLed at ~420s whatever timeout
+    # is requested, while a reserve-vram render now measures 400-720s (ComfyuiJob
+    # 7568 414s, 7569 402s, 7570 723s -- 35-step + 25-step flux stages at 1024px),
+    # so NO render fits a 360s budget: raising this to the measured figure makes
+    # the guard refuse every render and content production stops dead. The guard
+    # is deliberately optimistic and its job is now only to bound renders-per-tick
+    # at one; the kill it cannot prevent is HARMLESS by design, because the render
+    # itself is executed by ComfyUI (a separate process) and the abandoned PNG is
+    # turned into a post by Growth::RenderSalvage -- driven GPU-free by
+    # Growth::AbandonedRenderWorker every 5 min and by the next tick's sync.
+    # What the guard must never do is start work whose ARTIFACT cannot be
+    # recovered; keep the salvage path armed when touching this.
     MEASURED_RENDER_SECONDS = 300
 
     attr_reader :goal

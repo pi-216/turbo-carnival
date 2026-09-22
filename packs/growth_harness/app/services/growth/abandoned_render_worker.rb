@@ -19,6 +19,18 @@ module Growth
   # path is the marker), and self-rescheduling, so it runs on the same pattern
   # as JobPollerWorker -- in the always-on worker, not in a GPU-acquiring tick.
   # Only an ACTIVE goal is served, so a closed/halted goal is never posted to.
+  #
+  # FILE LOCATION IS LOAD-BEARING -- do not move this into app/workers/. A pack
+  # `app/*` directory that did not exist when a process booted is NOT in that
+  # process's Zeitwerk roots (roots are globbed once, at boot; Zeitwerk's reload
+  # re-scans the registered roots but never adds one), so the running worker
+  # cannot resolve the constant it schedules: measured 2026-09-21, where a
+  # sidekiq booted 09-19 13:23 threw `NameError: uninitialized constant
+  # Growth::AbandonedRenderWorker` on every attempt and left the recovery loop
+  # unarmed until a human restarted it. Placed in app/services/growth/, whose
+  # root predates that boot, the class resolves through the dev reloader with NO
+  # restart. Sidekiq constantizes the class INSIDE the Rails reloader
+  # (sidekiq-7.3.9 processor.rb:139-141), which is what makes that work.
   class AbandonedRenderWorker
     include Sidekiq::Worker
 
