@@ -2,11 +2,11 @@
   "key": "comfyui-torch-oom",
   "title": "a render ran out of VRAM inside ComfyUI (torch OOM)",
   "severity": "warn",
-  "evidence": "1 ComfyUI torch-OOM(s) in the last 48h; newest comfyui-comfyui-1789999255-213957-1.log (6.1h old); died at 21.32 GiB allocated, 78.00 MiB requested, device limit 23.52 GiB; the budget was 21719.11 MB usable / 21448.72 MB loaded; newest launch args: --listen 0.0.0.0 --reserve-vram 5. This is the CAUSE of the HTTP-500 / timeout rows tracked as render-execution-error: ComfyUI sizes its dynamic-VRAM budget from FREE memory, so the emptier the card the MORE it loads -- over-committing is fatal, offloading is merely slower. Judge the fix by the budget line: a launch carrying --reserve-vram (bin/comfyui_harness.sh COMFY_RESERVE_VRAM) should hold 'usable' well under the ~21719 MB that failed; if it still reads ~21 GB, the flag did not reach the budget (check comfy_aimdo's simple_vram_headroom path against the runtime .venv). Self-closes when no OOM is inside the window.",
+  "evidence": "1 ComfyUI torch-OOM(s) in the last 48h; newest comfyui-comfyui-1789999255-213957-1.log (7.1h old); died at 21.32 GiB allocated, 78.00 MiB requested, device limit 23.52 GiB; the budget was 21719.11 MB usable / 21448.72 MB loaded; newest launch args: --listen 0.0.0.0 --reserve-vram 5. This is the CAUSE of the HTTP-500 / timeout rows tracked as render-execution-error: ComfyUI sizes its dynamic-VRAM budget from FREE memory, so the emptier the card the MORE it loads -- over-committing is fatal, offloading is merely slower. Judge the fix by the budget line: a launch carrying --reserve-vram (bin/comfyui_harness.sh COMFY_RESERVE_VRAM) should hold 'usable' well under the ~21719 MB that failed; if it still reads ~21 GB, the flag did not reach the budget (check comfy_aimdo's simple_vram_headroom path against the runtime .venv). Self-closes when no OOM is inside the window.",
   "status": "open",
   "first_seen": "2026-09-21T21:42:10-0400",
-  "last_seen": "2026-09-22T02:25:58-0400",
-  "seen_count": 11,
+  "last_seen": "2026-09-22T03:25:56-0400",
+  "seen_count": 12,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -29,6 +29,10 @@
     {
       "ts": "2026-09-22T02:32:39-0400",
       "note": "2026-09-22 06:3xZ ops-triage: TRIGGER CORRECTED against a measured counterexample -- the reversal trigger recorded in the 05:4xZ note ('queue below target or dry_out inside ~3 days') FIRES ON THE HEALTHY STEADY STATE and would have triggered a launch-mode change on a working system. Measured this pass: publishable=19 against target=21 at 06:11Z decomposes EXACTLY into 21 status_rows - 1 age-gate hold (post 345) - 1 due-but-paced post (329, held by scheduling:post_scheduled pacing: 'Pacing: holding 1 further due post(s) ... still due, releases on the next tick'), plus post 321 published at 06:00Z by the hourly publisher. A queue below target mid-hour is the NORMAL reading of a system that paces one release per tick and tops up one render per tick -- not evidence of starvation. CORRECTED TRIGGER (interval, not point): act only if (a) dry_out under 3 days, OR (b) the shortfall FAILS TO CLOSE across 2 or more consecutive hourly ticks (what closes it is the render+salvage pair: posts 348@02:01Z, 349/350@03:44Z, 351@04:48Z this window), OR (c) 2 or more ticks whose completed render is still unrecovered past 60 min. ALSO RECORDED, because that trigger named a fix already rejected: 'run the producer detached in its own cgroup' was DECIDED AGAINST (item growth-tick-launch-mode, closed 2026-09-21 11:22 -- 'This is a BUDGET rather than a detached launch on purpose: step 4 GPU release must run after the producer returns, so backgrounding it would let the shutdown SIGTERM ComfyUI mid-render'). DECISION UNCHANGED: keep --reserve-vram 5, no change."
+    },
+    {
+      "ts": "2026-09-22T03:38:14-0400",
+      "note": "ACCEPTANCE HOLDS, now with a longer track record -- the --reserve-vram 5 fix has survived 5 consecutive renders with zero OOM: ComfyuiJob 7568 (415s), 7569 (402s), 7570 (723s under co-tenant pressure), 7571 (406s), 7572 (354s), all status=completed between 02:42Z and 07:07Z on 09-22; no torch.OutOfMemoryError anywhere in log/development.log since the 00:05Z pair, and the budget line stays in the proven envelope (usable ~13.5-16.9 GB vs the FATAL 21719.11 MB). The throughput cost accepted at 05:4xZ is unchanged (400-720s per render vs 256-304s before the reserve). No new decision needed; probe-owned (48h window, newest OOM 09-22 00:0xZ) so it self-closes ~09-24 00:01Z. The corrected reversal trigger from 06:3xZ stands: act only on dry_out under 3 days, or a shortfall that fails to close across 2+ consecutive hourly ticks, or 2+ ticks whose completed render is still unrecovered past 60 min."
     }
   ]
 }
