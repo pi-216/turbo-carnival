@@ -1,0 +1,18 @@
+{
+  "key": "growth-salvage-loop-arm",
+  "title": "One worker-process start arms the new GPU-free render-recovery loop",
+  "severity": "info",
+  "evidence": "The loop cannot arm itself. The sidekiq process for this app booted 2026-09-19 13:23, before the new\nworker directory existed, so its autoloader cannot resolve Growth::AbandonedRenderWorker -- the journal\nshows \"NameError: uninitialized constant Growth::AbandonedRenderWorker\" on every attempt (its dead-set\nentry was cleared by hand). The startup re-arm in config/initializers/sidekiq.rb only runs at process\nstart.\n\nThe ask is exactly one command on the box:\n\n    systemctl --user restart turbo-carnival-sidekiq\n\n(or set approvals.cron_mode: approve in the Hermes config so this cron can run it).\n\nNothing to build and nothing to decide: the code is committed (5b9c0d9) and spec-verified\n(17 examples green). Until it is armed, abandoned-render recovery falls back to the GPU-acquiring tick,\nwhich now no longer loses 30 min per reconcile but still does not run during a long foreign GPU hold.",
+  "status": "open",
+  "first_seen": "2026-09-21T23:48:52-0400",
+  "last_seen": "2026-09-21T23:48:52-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-09-21T23:48:53-0400",
+      "note": "Only a human can do this: the worker-process start is blocked for cron runs by the approval policy. One action arms a loop that turns already-rendered images into posts with no GPU (measured 13h+ of paid-for renders left unposted during a foreign GPU hold)."
+    }
+  ]
+}
