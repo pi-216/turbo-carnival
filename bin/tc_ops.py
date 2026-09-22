@@ -140,6 +140,20 @@ GATE_FOLLOWER_CEILING_RE = re.compile(r"FOLLOWER_CEILING\s*=\s*([\d.]+)")
 GATE_PILLAR_FLOOR_RE = re.compile(r"PILLAR_ENGAGEMENT_FLOOR\s*=\s*([\d.]+)")
 GATE_FOLLOWER_CEILING = 170
 GATE_PILLAR_FLOOR = 3.0
+# The engagement leg of that gate is a MEASUREMENT only if the review window
+# holds MIN_COHORT_POSTS posts whose PHOTO was rendered at/after the content-mix
+# intervention (Growth::GateRead.cohort_size: a post rendered before it cannot
+# carry any lever's effect, and publication lags the render by the queue depth).
+# That pool is replenished ONLY by the render loop -- so a REFUSED render loop
+# freezes it, and the pre-committed handling of a short cohort (`:extend` =
+# "re-read, do NOT act") then reads as "wait another week", when waiting is
+# exactly what cannot help. Mirrored from Growth::GateRead (parsed, not trusted:
+# see gate_cohort_params) and checked by check_gate_cohort_starved.
+GATE_COHORT_MIN = 5
+GATE_INTERVENTION_AT = "2026-09-21 23:35:00"   # Growth::GateRead::INTERVENTION_AT
+GATE_MIN_COHORT_RE = re.compile(r"MIN_COHORT_POSTS\s*=\s*(\d+)")
+GATE_INTERVENTION_RE = re.compile(
+    r"INTERVENTION_AT\s*=\s*Time\.utc\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)")
 # Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
@@ -1752,6 +1766,128 @@ def check_weekly_review_gate_wired():
         "the weekly review no longer emits the pre-registered GO/PIVOT/KILL gate read",
         v[0],
         v[1] + f" (checked {GROWTH_RAKE.name} + {GATE_READ_SRC.name})",
+    )
+
+
+def gate_cohort_params(src):
+    """PURE: (min_cohort, intervention 'YYYY-MM-DD HH:MM:SS') from GateRead source.
+
+    Parsed rather than trusted: if the cohort rule moves in Growth::GateRead and
+    these mirrors do not, this check would forecast a window the gate no longer
+    reads. Unreadable or absent source falls back to the mirrors, so the failure
+    mode is a stale number, never a crash -- and the drift that matters (the two
+    locked thresholds) is already asserted by check_weekly_review_gate_wired.
+    """
+    min_c, ia = GATE_COHORT_MIN, GATE_INTERVENTION_AT
+    m = GATE_MIN_COHORT_RE.search(src or "")
+    if m:
+        min_c = int(m.group(1))
+    m = GATE_INTERVENTION_RE.search(src or "")
+    if m:
+        y, mo, d, h, mi = (int(x) for x in m.groups())
+        ia = f"{y:04d}-{mo:02d}-{d:02d} {h:02d}:{mi:02d}:00"
+    return min_c, ia
+
+
+def gate_cohort_verdict(published, queued, refusals, min_cohort=GATE_COHORT_MIN):
+    """PURE: is the refusal FROZEN pool the thing keeping the gate unreadable?
+
+    Three answers, and the middle one is the point: a short cohort with the render
+    loop RUNNING is the pre-committed `:extend` doing its job (the levers have no
+    published cohort yet -- re-read later), while the same short cohort with the
+    loop REFUSED is a different fact with a different meaning: nothing can enter
+    the pool, so "re-read later" is not available. Returns (severity, forecast,
+    refusals) or None for "not this condition" / unreadable inputs.
+    """
+    try:
+        forecast = int(published) + int(queued)
+    except (TypeError, ValueError):
+        return None
+    try:
+        refusals = int(refusals)
+    except (TypeError, ValueError):
+        refusals = 0
+    if forecast >= min_cohort or refusals <= 0:
+        return None
+    return ("warn", forecast, refusals)
+
+
+# The cohort the NEXT weekly review will read, from the app's OWN cadence (the
+# last Growth::Review plus the goal's review_interval_days -- no hardcoded
+# weekday), split into the pool and the part of it that lands inside the window.
+GATE_COHORT_SQL = (
+    "with rv as (select greatest("
+    " coalesce((select max(reviewed_at) from growth_reviews), (now() at time zone 'UTC'))"
+    " + (select review_interval_days from growth_goals where status = 'active' limit 1)"
+    " * interval '1 day', (now() at time zone 'UTC') + interval '1 day') as next_review)"
+    " select to_char((select next_review from rv), 'MM-DD HH24:MI') || '|'"
+    " || (select count(*) from photos where created_at >= '{ia}') || '|'"
+    " || (select count(*) from scheduling_posts p join photos ph on ph.id = p.photo_id"
+    "      where ph.created_at >= '{ia}' and p.status = 'posted'"
+    "        and p.posted_at between (select next_review from rv) - interval '7 days'"
+    "                            and (select next_review from rv)) || '|'"
+    " || (select count(*) from scheduling_posts p join photos ph on ph.id = p.photo_id"
+    "      where ph.created_at >= '{ia}' and p.status in ('draft','scheduled')"
+    "        and p.scheduled_at between (select next_review from rv) - interval '7 days'"
+    "                                and (select next_review from rv))"
+)
+
+
+def check_gate_cohort_starved():
+    """No read of the pre-registered gate can be a MEASUREMENT while renders are refused.
+
+    Growth::GateRead decides whether the engagement leg is a measurement at all
+    from a COHORT: posts published inside the review window whose PHOTO was
+    rendered at/after the content-mix intervention. Nothing else feeds it, so a
+    refused render loop freezes the pool -- and the cohort then returns under the
+    floor at every review while the pre-committed `:extend` keeps meaning
+    "re-read, do NOT act", which is why this is its own condition rather than a
+    note: `gate=extend ... cohort=0/5 INVALID` reads as "not enough data yet,
+    wait", and under a render refusal waiting cannot add a single post. Measured
+    2026-09-22 (pool: 7 photos, published 09-27..09-29): the 09-28 window holds 4
+    of them and the 10-05 window holds 3, so the expectation recorded on the board
+    ("first valid read ETA 2026-10-05") is wrong for as long as the loop is
+    refused. Self-closing: when the loop stops being refused the pool grows again
+    and this goes quiet -- and that is the only in-repo fix (a foreign holder is
+    not ours to touch).
+    """
+    src = ""
+    try:
+        src = GATE_READ_SRC.read_text()
+    except OSError:
+        pass
+    min_cohort, intervention = gate_cohort_params(src)
+    row = psql(GATE_COHORT_SQL.format(ia=intervention))
+    if not row:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    review_at, pool, published, queued = parts
+    refusals = psql(
+        "select count(*) from growth_decisions where action in "
+        "('comfyui_unclaimed','cadence_blocked') and decided_at > "
+        f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
+    v = gate_cohort_verdict(published, queued, refusals, min_cohort)
+    if not v:
+        return None
+    return (
+        "gate-cohort-starved",
+        f"the next gate read cannot be a measurement: {v[1]} post-intervention "
+        f"post(s) inside the {review_at} review window (need {min_cohort}) "
+        f"while the render loop is refused",
+        v[0],
+        f"next weekly review {review_at}Z; its window is [(review - 7d), review]. "
+        f"Post-intervention pool (photos rendered at/after {intervention}Z -- the content-mix "
+        f"lever, inside Growth::GateRead::INTERVENTION_AT): {pool}. Inside that window: "
+        f"{published} already published + {queued} queued = {v[1]}, against MIN_COHORT_POSTS="
+        f"{min_cohort}. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") "
+        f"regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by "
+        f"arithmetic, not by waiting. Render loop: {v[2]} refusal(s) in the last "
+        f"{STARVE_WINDOW_H}h, so no new post-intervention photo can enter the pool -- the cohort "
+        f"is fed only by renders (publication lags them by the queue depth). That is why a GPU "
+        f"refusal starves the STRATEGY decision and not merely a render window. Not a Tim ask: "
+        f"the holder is another project's live job. Self-closes when the loop stops being refused."
     )
 
 
@@ -4349,6 +4485,7 @@ CHECKS = [
     check_post_schedule_shape,
     check_release_pacing,
     check_weekly_review_gate_wired,
+    check_gate_cohort_starved,
     check_comfyui_vram_unclaimed,
     check_telemetry_oom,
     check_comfyui_torch_oom,
@@ -4977,8 +5114,10 @@ def cmd_selftest(_argv):
 
     T = lambda h: f"2026-09-19T{h}:00:00Z"
     fails = []
+    n_asserted = [0]
 
     def expect(name, got, want):
+        n_asserted[0] += 1
         if got != want:
             fails.append(f"{name}: got {got!r}, want {want!r}")
 
@@ -5192,6 +5331,40 @@ def cmd_selftest(_argv):
     for name, rake_src, gate_src, want in gate_cases:
         v = weekly_gate_wired_verdict(rake_src, gate_src)
         expect(f"weekly_gate_wired_verdict[{name}]", v[0] if v else None, want)
+
+    # gate_cohort_params / gate_cohort_verdict: the cohort the pre-registered gate
+    # reads is replenished ONLY by the render loop, so a REFUSED loop freezes it and
+    # `:extend` ("re-read, do NOT act") stops meaning "not enough data yet". Two
+    # rules matter: the mirror must follow the gate's own source (a moved cohort
+    # rule must not be forecast from a stale constant), and a short cohort the loop
+    # is still FEEDING must never be reported -- that one is the pre-committed
+    # extend doing its job, and reporting it would make the check board noise.
+    expect("gate_cohort_params[parsed]",
+           gate_cohort_params("  MIN_COHORT_POSTS = 5\n"
+                              "  INTERVENTION_AT = Time.utc(2026, 9, 21, 23, 35)\n"),
+           (5, "2026-09-21 23:35:00"))
+    expect("gate_cohort_params[rule-moved]",
+           gate_cohort_params("  MIN_COHORT_POSTS = 3\n"
+                              "  INTERVENTION_AT = Time.utc(2026, 10, 1, 6, 5)\n"),
+           (3, "2026-10-01 06:05:00"))
+    expect("gate_cohort_params[unreadable]",
+           gate_cohort_params(""), (GATE_COHORT_MIN, GATE_INTERVENTION_AT))
+    cohort_cases = [
+        # (name, published, queued, refusals, want severity)
+        ("frozen-pool", "0", "4", "4", "warn"),
+        ("frozen-pool-one-short", "1", "3", "2", "warn"),
+        ("loop-running-short-cohort", "0", "1", "0", None),
+        ("frozen-pool-tiny", "0", "1", "9", "warn"),
+        ("cohort-full-while-refused", "5", "0", "3", None),
+        ("cohort-full", "4", "1", "6", None),
+        ("unreadable-counts", None, "3", "2", None),
+        ("unreadable-refusals", "1", "1", None, None),
+    ]
+    for name, pub, q, ref, want in cohort_cases:
+        v = gate_cohort_verdict(pub, q, ref)
+        expect(f"gate_cohort_verdict[{name}]", v[0] if v else None, want)
+    expect("gate_cohort_verdict[reports-forecast-and-refusals]",
+           gate_cohort_verdict("0", "4", "4"), ("warn", 4, 4))
 
     # cron_delivery_verdict: job records -> severity. The delivery failure is
     # silent from inside the repo (the run succeeds, the output file exists), so
@@ -5982,7 +6155,7 @@ def cmd_selftest(_argv):
 
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(engagement_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + len(audit_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {n_asserted[0]} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
