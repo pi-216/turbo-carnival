@@ -2504,8 +2504,51 @@ def telemetry_peak_mib(path=None):
     return mx
 
 
+def _fmt_age(s):
+    """PURE: seconds -> '47s ago' / '12.4 min ago' / '2.1h ago' / 'never (empty history)'."""
+    if s is None:
+        return "never (empty history)"
+    try:
+        s = float(s)
+    except (TypeError, ValueError):
+        return "never (empty history)"
+    if s < 90:
+        return f"{s:.0f}s ago"
+    if s < 5400:
+        return f"{s / 60.0:.1f} min ago"
+    return f"{s / 3600.0:.1f}h ago"
+
+
+def holder_activity_clause(verdict, age_s):
+    """PURE: is the process serving :8188 DOING WORK, or merely resident?
+
+    The 10 s utilization sample cannot tell those two apart, and the failure is not
+    cosmetic. A batch that renders one prompt every ~2 min spends most of any 10 s
+    window BETWEEN prompts, so a card at full duty reads as "card 1% busy over 10s
+    (holder resident but idle)" -- measured 2026-09-22 19:25Z, when the holder had
+    executed 6 prompts in the previous 12 min with one running, i.e. it was driving
+    the card continuously. "Idle residue" then invites the ask "stop the idle
+    process", which is the wrong ask for live work (it is the ask this board filed
+    on 2026-09-21, against a holder that was not the blocker it was described as),
+    while live work on a shared install is simply not ours to touch.
+
+    Queue depth and the age of the last EXECUTED prompt are definitive, and both are
+    already read for the unclaimed-VRAM check (comfyui_holder_verdict). This clause
+    is only appended when that reading exists; with no reading the caller keeps the
+    util hint, so an unreadable instance is never accused.
+    """
+    if verdict == "live":
+        return (f"; the :8188 instance is ACTIVELY RENDERING (last prompt {_fmt_age(age_s)})"
+                " -- a batch is driving the card, not idle residue")
+    if verdict == "idle":
+        return (f"; the :8188 instance is idle (last prompt {_fmt_age(age_s)})"
+                " -- resident residue, not work")
+    return ""
+
+
 def vram_refusal_clause(free_mib, req_gb, util_pct, holder_count,
-                        peak_mib=None, total_mib=None):
+                        peak_mib=None, total_mib=None,
+                        holder_live=None, holder_age_s=None):
     """PURE: why a VRAM refusal is structural, or '' when free memory is not the cause.
 
     CORRECTED 2026-09-21 -- this used to assert "renders need a near-empty card",
@@ -2540,7 +2583,12 @@ def vram_refusal_clause(free_mib, req_gb, util_pct, holder_count,
                    "measured under contention)")
     if util_pct is not None:
         clause += f"; card {util_pct}% busy over 10s"
-        clause += " (holder resident but idle)" if util_pct <= 5 else " (holder working)"
+        if holder_live is None:
+            # No definitive reading of the instance serving :8188: the short util
+            # sample is all we have, and it is a HINT, not a verdict (see
+            # holder_activity_clause -- a 2-min-per-prompt batch reads as idle here).
+            clause += " (holder resident but idle)" if util_pct <= 5 else " (holder working)"
+    clause += holder_activity_clause(holder_live, holder_age_s)
     return clause
 
 
@@ -2551,9 +2599,13 @@ def vram_fit_note(with_util=False):
     *foreign job* that went away, not the co-tenant *process*. Name both numbers and
     the process, or the next tick re-diagnoses the same starvation.
 
-    with_util adds the GPU-utilization window (a 10 s sample), which is what
-    separates "a co-tenant is training" from "a co-tenant's tool is merely
-    resident". Off by default so the checks that only need the numbers stay fast.
+    with_util adds the GPU-utilization window (a 10 s sample) AND, when an
+    outside-scheduler process is the blocker, the definitive holder verdict (queue
+    depth + age of the last executed prompt on :8188). The util window alone cannot
+    separate "a co-tenant is training" from "a co-tenant's tool is merely resident"
+    -- a batch rendering one prompt every ~2 min reads as 1% busy -- and that
+    distinction is what decides the ask, so it is read exactly rather than inferred.
+    Off by default so the checks that only need the numbers stay fast.
     """
     free = gpu_vram_free_mib()
     if free is None:
@@ -2565,9 +2617,20 @@ def vram_fit_note(with_util=False):
         note += "; outside-scheduler holders: " + ", ".join(
             f"{pid} {name} {mib / 1024:.1f}GiB" for pid, name, mib in blockers)
     if req and free < req * 1024:
+        util = gpu_util_peak_pct() if with_util else None
+        verdict = age = None
+        if with_util and blockers:
+            # Only when an OUTSIDE-SCHEDULER process is the blocker; "unknown"
+            # (unreadable/absent instance) falls back to the util hint rather than
+            # accusing a holder we could not read.
+            depth = comfyui_queue_depth()
+            age = comfyui_last_prompt_age_s()
+            verdict = comfyui_holder_verdict(depth, age)
+            if verdict == "unknown":
+                verdict = None
         note += vram_refusal_clause(
-            free, req, gpu_util_peak_pct() if with_util else None,
-            len(blockers), telemetry_peak_mib(), gpu_total_mib())
+            free, req, util, len(blockers), telemetry_peak_mib(), gpu_total_mib(),
+            holder_live=verdict, holder_age_s=age)
     return note
 
 
@@ -5654,6 +5717,15 @@ def cmd_selftest(_argv):
         ("free-unknown", (None, 21, 0, 1, 23743, 24564), None),
         ("req-unknown", (15000, None, 0, 1, 23743, 24564), None),
         ("holders-unknown", (15000, 21, 0, None, 23743, 24564), None),
+        # Definitive holder verdicts (2026-09-22): when :8188 answers, the verdict
+        # REPLACES the util-sample conclusion -- a 2-min-per-prompt batch samples as
+        # 1% busy, so the util hint alone mislabels live work as idle residue.
+        ("below-floor-live-batch", (5250, 21, 1, 1, 23743, 24564, "live", 47.0),
+         "ACTIVELY RENDERING"),
+        ("below-floor-idle-residue", (5250, 21, 0, 1, 23743, 24564, "idle", 7200.0),
+         "idle (last prompt 2.0h ago)"),
+        ("below-floor-unreadable-holder", (5250, 21, 1, 1, 23743, 24564, None, None),
+         "holder resident but idle"),
     ]
     for name, args, want in refusal_cases:
         got = vram_refusal_clause(*args)
@@ -5661,6 +5733,21 @@ def cmd_selftest(_argv):
             expect(f"vram_refusal_clause[{name}]", got, "")
         else:
             expect(f"vram_refusal_clause[{name}]", want in got, True)
+
+    # holder_activity_clause: the verdict is read from the live instance, so a
+    # "live" holder must never also be described as idle residue, and an unknown
+    # verdict must add NOTHING (the caller keeps the util hint).
+    expect("holder_activity_clause[live]",
+           "ACTIVELY RENDERING" in holder_activity_clause("live", 47.0), True)
+    expect("holder_activity_clause[live-no-idle-word]",
+           "not idle residue" in holder_activity_clause("live", 47.0), True)
+    expect("holder_activity_clause[idle-never-rendered]",
+           "never (empty history)" in holder_activity_clause("idle", None), True)
+    expect("holder_activity_clause[unknown-is-silent]",
+           holder_activity_clause("unknown", 5.0), "")
+    expect("_fmt_age[seconds]", _fmt_age(47.4), "47s ago")
+    expect("_fmt_age[minutes]", _fmt_age(744.0), "12.4 min ago")
+    expect("_fmt_age[hours]", _fmt_age(7200.0), "2.0h ago")
 
     # adaptive_ask_gb: the fit policy, mirrored from the harness. Full ask when the
     # card is free; free minus headroom otherwise; the FLOOR when even that falls

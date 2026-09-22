@@ -1,12 +1,12 @@
 {
   "key": "zero-engagement-at-production-rate",
-  "title": "nothing published in 14d was accepted: 17 measured post(s), 0 like(s), 0 comment(s), 0 save(s)",
+  "title": "nothing published in 14d was accepted: 18 measured post(s), 0 like(s), 0 comment(s), 0 save(s)",
   "severity": "warn",
-  "evidence": "21 post(s) published in the last 14d, 17 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=47 (mean reach 2.8/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
+  "evidence": "21 post(s) published in the last 14d, 18 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=52 (mean reach 2.9/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-22T14:25:32-0400",
-  "seen_count": 17,
+  "last_seen": "2026-09-22T16:01:12-0400",
+  "seen_count": 19,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -29,6 +29,10 @@
     {
       "ts": "2026-09-22T11:14:40-0400",
       "note": "2026-09-22 (interactive session, Tim-directed review): CORRECTION to the 'reach is DECLINING' framing recorded above, plus a quantified ceiling. Filed as daily-reach-ceiling [warn] -- read the two together.\n\nThe 'reach per post 7.77 all-time vs 2.76 over the last 14d' comparison is confounded by POSTING VOLUME, not by time. Volume-band read, real posts only (provider_post_id IS NOT NULL, insights-backed), mature days Aug 22-Sep 9 (all >=12d old so reach has settled): 1 post/day -> total 11.2/day, 11.2 per post; 2/day -> 17.3 / 8.7; 3-4/day -> 22.8 / 6.5; 5-9/day -> 22.3 / 3.0. Total reach SATURATES at ~22 impressions/day by 3-4 posts/day; per-post reach falls 4x across those bands. r(posts/day, per-post reach) = -0.775 over 22 days.\n\nWhy it is not a decline: the OLDEST, most-mature high-volume days (Aug 26-30, 8-9 posts/day) show per-post reach 2.25-3.0 -- the SAME as the recent low per-post numbers -- while the newer LOW-volume days (Sep 6-9, 1 post/day) show 11-13. Age works AGAINST the declining reading: if reach accumulated with time the oldest days would read highest, and they read lowest.\n\nConsequence for the 09-28 gate: the binding constraint is a ~22 impressions/day REACH CEILING, not a downward trend. No production change can pass the engagement leg, and the configured cadence (posts_per_day=3, max_posts_per_day=3) already sits AT the saturation knee, so neither more nor fewer posts moves total reach. Keep cadence; the pivot candidate stays DISTRIBUTION/REACH.\n\nOne residual worth watching: Sep 18-21 totalled 7-10/day at 3-5 posts, BELOW the ceiling, which volume does not explain -- that is the distribution-degradation candidate. Those posts are 1-4 days old and still accumulating, so do not read them as final until they settle; the post-hashtag-fix (2026-09-19) cohort is the first real test of the one distribution lever that was never actually pulled (all 197 posts before it went out with zero hashtags).\n\nAlso: 65 test-fixture rows (caption 'test', provider_post_id NULL, reach pinned 1000, posted_at Aug 18-21) inflate any aggregate filtering on reach IS NOT NULL rather than insights_updated_at IS NOT NULL. Excluded from GateRead and from the 7d review window today, so no live read is contaminated."
+    },
+    {
+      "ts": "2026-09-22T16:04:20-0400",
+      "note": "2026-09-22 20:0xZ ops-triage: no new measurement, but a REAL new linkage worth recording before it becomes the failure. The 09-28 pivot gate (and daily-reach-ceiling) counts ACCEPTED posts, so it can only resolve while posts keep publishing. The render loop has produced nothing since 07:01Z and dry_out is 2026-09-29T10:30Z (6.6d) against a holder that is an active foreign batch with no visible end -- so if that batch outlasts the queue, publishing stops around 09-29 and the gate stops accumulating one day after it fires: the gate would then be un-resolvable without a reopened queue, and no check names that. Escalation is encoded as queue-runway-short (<72h = ~09-26) and this pass fixes the starvation evidence so the next reader sees the holder is WORKING, not idle residue. No decision changed here; the pivot direction stays pre-registered."
     }
   ]
 }

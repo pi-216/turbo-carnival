@@ -1,18 +1,14 @@
 {
   "key": "render-starved",
-  "title": "no photo in 12h while the render request was refused 11x",
+  "title": "no photo in 12h while the render request was refused 3x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=11 holder=none; free=18.5GiB vs ask 17GiB; outside-scheduler holders: 2857312 labeler_spa.py 4.5GiB",
-  "status": "auto-closed",
+  "evidence": "photos_12h=0 refusals_12h=3 holder=none; free=4.9GiB vs ask 16GiB; outside-scheduler holders: 3662070 main.py 18.0GiB -- free 4.9GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 0% busy over 10s; the :8188 instance is ACTIVELY RENDERING (last prompt 7.4 min ago) -- a batch is driving the card, not idle residue",
+  "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-09-21T06:45:11-0400",
-  "seen_count": 18,
+  "last_seen": "2026-09-22T16:01:12-0400",
+  "seen_count": 20,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T02:54:53-0400",
-      "note": "2026-09-21 06:5xZ ops-triage: unchanged, still the binding constraint, still not fixable in-repo. Live: 4090 scheduler-idle, EMPTY derived queue, 18.9GiB free vs our 21GiB reservation; the outside-scheduler holder is BT-Net's labeler (pid 2857312, 4.6GiB, 0% busy across 10s, ~0.3% CPU over its life). ASKS unchanged from the 05:4xZ note: (a) stop the labeler when not labeling -> 4.6GiB returns and renders resume next tick; (b) fund ONE measured --lowvram launch; (c) accept no renders and drain the ~5d queue. Escalation: check_render_acceptance (zero-accepted-output-24h) fires 2026-09-21T16:00Z; last photo 2026-09-20T16:00Z."
-    },
     {
       "ts": "2026-09-21T03:40:40-0400",
       "note": "2026-09-21 07:3xZ ops-triage: unchanged, still the binding constraint and still not fixable in-repo. Re-verified live: 4090 scheduler-idle, EMPTY derived queue, 5142 MiB used / 18939 MiB free, 0% util across 5 samples over 10s, 24.7W; the only holder is BT-Net's labeler (pid 2857312 labeler_spa.py, 4588 MiB, idle). Telemetry re-analysed: 165 of 372 samples of job comfyui-1789826497-1334030 exceeded 18 GiB and the peak was 23743 MiB with the card otherwise near-empty (min sample 388 MiB), so the 21 GiB reservation is measured, not padded -- a co-tenant holding 4.6 GiB starves every render. ASKS unchanged: (a) stop the idle labeler -> renders resume next tick; (b) fund one measured --lowvram launch; (c) accept no renders and drain the ~5d queue. Escalation: zero-accepted-output-24h fires 16:00Z (last photo 09-20T16:00Z)."
@@ -32,7 +28,12 @@
     {
       "ts": "2026-09-21T07:25:36-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-22T16:03:28-0400",
+      "note": "2026-09-22 19:5xZ ops-triage: DECISION recorded -- yield, blocked-on-slot, no interference; no render fix is possible in-repo while this holder lives. The holder is now identified PRECISELY and it is not what the evidence used to imply.\n\nWHO HOLDS IT (live, measured this pass): pid 3662070 is a MANUAL ComfyUI -- byobu window 1:5.0, our own install /mnt/fscache/essdee/ComfyUI, args \"--listen 0.0.0.0 --enable-manager\" with NO --reserve-vram -- and it is serving an ACTIVE foreign persona batch driven from 192.168.86.231 (4 established sockets to :8188). It writes output/L1ly/fantasy_NNNNN_.png every ~2 min (1713 images, 2.9h and counting); the workflow is pony CRPv18_PM40 + flux1-dev + CLIPSeg mask + RRDBNet upscale (single client id), pane shows \"Prompt executed in 75.22 / 77.05 / 75.54 seconds\". So the card is at real duty: a 10 s util sample lands BETWEEN 75 s prompts and reads 0-1%, which is why the evidence used to say \"holder resident but idle\". Cost to us: 18.0 GiB VRAM and 49.7 GB RSS (box 98/121 GB used, swap 7/7 GB FULL).\n\nWHY THERE IS NO SAFE IN-REPO RENDER PATH (re-derived from the source this pass, not assumed):\n1. Launch path: free=4.9 GiB is below the 16 GiB fit floor, and our launch line carries --reserve-vram 5, which would leave a 0.1 GiB budget. Our own instance cannot launch (port 8188 is also occupied).\n2. Adopt path: refused by the 2026-09-22 invariant, and the refusal is CORRECT. comfy/model_management.py load_models_gpu() calls free_memory(total_required*1.1 + extra_mem) FIRST -- the instance offloads its OWN cached models to make room -- and only then sizes lowvram_model_memory from the memory it just freed. Without the flag (default extra_reserved = 400 MB) that budget lands near 22.1 GiB, i.e. the measured fatal case (usable 21.719 GiB -> torch.OutOfMemoryError 78 MiB short -> HTTP 500); with the flag it lands near 17.5 GiB, inside the proven envelope. A running process's args cannot be changed, and the instance is not ours to restart.\n3. The refusal was not even the binding constraint: the claim ask is floored at 16 GiB and could never be granted against free=4.9 GiB. The 18:00Z tick asked 16 GiB and got vram_insufficient BEFORE the refusal existed, so the fix cost nothing.\n4. A second instance on another port has no RAM headroom (the offloaded UNet needs ~23.7 GB; 23 GB available, swap already full) -- launching there risks a kernel OOM that could take crawlr or the Hermes gateway with it.\n\nDECISION: yield. Never interfere with another project's live job. Publishing continues from the queue (publishable=20, dry_out 2026-09-29T10:30Z = 6.6d). The escalation is ENCODED rather than remembered: check_queue_runway fires WARN queue-runway-short once the last future clock is inside 72 h (about 09-26), and check_render_starved keeps this item open until photos resume. Explicitly NOT a Tim ask: being slot-blocked by another project's live batch is not enablement, and nothing outside this repo would change it except that batch ending.\n\nFIXED IN-REPO THIS PASS (commit follows) -- the evidence mislabel itself. vram_refusal_clause() used to conclude \"holder resident but idle\" from the 10 s util sample, which cannot see a 75 s-per-prompt batch; that mislabel is what produced the 2026-09-21 ask \"stop the idle labeler\". It now takes the DEFINITIVE reading already used by the unclaimed-VRAM check (comfyui_queue_depth + comfyui_last_prompt_age_s -> comfyui_holder_verdict) whenever an outside-scheduler process is the blocker, appending \"the :8188 instance is ACTIVELY RENDERING (last prompt N min ago) -- a batch is driving the card, not idle residue\". Verified live end-to-end: the same evidence line now carries BOTH \"card 0% busy over 10s\" AND \"ACTIVELY RENDERING (last prompt 7.4 min ago)\", and the refreshed board file shows it. An unknown/unreadable instance still falls back to the util hint, so an unread holder is never accused. selftest 315 assertions / 0 failures."
     }
   ],
-  "closed_at": "2026-09-20T02:36:11-0400"
+  "closed_at": "2026-09-20T02:36:11-0400",
+  "route": "agent"
 }
