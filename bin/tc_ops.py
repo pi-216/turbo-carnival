@@ -41,6 +41,12 @@ then works the open issues and closes them with a note.
                              held row look like a defect to repair; and a bare
                              count cannot say whether the harness has one day of
                              runway or two weeks)
+  tc_ops.py checks-audit     is the MONITORING still live? runs every check and
+                             reports ones that RAISED and any DB read that came
+                             back unreadable -- a check whose query broke returns
+                             None exactly like a healthy check whose condition is
+                             absent, so it silently retires and the board stays
+                             green (no DB writes, no issue filing)
   tc_ops.py selftest         exercise every pure verdict in this file (no DB, no
                              GPU) -- run it after touching any check
 
@@ -282,10 +288,23 @@ def run(cmd, timeout=25, cwd=None):
         return "", 1
 
 
+#: Set to a list by `checks-audit` (and only then) so every unreadable read is
+#: attributed to the check that made it. None on the normal probe path, so the
+#: instrumentation costs nothing there.
+_AUDIT_SINK = None
+_AUDIT_CHECK = None
+
+
+def _audit_note(kind, sql):
+    if _AUDIT_SINK is not None:
+        _AUDIT_SINK.append({"check": _AUDIT_CHECK, "kind": kind, "sql": " ".join(sql.split())})
+
+
 def psql(sql, timeout=25):
     """Scalar query via psql; returns None when psql/DB is unavailable."""
     out, rc = run(["psql", "-At", "-d", DB, "-c", sql], timeout=timeout)
     if rc != 0 or not out:
+        _audit_note("psql", sql)
         return None
     return out.splitlines()[0].strip()
 
@@ -294,6 +313,7 @@ def psql_lines(sql, timeout=25):
     """Multi-row query via psql; returns [] for an empty result, None when unreadable."""
     out, rc = run(["psql", "-At", "-d", DB, "-c", sql], timeout=timeout)
     if rc != 0:
+        _audit_note("psql_lines", sql)
         return None
     return [line.strip() for line in out.splitlines() if line.strip()]
 
@@ -4354,18 +4374,53 @@ def cmd_needs_human(_argv):
 
 
 def cmd_probe(_argv):
+    global _AUDIT_SINK, _AUDIT_CHECK
     found, quiet = [], []
-    for chk in CHECKS:
-        try:
-            res = chk()
-        except Exception as e:  # a broken probe must not break the probe run
-            res = (f"probe-error-{chk.__name__}", f"probe {chk.__name__} raised", "warn", str(e)[:200])
-        if res:
-            rec = file_issue(*res)
-            if res[2] == "critical":
-                found.append(rec)
-            else:
-                quiet.append(rec)
+    # Arm the read-sink for the duration of the sweep. The probe already calls
+    # every check, so noticing that one of them got NOTHING back is free -- and
+    # it is the only way this class becomes visible: `psql()` returns None for a
+    # query that no longer parses exactly as for a missing row, every check
+    # returns None on None, and the board then reads green while that condition
+    # has quietly stopped being monitored. `checks-audit` is the on-demand form.
+    sink = []
+    _AUDIT_SINK = sink
+    try:
+        for chk in CHECKS:
+            _AUDIT_CHECK = chk.__name__
+            try:
+                res = chk()
+            except Exception as e:  # a broken probe must not break the probe run
+                res = (f"probe-error-{chk.__name__}", f"probe {chk.__name__} raised", "warn", str(e)[:200])
+            if res:
+                rec = file_issue(*res)
+                if res[2] == "critical":
+                    found.append(rec)
+                else:
+                    quiet.append(rec)
+    finally:
+        _AUDIT_SINK, _AUDIT_CHECK = None, None
+
+    # A check that could not read is a check that can never fire. Report it as
+    # its own condition (so it closes itself when the reads resolve) instead of
+    # leaving an unreadable DB indistinguishable from a clean bill of health.
+    if sink:
+        uniq, seen = [], set()
+        for r in sink:
+            k = (r["check"], r["sql"])
+            if k in seen:
+                continue
+            seen.add(k)
+            uniq.append(f"{r['check']}: unreadable {r['kind']} read ({r['sql'][:90]})")
+        quiet.append(file_issue(
+            "probe-checks-unreadable",
+            f"{len(uniq)} probe check(s) could not read their input this sweep",
+            "warn",
+            f"{len(sink)} unreadable read(s) across {len({r['check'] for r in sink})} "
+            f"check(s). Each of these checks returned None, which is also what a "
+            f"healthy check returns when its condition is absent -- so the "
+            f"condition is NOT being monitored and the board would read green. "
+            f"Newest: " + "; ".join(uniq[:6]),
+        ))
 
     # Auto-close issues whose condition no longer reproduces.
     live = {r["key"] for r in found + quiet}
@@ -4665,6 +4720,94 @@ def cmd_escalations(_argv):
     text = escalations_text(load_all())
     if text:
         print(text)
+    return 0
+
+
+def checks_audit_verdict(results, none_reads):
+    """Pure: what a probe self-audit found wrong. Empty list == every check is live.
+
+    `results` is [(check_name, outcome)] with outcome in {"fired", "quiet",
+    "raised"}; `none_reads` is [{"check":..., "kind":..., "sql":...}].
+
+    Two failure classes, and only one of them is already visible:
+
+    * a check that RAISES is caught by cmd_probe, which files
+      `probe-error-<name>` as a warn -- visible, if noisy.
+    * a check whose DB read returns None is NOT visible anywhere. `psql()`
+      returns None for "psql missing", "DB unreadable" AND for a query that no
+      longer parses (a renamed table/column), and every check is written to
+      return None on None. So a schema change can silently retire a check: the
+      condition it watches stops being monitored, the board stays green, and
+      nothing errors. That is the same shape as genome #13 (agent self-recovery
+      masks system decay) one level down -- in the monitoring layer itself.
+
+    Kept pure so the decision is testable with no DB and no board writes.
+    """
+    problems = []
+    for name, outcome in results:
+        if outcome == "raised":
+            problems.append(f"{name}: RAISED (probe files probe-error-{name})")
+    seen = set()
+    for r in none_reads or []:
+        key = (r.get("check"), r.get("sql"))
+        if key in seen:
+            continue
+        seen.add(key)
+        problems.append(
+            f"{r.get('check') or '<no check>'}: unreadable {r.get('kind')} read -- "
+            f"a check that gets None can never fire: {str(r.get('sql'))[:120]}")
+    return problems
+
+
+def audit_checks():
+    """Run every registered check with the read-sink armed. Returns (results, none_reads).
+
+    Runs the SAME callables cmd_probe runs, in the same order, so the audit
+    cannot drift from the probe. Read-only: no board writes, no issue filing.
+    """
+    global _AUDIT_SINK, _AUDIT_CHECK
+    sink = []
+    results = []
+    _AUDIT_SINK = sink
+    for chk in CHECKS:
+        _AUDIT_CHECK = chk.__name__
+        try:
+            res = chk()
+            if isinstance(res, tuple) and len(res) == 4:
+                results.append((chk.__name__, "fired"))
+            elif res is None:
+                results.append((chk.__name__, "quiet"))
+            else:
+                results.append((chk.__name__, "raised"))
+        except Exception:
+            results.append((chk.__name__, "raised"))
+    _AUDIT_SINK, _AUDIT_CHECK = sink, None
+    return results, sink
+
+
+def cmd_checks_audit(_argv):
+    """Answer "is the MONITORING still live?" -- every check runs, and nothing is quiet by accident.
+
+    The probe reports what is WRONG; this reports whether the probe can still
+    SEE. A check whose query broke returns None exactly like a healthy check
+    whose condition is absent, so the board cannot tell the two apart and a
+    retired check is indistinguishable from a clean bill of health. Informational:
+    always exits 0, so a monitoring tick can never be blocked by it, but prints
+    the problems loudly and names each one.
+    """
+    results, none_reads = audit_checks()
+    problems = checks_audit_verdict(results, none_reads)
+    fired = [n for n, o in results if o == "fired"]
+    raised = [n for n, o in results if o == "raised"]
+    print(f"checks-audit: {len(results)} check(s) ran, {len(fired)} firing, "
+          f"{len(results) - len(fired) - len(raised)} quiet, {len(raised)} raised, "
+          f"{len(none_reads)} unreadable read(s)")
+    if fired:
+        print(f"  firing: {', '.join(fired)}")
+    for p in problems:
+        print(f"  PROBLEM {p}")
+    if not problems:
+        print("  OK — every check ran and every DB read resolved; no check is quiet by accident")
     return 0
 
 
@@ -5567,9 +5710,81 @@ def cmd_selftest(_argv):
     expect("comfy_oom_verdict[names-allocation]",
            "21.32 GiB allocated" in _ev and "78.00 MiB requested" in _ev, True)
 
+    # checks_audit_verdict: a RAISING check is visible (the probe files
+    # probe-error-<name>); an UNREADABLE DB read is not -- psql() returns None
+    # for a broken query exactly as for a missing row, so a check whose SQL rots
+    # retires silently and the board keeps reading green.
+    expect("checks_audit_verdict[clean]",
+           checks_audit_verdict([("a", "fired"), ("b", "quiet")], []), [])
+    expect("checks_audit_verdict[raised-named]",
+           any("RAISED" in p and "check_c" in p
+               for p in checks_audit_verdict([("check_c", "raised")], [])), True)
+    expect("checks_audit_verdict[quiet-is-not-a-problem]",
+           checks_audit_verdict([("a", "quiet"), ("b", "quiet")], []), [])
+    _nr = [{"check": "check_d", "kind": "psql", "sql": "select nope from gone"}]
+    expect("checks_audit_verdict[unreadable-attributed]",
+           any("check_d" in p and "can never fire" in p
+               for p in checks_audit_verdict([("check_d", "quiet")], _nr)), True)
+    expect("checks_audit_verdict[unreadable-deduped]",
+           len(checks_audit_verdict([], _nr + list(_nr))), 1)
+    expect("checks_audit_verdict[unreadable-unnamed]",
+           any("<no check>" in p for p in checks_audit_verdict([], [{"sql": "x"}])), True)
+    # The sink must be armed DURING the run. Armed only afterwards, every audit
+    # reports "0 unreadable reads" however broken the DB is -- which is exactly
+    # how this command shipped on its first version (caught by running it with
+    # psql off PATH, not by reading it). Drive audit_checks with a stubbed
+    # CHECKS and a failing `run` so the sequencing is asserted, not assumed.
+    _orig_run, _orig_checks = globals()["run"], globals()["CHECKS"]
+    try:
+        globals()["run"] = lambda *a, **k: ("", 1)  # every psql read fails
+
+        def _fake_broken_check():
+            psql("select nope from gone")
+            return None
+
+        globals()["CHECKS"] = [_fake_broken_check]
+        _res, _none = audit_checks()
+        expect("checks_audit[arms-sink-during-run]", len(_none), 1)
+        expect("checks_audit[broken-check-reads-quiet]", [o for _, o in _res], ["quiet"])
+        expect("checks_audit[broken-check-attributed]",
+               (_none[0] or {}).get("check"), "_fake_broken_check")
+    finally:
+        globals()["run"], globals()["CHECKS"] = _orig_run, _orig_checks
+        globals()["_AUDIT_SINK"], globals()["_AUDIT_CHECK"] = None, None
+    # The probe must FILE the condition, not merely be able to describe it: a
+    # detection branch nobody exercises is how the first version of this audit
+    # shipped with its sink armed after the loop. Drive the real cmd_probe
+    # against a TEMP board with one check that cannot read.
+    _ob, _onh, _orun, _ochk = (globals()["BOARD"], globals()["NEEDS_HUMAN"],
+                               globals()["run"], globals()["CHECKS"])
+    _tmpdir = tempfile.TemporaryDirectory()
+    try:
+        _tb = Path(_tmpdir.name) / "board"
+        _tb.mkdir(parents=True, exist_ok=True)
+        globals()["BOARD"] = _tb
+        globals()["NEEDS_HUMAN"] = Path(_tmpdir.name) / "NEEDS_HUMAN.md"
+        globals()["run"] = lambda *a, **k: ("", 1)
+
+        def _fake_broken_check():
+            psql("select nope from gone")
+            return None
+
+        globals()["CHECKS"] = [_fake_broken_check]
+        with redirect_stdout(io.StringIO()):
+            cmd_probe([])
+        _filed = json.loads((_tb / "probe-checks-unreadable.json").read_text())
+        expect("probe[files-unreadable-checks]", _filed.get("status"), "open")
+        expect("probe[unreadable-names-the-check]",
+               "_fake_broken_check" in (_filed.get("evidence") or ""), True)
+    finally:
+        (globals()["BOARD"], globals()["NEEDS_HUMAN"],
+         globals()["run"], globals()["CHECKS"]) = _ob, _onh, _orun, _ochk
+        _tmpdir.cleanup()
+    audit_cases = list(range(11))
+
     for f in fails:
         print(f"FAIL {f}")
-    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(engagement_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
+    print(f"selftest: {len(cases) + len(publish_cases) + len(gap_cases) + len(failed_cases) + len(untagged_cases) + len(insights_cases) + len(engagement_cases) + len(burst_cases) + 2 * len(slot_cases) + 2 * len(cap_cases) + len(pacing_cases) + len(delivery_cases) + len(rawip_cases) + len(pool_cases) + len(res_cases) + len(oq_cases) + len(holder_cases) + len(orphan_cases) + len(logpath_cases) + len(queue_cases) + len(runway_cases) + 3 + len(safety_cases) + 2 * len(blob_cases) + len(digest_cases) + len(route_cases) + len(esc_cases) + len(grounding_cases) + len(backup_cases) + len(prov_cases) + len(gate_cases) + len(refusal_cases) + len(ask_cases) + _plan_checks + _deps_checks + len(rerr_cases) + len(age_cases) + len(lognote_cases) + len(oom_cases) + len(audit_cases) + 3 + 3 + 26} assertions, {len(fails)} failures")
     return 1 if fails else 0
 
 
@@ -5696,6 +5911,7 @@ def main():
         "caption-endpoint": cmd_caption_endpoint,
         "queue": cmd_queue,
         "log-health": cmd_log_health,
+        "checks-audit": cmd_checks_audit,
         "needs-human": cmd_needs_human,
         "route": cmd_route,
         "escalations": cmd_escalations,
