@@ -17,6 +17,10 @@
     {
       "ts": "2026-09-23T05:30:31-0400",
       "note": "2026-09-23 09:2xZ ops-triage: DECISION = keep open, NOT accepted (the acceptance counter must stay loud while the pipeline accepts nothing -- genome #43). Live this tick: 26.3h of zero output (last photo 2026-09-22 07:07Z), publishable=18, dry_out 2026-09-29T10:30Z -> 6.0d; if the pin persists past that clock posting stops with no error of its own. Root cause is outside the repo (operator's :8188 session, pid 553489, 17.8GiB held / 5.3GiB free < the 16GiB fit floor), and no in-repo change can produce output while it holds: the harness refuses on the launch line before it ever asks for a claim. Single lever = render-starved (route=tim). Self-closes on the first photo."
+    },
+    {
+      "ts": "2026-09-23T06:40:23-0400",
+      "note": "decision unchanged: keep open, not accepted. Live read 10:40Z: no photo since id 361 @ 2026-09-22 07:07:41Z (27.6h); the card is held by the operator's :8188 session (holder=operator, pid 553489, 18.2GiB of 24GiB, 0%, 25W, launched without --reserve-vram, free 5.4GiB < the 16GiB fit floor) so both gates refuse. No in-repo lever can produce a render while ~11GiB is unavailable; the lever stays on render-starved/route=tim. publishable=18, dry_out=2026-09-29T10:30Z (6.0d)."
     }
   ]
 }
