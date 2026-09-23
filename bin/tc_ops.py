@@ -5928,11 +5928,49 @@ def cmd_route(argv):
     return 0
 
 
-def escalations_text(recs, limit=DIGEST_NOTE_CHARS):
-    """Render the enablement queue (`route=tim`) as a terse operator digest.
+def digest_elide(text, cap=DIGEST_EVIDENCE_CHARS, marker=" … "):
+    """PURE: whitespace-normalised `text`, elided to about `cap` keeping BOTH ends.
+
+    Front-truncation is the WRONG cut for an evidence string: this file's
+    convention composes the MEASURED condition first and the ASK last
+    (reserve_gate_clause's `Response: …`, and the two-conditions clause that ends
+    check_render_starved's evidence), and the ask is the half a digest exists to
+    carry. Cutting the tail off `render-starved`'s evidence removes exactly the
+    sentence that says what the operator must do. Elide the MIDDLE instead, so a
+    bounded digest can never drop the ask at either end.
+    """
+    flat = " ".join(str(text or "").split())
+    if len(flat) <= cap:
+        return flat
+    head = flat[: max(1, cap // 2)]
+    tail = flat[-max(1, cap - len(head) - len(marker)):]
+    # Snap to word boundaries so neither end is cut mid-token (a digest that reads
+    # "... ~23GiB to the c" trains the reader to distrust it). The END is always
+    # preserved: only the tail's start is moved forward, never its last character.
+    if " " in head[:-1]:
+        head = head[: head.rstrip().rfind(" ")]
+    if " " in tail[1:]:
+        tail = tail[tail.find(" ") + 1:]
+    return head.rstrip() + marker + tail.lstrip()
+
+
+def escalations_text(recs, limit=DIGEST_NOTE_CHARS, evidence_limit=DIGEST_EVIDENCE_CHARS * 2):
+    """Render the enablement queue (`route=tim`) as an operator digest.
 
     Pure. Returns "" when no human is needed, which is what lets a delivery job
     suppress itself on empty output instead of sending a "nothing to do" message.
+
+    The digest leads with the EVIDENCE, and only then the newest board note, and
+    that order is the whole point. Measured 2026-09-23: this function printed
+    `latest: <notes[-1]>` and nothing else, and the enablement item that has been
+    open longest (`render-starved`) accumulates an ops-triage note almost every
+    tick -- so the ONE surface meant to reach the operator carried
+    "FIXED a mislabel that made this refusal read as unattributed", an internal
+    engineering note, while the measured condition (the operator's own :8188
+    session holding the card) and the ask (close it, or relaunch it with
+    `--reserve-vram`) sat unread in the evidence field the digest never printed.
+    A digest that shows bookkeeping instead of the ask teaches its reader that
+    nothing is required. The note is kept, labelled and bounded, for continuity.
     """
     tim = [r for r in recs if route_of(r) == "tim"]
     if not tim:
@@ -5940,10 +5978,13 @@ def escalations_text(recs, limit=DIGEST_NOTE_CHARS):
     lines = [f"turbo-carnival: {len(tim)} item(s) need you to unblock", ""]
     for r in tim:
         lines.append(f"[{r.get('severity', 'info')}] {r.get('key', '')}: {r.get('title', '')}")
+        why = digest_elide(r.get("evidence"), evidence_limit)
+        if why:
+            lines.append(f"    why: {why}")
         notes = r.get("notes") or []
         if notes:
             latest = " ".join((notes[-1].get("note") or "").split())
-            lines.append(f"    latest: {latest[:limit]}")
+            lines.append(f"    last ops note: {latest[:limit]}")
         lines.append(f"    open since: {r.get('first_seen', '')}")
     return "\n".join(lines)
 
@@ -6987,6 +7028,7 @@ def cmd_selftest(_argv):
     # human -- is what stalled the board in the first place.
     esc_tim = {"key": "e1", "title": "t", "severity": "warn", "route": "tim",
                "first_seen": "2026-09-19T00:00:00Z",
+               "evidence": "photos=0; the :8188 instance was launched WITHOUT --reserve-vram. ASK-FOR-THE-HUMAN",
                "notes": [{"ts": "new", "note": "LATEST ASK"}]}
     esc_agent = {"key": "a1", "title": "t", "severity": "warn", "route": "agent",
                  "notes": [{"ts": "new", "note": "AGENT ONLY"}]}
@@ -6996,9 +7038,34 @@ def cmd_selftest(_argv):
         ("tim-item-listed", "e1" in escalations_text([esc_tim]), True),
         ("agent-item-never-pushed", "a1" in escalations_text([esc_agent, esc_tim]), False),
         ("carries-newest-ask", "LATEST ASK" in escalations_text([esc_tim]), True),
+        ("carries-evidence", "ASK-FOR-THE-HUMAN" in escalations_text([esc_tim]), True),
+        ("no-evidence-no-line", "why:" in escalations_text([{"key": "e2", "route": "tim"}]), False),
     ]
     for name, got, want in esc_cases:
         expect(f"escalations_text[{name}]", got, want)
+
+    # The ORDER is the fix, not the presence: an item whose newest note is internal
+    # bookkeeping must still put the measured ask in front of it. Before this,
+    # render-starved's digest entry was `latest: FIXED a mislabel …` and nothing
+    # else, so the surface meant to reach the operator said nothing was required.
+    _dig = escalations_text([{"key": "e3", "title": "t", "route": "tim",
+                              "first_seen": "2026-09-20T00:00:00Z",
+                              "evidence": "measured condition. ASK-FIRST",
+                              "notes": [{"ts": "new", "note": "BOOKKEEPING-LAST"}]}])
+    expect("escalations_text[ask-before-note]", _dig.find("ASK-FIRST") < _dig.find("BOOKKEEPING-LAST")
+           and _dig.find("ASK-FIRST") > -1, True)
+
+    # digest_elide: a bounded digest must keep BOTH ends of an evidence string --
+    # the codebase composes the condition first and the ask last, so a
+    # front-truncation silently drops the only actionable sentence.
+    _long = "HEAD" + ("y" * 4000) + "TAIL-THE-ASK"
+    _el = digest_elide(_long, cap=200)
+    expect("digest_elide[head-kept]", _el.startswith("HEAD"), True)
+    expect("digest_elide[ask-kept]", _el.endswith("TAIL-THE-ASK"), True)
+    expect("digest_elide[bounded]", len(_el) <= 200 + len(" … "), True)
+    expect("digest_elide[short-verbatim]", digest_elide("a b", cap=200), "a b")
+    expect("digest_elide[whitespace-flattened]", digest_elide("a\n\n b", cap=200), "a b")
+    expect("digest_elide[none]", digest_elide(None, cap=200), "")
 
     # image_grounding_verdict: is a caption STILL written without the render?
     # (total, attached, recent_unattached, vision_posts, ungrounded_since_flip)

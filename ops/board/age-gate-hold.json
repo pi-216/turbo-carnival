@@ -3,17 +3,13 @@
   "title": "1 render(s) held by the age gate in the last 48h",
   "severity": "info",
   "evidence": "1 post(s) held in the window; 1 still in the held state (unpublished, both clocks cleared, so never released by the publisher). The gate holds a post whose render's apparent-age read comes back juvenile and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its clock: that publishes the render the gate rejected. A hold drops the post out of the cadence count, so the producer owes a replacement render; check_future_queue_empty only fires once the queue reaches zero, days later. The INPUT half of the fix is the adult age anchor in the persona's positive prompt (PersonaAgeAnchor); >= 3 holds in the window means that anchor is not landing. Held rows: #345 (photo 353): forced: photo 353 had an independent free-form read of early-teens-to-early-twenties while the structured probe said young adult; the prompt carried n",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-21T13:50:20-0400",
   "last_seen": "2026-09-23T06:39:26-0400",
   "seen_count": 86,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-21T20:44:42-0400",
-      "note": "2026-09-22 00:5xZ ops-triage: no new decision needed; probe-managed (self-closes when no hold is in the 48h window) and the two decisions recorded earlier stand -- the hold is a DELIBERATE safety action that must never be 'repaired' by restoring its clock, and the monitoring prompts now count the queue the way the publisher does. VERIFIED this pass that the remaining obligation is being met: a hold drops its post out of the cadence count and the producer is replacing it -- the 20:20 EDT tick took the first 4090 claim since 12:01 EDT and created a render (run 481 -> photo 355 -> post 347, scheduled 2026-09-27T09:00Z), taking the shortfall 5 -> 4. Live queue now publishable=17, held=1, dry_out=2026-09-27T10:30Z (5.4d)."
-    },
     {
       "ts": "2026-09-22T01:40:35-0400",
       "note": "2026-09-22 05:4xZ ops-triage: obligation met, no decision needed. A hold drops its post from the cadence count and the producer owes a replacement render -- verified this pass: tc_ops queue publishable=21 at target 21, dry_out 2026-09-28T14:00Z, and the newest age-gate read was adult (05:00Z tick: post 351 / photo 359 -> adult). Window: the only hold is post 345, recorded 09-21 15:04Z, so this entry self-closes once 48h passes with no new hold (~09-23 15:04Z). The hold is a deliberate safety action; never restore its clock."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T00:36:52-0400",
       "note": "2026-09-23 04:3xZ ops-triage: accepted by design, and the gate is now caught up on evidence -- read live from the DB this tick: 24 posts carry an age_gate read, 23 adult / 1 juvenile, and pending=0 (every queued post with a future slot has been read). The single juvenile verdict is the deliberate forced hold of post 345 (photo 353), whose independent free-form read was unresolved against the structured probe; both clocks stay cleared, the row stays reversible, and the slot is a cadence question rather than a gate defect. New and worth recording: all 7 post-anchor renders (photos 355-361, rendered 09-22 00:18..07:07) read adult, and the NEWEST read -- photo 361, 09-22 08:00Z -- is 'late twenties' where the pre-anchor reads were uniformly 'early twenties', so the PersonaAgeAnchor is moving the read older, in the intended direction. The residual stands as recorded: the read is noisy call-to-call, so a juvenile verdict is a tripwire (hold + re-render), not a measurement, and a CLUSTER of age_gate_hold decisions is the signal that the anchor needs another turn (currently 1, the forced hold)."
+    },
+    {
+      "ts": "2026-09-23T07:26:32-0400",
+      "note": "condition no longer reproduces"
     }
   ]
 }
