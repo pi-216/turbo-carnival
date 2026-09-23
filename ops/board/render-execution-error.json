@@ -5,8 +5,8 @@
   "evidence": "0 render(s) were ATTEMPTED in the last 24h, so the absence of a fresh ComfyUI execution error is UNVERIFIED, not a repair -- an absence claim is only as strong as its interval coverage. Filed so a render drought cannot auto-close an open execution-error item (the mechanism by which the CLIPSeg empty-mask defect left the board on 2026-09-22 20:25Z). Self-closes as soon as a render runs.",
   "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-23T05:28:24-0400",
-  "seen_count": 82,
+  "last_seen": "2026-09-23T06:39:25-0400",
+  "seen_count": 85,
   "source": "probe",
   "notes": [
     {

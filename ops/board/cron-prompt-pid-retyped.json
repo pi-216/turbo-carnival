@@ -1,0 +1,19 @@
+{
+  "key": "cron-prompt-pid-retyped",
+  "title": "a cron prompt names a GPU holder without the mechanical copy rule",
+  "severity": "warn",
+  "evidence": "3 cron prompt(s) name a GPU holder without the mechanical copy rule, so the run retypes the pid and a wrong digit sends a reader to the wrong process (measured 2026-09-23: `pid 347626` at 04:06 EDT and `pid=753489` at 06:01 EDT, while the instrument and every live read said `553489`): tc-growth-harness-brain (43b0d5c4446d): no ban on writing a pid in prose, no rule to paste the instrument's line whole; tc-weekly-persona-review (8d3ac21799d5): no ban on writing a pid in prose, no rule to paste the instrument's line whole; tc-overnight-watchdog (31c2d0bc8261): no ban on writing a pid in prose, no rule to paste the instrument's line whole -- every prompt with holder context must carry the ban on writing a pid in prose plus the rule that the whole `bin/comfyui_harness.sh status` line is pasted verbatim",
+  "status": "closed",
+  "first_seen": "2026-09-23T06:36:42-0400",
+  "last_seen": "2026-09-23T06:36:42-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-23T06:39:13-0400",
+      "note": "DECISION: root cause is the PROMPT TEXT, not model flakiness -- two monitoring prompts told their runs to REPORT a pid ('naming pid/cgroup'; an evidence line carrying 'pid='), so the run retypes digits and a wrong pid sends a reader to the wrong process. Measured: growth tick 04:06 EDT 'pid 347626' and 06:01 EDT 'pid=753489' while the harness and every live read (nvidia-smi, pgrep) said 553489 -- the 04:41 EDT exhortation clause was honoured at 05:17 EDT and broken again at 06:01 EDT, so the rule is now mechanical. CHANGED: (1) bin/tc_ops.py gains cron_prompt_pid_prose_verdict + check_cron_prompt_pid_prose (registered in CHECKS, 6 selftest cases) -- every prompt carrying GPU-holder context must carry BOTH the ban on writing a pid in prose AND the rule to paste the harness line whole; (2) the rule was written into all three holder-context prompts (growth-brain 0e rewritten, watchdog status fields + holder-naming line, weekly persona review), backup ops/backups/cron_jobs_pre_pid_prose_20260923T103828Z.json. VERIFIED: check FIRED before the change naming all three prompts; after the change checks-audit = 52 checks / 7 firing / 0 raised with check_cron_prompt_pid_prose quiet, and the ban+paste markers assert true in all three prompts; selftest 493 assertions / 0 failures."
+    }
+  ],
+  "closed_at": "2026-09-23T06:39:13-0400"
+}

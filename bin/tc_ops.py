@@ -4648,6 +4648,89 @@ def check_cron_prompt_queue_counts():
     )
 
 
+# Fifth shape of the same family (config rot in the prompt text), measured
+# 2026-09-23: a prompt that tells its run to REPORT a pid invites the run to
+# RETYPE it, and a retyped digit is a different process. Both monitoring prompts
+# did this (`naming pid/cgroup`; an evidence line carrying `pid=`), and the hourly
+# growth tick produced `pid 347626` at 04:06 EDT and `pid=753489` at 06:01 EDT
+# while the instrument and every live read said `553489` -- a reader who acts on
+# either number kills the wrong process (genome #66: name the live-measured
+# holder; #65: a probe whose OK is satisfiable by anything else is worse than no
+# probe). The rule is mechanical, so it belongs in the prompt text, and this check
+# keeps it there: a prompt carrying GPU-holder context must also carry both
+# (a) the ban on writing a pid in prose and (b) the rule that the instrument's own
+# line is pasted whole. An exhortation alone did not hold -- the clause added at
+# 04:41 EDT was honoured at 05:17 EDT and broken again at 06:01 EDT.
+PROMPT_HOLDER_CTX = re.compile(
+    r"holder=|bin/comfyui_harness\.sh\s+status", re.I)
+PROMPT_PID_PROSE_BAN = re.compile(
+    r"never write (?:a )?pids? in prose|never type (?:a )?pids?\b|never restate (?:a )?pids?\b",
+    re.I)
+PROMPT_PASTE_WHOLE = re.compile(
+    r"paste\s+(?:it|the line|the status line|that line)\b[^.\n]{0,40}\b(?:whole|verbatim|entire)\b",
+    re.I)
+
+
+def cron_prompt_pid_prose_verdict(rows):
+    """Pure: job records -> (severity, evidence) for a prompt that names a GPU
+    holder without carrying the mechanical copy rule.
+    """
+    hits = []
+    for r in rows:
+        prompt = r.get("prompt") or ""
+        if not PROMPT_HOLDER_CTX.search(prompt):
+            continue
+        missing = []
+        if not PROMPT_PID_PROSE_BAN.search(prompt):
+            missing.append("no ban on writing a pid in prose")
+        if not PROMPT_PASTE_WHOLE.search(prompt):
+            missing.append("no rule to paste the instrument's line whole")
+        if missing:
+            hits.append(f"{r.get('name')} ({r.get('id')}): {', '.join(missing)}")
+    if not hits:
+        return None
+    return (
+        "warn",
+        f"{len(hits)} cron prompt(s) name a GPU holder without the mechanical copy "
+        f"rule, so the run retypes the pid and a wrong digit sends a reader to the "
+        f"wrong process (measured 2026-09-23: `pid 347626` at 04:06 EDT and "
+        f"`pid=753489` at 06:01 EDT, while the instrument and every live read said "
+        f"`553489`): {'; '.join(hits)} -- every prompt with holder context must carry "
+        f"the ban on writing a pid in prose plus the rule that the whole "
+        f"`bin/comfyui_harness.sh status` line is pasted verbatim",
+    )
+
+
+def check_cron_prompt_pid_prose():
+    """Config rot, fifth shape: a prompt asks its run for a pid it cannot copy.
+
+    Same reason as check_cron_prompt_probes -- the defect lives in the prompt text,
+    and a run that retypes a pid still finishes cleanly, so nothing else surfaces
+    it. Measured 2026-09-23: two ticks of the growth brain named a holder pid that
+    appears in no log and in no live read (`347626`, then `753489`, against the
+    live `553489`), because the prompt had them report a pid rather than the
+    harness's own `holder=` token.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    rows = [{"name": j.get("name") or j.get("id"), "id": j.get("id"),
+             "prompt": j.get("prompt")} for j in jobs if isinstance(j, dict)]
+    v = cron_prompt_pid_prose_verdict(rows)
+    if not v:
+        return None
+    return (
+        "cron-prompt-pid-retyped",
+        "a cron prompt names a GPU holder without the mechanical copy rule",
+        v[0],
+        v[1],
+    )
+
+
 # ------------------------------------------------------------------ queue runway
 RUNWAY_ALERT_H = 72
 
@@ -5331,6 +5414,7 @@ CHECKS = [
     check_cron_prompt_orphan_wording,
     check_cron_prompt_log_paths,
     check_cron_prompt_queue_counts,
+    check_cron_prompt_pid_prose,
     check_corpus_backup,
 ]
 
@@ -6636,6 +6720,31 @@ def cmd_selftest(_argv):
     for name, rows, want in queue_cases:
         v = cron_prompt_queue_count_verdict(rows)
         expect(f"cron_prompt_queue_count_verdict[{name}]", v[0] if v else None, want)
+
+    # cron_prompt_pid_prose_verdict: a prompt carrying GPU-holder context must also
+    # carry the mechanical copy rule. The 2026-09-23 live case is the growth brain
+    # (`pid 347626` at 04:06 EDT, `pid=753489` at 06:01 EDT, live read `553489`).
+    _rule = ("never write a pid in prose -- paste it whole from the tool result")
+    _ctx = "run bin/comfyui_harness.sh status and report the holder="
+    pidprose_cases = [
+        ("holder-ctx-no-rule",
+         [{"name": "g", "id": "g1", "prompt": _ctx + " pid=553489 naming pid/cgroup"}],
+         "warn"),
+        ("holder-ctx-with-rule",
+         [{"name": "g", "id": "g1", "prompt": _ctx + " and " + _rule}], None),
+        ("ban-only",
+         [{"name": "g", "id": "g1", "prompt": _ctx + " never write a pid in prose"}],
+         "warn"),
+        ("paste-only",
+         [{"name": "g", "id": "g1", "prompt": _ctx + " and paste it whole"}], "warn"),
+        ("no-holder-ctx",
+         [{"name": "g", "id": "g1", "prompt": "run rails growth:snapshot_followers"}],
+         None),
+        ("no-prompt", [{"name": "g", "id": "g1", "prompt": None}], None),
+    ]
+    for name, rows, want in pidprose_cases:
+        v = cron_prompt_pid_prose_verdict(rows)
+        expect(f"cron_prompt_pid_prose_verdict[{name}]", v[0] if v else None, want)
 
     # queue_runway_verdict: the FORECAST, not the count. publishable=16 hides
     # whether the harness has one day of runway or two weeks, and the failure it
