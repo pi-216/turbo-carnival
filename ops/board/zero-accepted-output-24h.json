@@ -5,15 +5,11 @@
   "evidence": "photos created in last 24h = 0",
   "status": "open",
   "first_seen": "2026-09-23T03:25:25-0400",
-  "last_seen": "2026-09-23T12:25:14-0400",
-  "seen_count": 28,
+  "last_seen": "2026-09-23T14:25:17-0400",
+  "seen_count": 30,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-23T05:30:31-0400",
-      "note": "2026-09-23 09:2xZ ops-triage: DECISION = keep open, NOT accepted (the acceptance counter must stay loud while the pipeline accepts nothing -- genome #43). Live this tick: 26.3h of zero output (last photo 2026-09-22 07:07Z), publishable=18, dry_out 2026-09-29T10:30Z -> 6.0d; if the pin persists past that clock posting stops with no error of its own. Root cause is outside the repo (operator's :8188 session, pid 553489, 17.8GiB held / 5.3GiB free < the 16GiB fit floor), and no in-repo change can produce output while it holds: the harness refuses on the launch line before it ever asks for a claim. Single lever = render-starved (route=tim). Self-closes on the first photo."
-    },
     {
       "ts": "2026-09-23T06:40:23-0400",
       "note": "decision unchanged: keep open, not accepted. Live read 10:40Z: no photo since id 361 @ 2026-09-22 07:07:41Z (27.6h); the card is held by the operator's :8188 session (holder=operator, pid 553489, 18.2GiB of 24GiB, 0%, 25W, launched without --reserve-vram, free 5.4GiB < the 16GiB fit floor) so both gates refuse. No in-repo lever can produce a render while ~11GiB is unavailable; the lever stays on render-starved/route=tim. publishable=18, dry_out=2026-09-29T10:30Z (6.0d)."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T12:29:10-0400",
       "note": "2026-09-23 16:3xZ ops-triage: RATION-TO-EXTEND assessed and NOT taken -- arithmetic recorded now so the pre-registered 72h runway trigger does not have to re-derive it. Measured this pass: (1) a cadence change cannot stretch this queue: Growth::PostSlotPlanner.next_slot assigns each clock at POST CREATION (packs/growth_harness/app/services/growth/post_slot_planner.rb), so posts_per_day never re-spaces an existing clock and dry_out stays put; the repo holds no retime utility. (2) The only in-repo lever that could hold a queued clock back is the publisher hold path (both clocks cleared) -- the mechanism the age gate uses -- so rationing through it would pollute held=, the counter the age-gate signal is read from. (3) Per the measured reach ceiling (daily-reach-ceiling: 3-4/day 22.8 impressions vs 1/day 11.2, per-post reach falling 4x), rationing buys runway at about half the daily reach, on an account whose measured engagement is 0 likes / 0 comments on 19 posts. DECISION: keep publishing at the knee (3/day) on the pre-registered schedule; the 72h escalation still carries the call. DROUGHT LIVE 16:2xZ: card 23.4GiB used / 637MiB free, operator :8188 session at 100 percent util / 349W -- active human rendering, not an idle pin."
+    },
+    {
+      "ts": "2026-09-23T14:36:53-0400",
+      "note": "2026-09-23 18:3xZ ops-triage: the GPU-free lever is now BUILT, VERIFIED LIVE, and COMMITTED (534a189) -- and its true size is corrected DOWN, which is the material change here. Growth::LibraryFallback spends the render library (photos rendered, never posted) when the publish runway drops under the SAME 72h threshold this board escalates on, topping up to 96h at <=3 posts/call, every photo re-gated fail-closed. Verified by real execution, not specs alone: the APPLY path ran against the live gates and DB inside a rolled-back transaction and created post 354 (photo 308, strategy=library-fallback, nsfw 0.0197, aes 6.4239, scheduled 09-29T14:00Z, one library_fallback decision), row proven present inside the tx and absent after rollback; the dormant branch confirmed live (runway 136.1h > 72h). CORRECTION to the prior pass: that pass reported '~36 usable posts (~12 d)' and 'a continued hold extends coverage to ~18 d'. Measured now: of 51 servable unposted photos only 8 are spendable. 15 of the 23 August photos are NSFW-classified (0.68-0.9999), and ALL 28 of the older May batch fail RealismGate on sharpness (6.7-16.1 vs the 30.0 floor) though their aesthetics are fine (5.4-7.3). That May rejection was independently reproduced -- my numpy Laplacian variance matches the gate's numbers exactly (8.18 / 11.27) and a visual read of photo 124 shows genuine blur against photo 308's clear detail -- so the gate is right and the threshold sits in an empty valley (nothing scores 16-121). Honest lever size: ~2.7 days at 3/day, so a continued hold now reaches publishing silence around 10-02, NOT 10-17. The correction is recorded in the class comment and the publisher step so no future pass re-derives an inflated buffer. No claim requested, no render attempted."
     }
   ]
 }

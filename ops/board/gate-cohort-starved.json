@@ -5,8 +5,8 @@
   "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 7. Inside that window the SLOTS hold 0 published + 4 queued = 4, but Growth::GateRead#cohort_size ALSO requires insights_updated_at, and insights arrive a measured 30h after publication (fastest observed publish->insights lag, taken from the DB) -- so a slot inside the window's last 30h can never testify. FEASIBLE cohort: 0 published + 0 queued = 0, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: 12 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window; the :8188 instance (pid 553489, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change). Nothing here is ours to repair -- the refusal itself is correct (an instance launched without --reserve-vram cannot be submitted to) -- and this entry is not an ask on the holder: it self-closes when the loop stops being refused.",
   "status": "open",
   "first_seen": "2026-09-22T17:59:02-0400",
-  "last_seen": "2026-09-23T12:25:28-0400",
-  "seen_count": 52,
+  "last_seen": "2026-09-23T14:25:31-0400",
+  "seen_count": 54,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -25,6 +25,10 @@
     {
       "ts": "2026-09-23T03:33:59-0400",
       "note": "2026-09-23 07:3xZ ops-triage: unchanged -- 1 post-intervention post can carry insights inside the 09-28 13:00Z review window (need 5), because the render loop is refused. The 09-28 13:00Z :extend and the 10-05 conditional stay pre-registered; no new decision. Downstream of the same operator pin, whose lever now reaches Tim via render-starved."
+    },
+    {
+      "ts": "2026-09-23T14:36:54-0400",
+      "note": "2026-09-23 18:3xZ ops-triage: no change to the decision (the 09-28 13:00Z :extend and the 10-05 conditional stay pre-registered), but recording a NEW fact that closes off a future dead end: the render-library lever built this pass CANNOT feed this cohort, so it is not a mitigation for this item. Growth::GateRead requires photos.created_at >= INTERVENTION_AT (2026-09-21T23:35Z), and all 8 spendable library photos are dated 08-23..08-30 -- so a post built from one is a pre-intervention render wearing a fresh post row and contributes nothing to the strategy read. Only a FRESH render can be a cohort member, and that is exactly what the operator's GPU hold blocks. Verified: created_at read for all 8 (308=08-30T16:05Z ... 243=08-23T16:02Z), all before the cut. Recorded in Growth::LibraryFallback's class comment so the next pass does not re-open this as a possible rescue."
     }
   ]
 }
