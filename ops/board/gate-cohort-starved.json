@@ -5,8 +5,8 @@
   "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 7. Inside that window the SLOTS hold 0 published + 4 queued = 4, but Growth::GateRead#cohort_size ALSO requires insights_updated_at, and insights arrive a measured 24h after publication (fastest observed publish->insights lag, taken from the DB) -- so a slot inside the window's last 24h can never testify. FEASIBLE cohort: 0 published + 1 queued = 1, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: 12 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window; the :8188 instance (pid 553489, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change). Nothing here is ours to repair -- the refusal itself is correct (an instance launched without --reserve-vram cannot be submitted to) -- and this entry is not an ask on the holder: it self-closes when the loop stops being refused.",
   "status": "open",
   "first_seen": "2026-09-22T17:59:02-0400",
-  "last_seen": "2026-09-23T03:36:22-0400",
-  "seen_count": 27,
+  "last_seen": "2026-09-23T04:41:35-0400",
+  "seen_count": 31,
   "source": "probe",
   "route": "agent",
   "notes": [

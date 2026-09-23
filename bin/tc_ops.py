@@ -3420,6 +3420,32 @@ def unclaimed_vram_verdict(card_mib, own_mib, threshold_mib=UNCLAIMED_COMFYUI_VR
     return (own_mib, True)
 
 
+def unclaimed_actionable_verdict(holder_class):
+    """PURE: is an idle-holding :8188 instance a board item the AGENT can act on?
+
+    -> None when NO agent action exists, else the holder class (kept so a caller may
+    branch on it later).
+
+    The check's harm model is "residue the next claimant renders against", and the
+    only in-repo remedy is shutting OUR OWN orphan down (the harness self-heals
+    `owner=ours`). When the serving instance is the OPERATOR's own interactive tmux
+    session there is no such remedy at all: the harness ownership rule forbids
+    touching it, and a running process's launch line is not ours to change -- so the
+    item can only ever be filed, never closed, which is the failure this board exists
+    to end (genome: an agent-routed item whose remedy is human-only is a deferral).
+    The harm that IS actionable on that instance -- render starvation -- is owned and
+    escalated by check_render_starved, which carries the lever to the human on the
+    same tick it first bites (measured 2026-09-23: the operator's idle-holding session
+    kept this key open/reopening for ~19h beside that escalation, contributing
+    nothing it did not already say).
+
+    Kept pure and separate so the rule is testable with no GPU and no live instance,
+    and so UNKNOWN holders still file: a failure to attribute must never silence a
+    possible leak, only a PROVEN human session may.
+    """
+    return None if str(holder_class or "").strip().lower() == "operator" else (holder_class or "other")
+
+
 def comfyui_instance_vram_mib(pid=None):
     """The MiB the :8188 instance ITSELF holds, 0 when it is not a compute process.
 
@@ -3461,8 +3487,10 @@ def check_comfyui_vram_unclaimed():
     adopts foreign instances rather than killing them, so there is nothing to
     action), NOT fired while the instance is live (see comfyui_holder_verdict), and
     NOT fired on a card-level reading that belongs to a co-tenant (see
-    unclaimed_vram_verdict). Sampled from hardware, not inferred from the port
-    being open.
+    unclaimed_vram_verdict), and NOT fired on the OPERATOR's own session (see
+    unclaimed_actionable_verdict -- there is no agent action on a process no agent
+    may touch, and render-starved already carries that lever to the human).
+    Sampled from hardware, not inferred from the port being open.
     """
     if not comfyui_up():
         return None
@@ -3477,6 +3505,22 @@ def check_comfyui_vram_unclaimed():
     depth = comfyui_queue_depth()
     age = comfyui_last_prompt_age_s()
     if comfyui_holder_verdict(depth, age) != "idle":
+        return None
+    # WHO owns the instance decides whether a board item should exist at all: a
+    # PROVEN human session is not ours and has no agent remedy (the starvation it
+    # causes is escalated by check_render_starved), while our own orphan and every
+    # unattributable case still file -- see unclaimed_actionable_verdict.
+    serving = comfyui_serving_pid()
+    if unclaimed_actionable_verdict(holder_class_of(serving) if serving else None) is None:
+        note_quiet(
+            "comfyui-vram-unclaimed",
+            f"NOT filed, and the card is still held: the :8188 instance (pid {serving}) is "
+            f"the OPERATOR's own interactive session -- no agent may touch it, its launch "
+            f"line is not ours to change, and the harness ownership rule says "
+            f"yield. This item has no agent remedy, so it is not filed as an agent "
+            f"decision; the harm it causes (render starvation) is escalated on "
+            f"render-starved (route=tim) with the lever, and was last seen idle-holding "
+            f"{held / 1024:.1f} GB on the {GPU}.")
         return None
     last = "never" if age is None else f"{age / 60:.0f} min ago"
     if attributed:
@@ -5444,8 +5488,31 @@ def cmd_needs_human(_argv):
     return 0
 
 
+AUTO_CLOSE_DEFAULT_NOTE = "condition no longer reproduces"
+
+# A check that DECLINES to file a condition which still reproduces (rather than one
+# that stopped reproducing) must say so, or the auto-close note above tells the
+# reader the condition cleared when nothing changed. Measured 2026-09-23: once
+# comfyui-vram-unclaimed stopped filing the OPERATOR's idle-holding session, the
+# generic note would have reported the VRAM hold as gone while 18.2 GiB was still
+# pinned and renders were still refused. Checks call note_quiet(key, reason) as they
+# run; cmd_probe uses it for the close note.
+_QUIET_REASONS = {}
+
+
+def note_quiet(key, reason):
+    """Record WHY a check declines to file `key` while its condition persists."""
+    _QUIET_REASONS[str(key)] = str(reason)
+
+
+def auto_close_note(key):
+    """The note an auto-close writes: the suppressing check's reason, else the default."""
+    return _QUIET_REASONS.get(str(key)) or AUTO_CLOSE_DEFAULT_NOTE
+
+
 def cmd_probe(_argv):
     global _AUDIT_SINK, _AUDIT_CHECK
+    _QUIET_REASONS.clear()
     found, quiet = [], []
     # Arm the read-sink for the duration of the sweep. The probe already calls
     # every check, so noticing that one of them got NOTHING back is free -- and
@@ -5507,7 +5574,7 @@ def cmd_probe(_argv):
         if rec.get("status") == "open" and rec.get("key") not in live \
                 and rec.get("source", "probe") == "probe":
             rec["status"] = "auto-closed"
-            append_note(rec, "condition no longer reproduces")
+            append_note(rec, auto_close_note(rec.get("key")))
             p.write_text(json.dumps(rec, indent=2) + "\n")
 
     crit = [r for r in found]
@@ -6442,6 +6509,41 @@ def cmd_selftest(_argv):
     for name, card, own, want in vram_cases:
         expect(f"unclaimed_vram_verdict[{name}]",
                unclaimed_vram_verdict(card, own), want)
+
+    # unclaimed_actionable_verdict: a PROVEN human session is the one case with no
+    # agent remedy, and filing it leaves an agent-routed item no agent can ever close
+    # (measured 2026-09-23: the operator's idle-holding instance kept the key open for
+    # ~19h beside the render-starved escalation that already named it and the fix).
+    # Every other class -- our own orphan, another project's unit, and any UNREADABLE
+    # holder -- still files: only a proven human session may silence a possible leak.
+    actionable_cases = [
+        ("operator-session-has-no-agent-remedy", "operator", None),
+        ("our-own-orphan-files", "agent", "agent"),
+        ("supervised-unit-files", "unit", "unit"),
+        ("unknown-holder-files", "other", "other"),
+        ("unreadable-holder-files", None, "other"),
+        ("empty-holder-files", "", "other"),
+        ("case-and-whitespace", " Operator ", None),
+    ]
+    for name, klass, want in actionable_cases:
+        expect(f"unclaimed_actionable_verdict[{name}]",
+               unclaimed_actionable_verdict(klass), want)
+
+    # auto_close_note: a check that declines to file a condition which STILL
+    # reproduces must not let the generic note claim it cleared -- measured
+    # 2026-09-23, the operator's 18.2 GiB hold would have been auto-closed as
+    # "condition no longer reproduces" while every render was still refused.
+    _QUIET_REASONS.clear()
+    expect("auto_close_note[default-when-no-reason]",
+           auto_close_note("some-key"), AUTO_CLOSE_DEFAULT_NOTE)
+    note_quiet("some-key", "still held; escalated on render-starved")
+    expect("auto_close_note[suppressing-check-says-why]",
+           auto_close_note("some-key"), "still held; escalated on render-starved")
+    expect("auto_close_note[other-keys-keep-the-default]",
+           auto_close_note("another-key"), AUTO_CLOSE_DEFAULT_NOTE)
+    _QUIET_REASONS.clear()
+    expect("auto_close_note[cleared-between-sweeps]",
+           auto_close_note("some-key"), AUTO_CLOSE_DEFAULT_NOTE)
 
     # cron_prompt_orphan_verdict: a prompt line that calls ANY unclaimed ComfyUI an
     # orphan, without the owner= gate, is the defect (it names a co-tenant's live
