@@ -4858,15 +4858,14 @@ OPERATOR_LEVER_CLAUSE = (
     "resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses "
     "`vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid "
     "3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at "
-    "free=6413MiB -- nothing rendered). CLOSING that instance clears BOTH conditions at "
-    "once and the next tick renders -- `ensure` then claims the card and launches its own "
-    "flagged instance. Freeing its model cache clears only (2): the instance stays "
-    "FLAGLESS, and `ensure` returns 2 on the launch args BEFORE it ever asks the "
-    "scheduler for a claim (bin/comfyui_harness.sh: `if comfyui_up && ! comfyui_reserve_ok` "
-    "-> return 2, ahead of the claim loop), so no amount of freed VRAM starts a render "
-    "through it. The relaunch is the fix; the cache is not. If you would rather keep the "
-    "card for your own session, say so once: the launch line stops being re-raised and "
-    "the drought is recorded as accepted policy (the zero-output item stays open as its cost)."
+    "free=6413MiB -- nothing rendered). Note that freeing its model cache clears only "
+    "(2) and never (1): while the instance is up and FLAGLESS, `ensure` returns 2 on the "
+    "launch args BEFORE it ever asks the scheduler for a claim, so no amount of freed "
+    "VRAM starts a render through it. (If you would rather keep the card for your own "
+    "session, say so once: the launch line stops being re-raised and the drought is "
+    "recorded as accepted policy, the zero-output item staying open as its cost.) "
+    "CLOSING it is the fix and the next tick renders; freeing its model cache is not, "
+    "because a flagless instance is refused before any claim."
 )
 
 
@@ -4893,10 +4892,11 @@ OPERATOR_LEVER_CLAUSE_ARGS_ONLY = (
     "yielded to, so the loop resumes the moment the flag is there; without it every "
     "tick refuses on the launch args. THE CARD IS NOT THE BLOCKER (live: {free:.1f}GiB "
     "free vs the {ask:.0f}GiB ask the harness would make), so freeing its model cache "
-    "changes nothing. Relaunch that session carrying the same flag, or close it: "
-    "either way the next hourly tick renders. If you would rather keep the card for your "
-    "own session, say so once: the launch line stops being re-raised and the drought is "
-    "recorded as accepted policy (the zero-output item stays open as its cost)."
+    "changes nothing. (If you would rather keep the card for your own session, say so "
+    "once: the launch line stops being re-raised and the drought is recorded as accepted "
+    "policy, the zero-output item staying open as its cost.) "
+    "Relaunch that session carrying the same flag, or close it: either way the next "
+    "hourly tick renders."
 )
 
 
@@ -6973,7 +6973,7 @@ def cmd_selftest(_argv):
     expect("operator_holder_lever[card-blocked-cache-free-is-not-the-fix]",
            "clears only (2)" in _card_blocked, True)
     expect("operator_holder_lever[card-blocked-closing-is-the-fix]",
-           "CLOSING that instance clears BOTH" in _card_blocked, True)
+           "CLOSING it is the fix" in _card_blocked, True)
     expect("operator_holder_lever[card-blocked-names-the-gate-order]",
            "BEFORE it ever asks the scheduler" in _card_blocked, True)
     expect("operator_holder_lever[card-blocked-drops-the-or-either-promise]",
@@ -6988,7 +6988,17 @@ def cmd_selftest(_argv):
     expect("operator_holder_lever[card-blocked-ask-is-answerable]",
            "accepted policy" in _card_blocked, True)
     expect("operator_holder_lever[accepting-does-not-hide-the-cost]",
-           "zero-output item stays open" in _card_clear, True)
+           "zero-output item staying open" in _card_clear, True)
+    # ORDER IS THE FIX, not decoration: the digest that carries this ask keeps BOTH ends
+    # of a long evidence but only ~150 chars of the tail (DIGEST_EVIDENCE_CHARS=300), so
+    # the INSTRUCTION must be the clause's LAST sentence. Measured 2026-09-23 14:3xZ: the
+    # answerable sentence, appended AFTER the remedy, pushed "relaunch with the flag or
+    # close it" out of the tail of ops/NEEDS_HUMAN.md -- the only surface the operator
+    # reads -- leaving him a line that ended on a policy option and never named the step.
+    for _nm, _cl in (("card-clear", _card_clear), ("card-blocked", _card_blocked)):
+        _tail = digest_elide(_cl, DIGEST_EVIDENCE_CHARS)
+        expect(f"operator_holder_lever[{_nm}-digest-tail-names-the-step]",
+               ("next hourly tick renders" in _tail) or ("next tick renders" in _tail), True)
     # The activity clause is followed by the lever, which opens with a capital letter:
     # without terminal punctuation the two read as one sentence ("not idle residue TWO
     # things must be true"), measured live 2026-09-23 on the only surface Tim reads.
