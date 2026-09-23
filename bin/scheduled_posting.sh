@@ -87,6 +87,32 @@ if [ "$SALVAGE_CODE" -ne 0 ]; then
     log "WARN: render salvage exited $SALVAGE_CODE — publishing anyway"
 fi
 
+# Spend the render LIBRARY when the fresh-render path cannot keep the queue above
+# its runway (2026-09-23). Growth::RenderSalvage above recovers renders that were
+# already made; NOTHING here could help when no render happens at all -- and that
+# is the recurring shape: the harness refuses to submit to a :8188 ComfyUI launched
+# without --reserve-vram (the measured over-commit OOM), so another project's
+# supervisor or the operator's own session blocks rendering for hours (1.5-96h
+# holds, recurring since 2026-08-16) while the queue drains at ~3/day toward
+# publishing SILENCE. The library (photos rendered and never posted) is the only
+# content source that needs no GPU. The task is GPU-FREE, re-runs BOTH gates
+# fail-closed on every photo, and is bounded twice over: it only acts under the
+# SAME 72h runway threshold the ops board escalates on, and it tops up to 96h
+# (<=3 posts/call), so a single hold cannot drain it. Measured depth 2026-09-23:
+# of 51 servable unposted photos only 8 are spendable (15 NSFW-classified; all 28
+# of the older May batch are soft -- sharpness 6.7-16.1 vs the 30.0 floor), so this
+# buys ~2.7 days at 3/day, NOT weeks. It also cannot feed Growth::GateRead's cohort
+# (that needs renders after 2026-09-21T23:35Z; every spendable library photo
+# predates it) -- runway only.
+# Deliberately NON-FATAL (same pattern as the steps above) — a fallback failure must
+# never stall publishing.
+log "Restoring publish runway from the render library (if short)..."
+APPLY=1 bundle exec rails growth:library_fallback 2>&1 | tee -a "$LOG_FILE"
+LIBRARY_CODE=${PIPESTATUS[0]}
+if [ "$LIBRARY_CODE" -ne 0 ]; then
+    log "WARN: library fallback exited $LIBRARY_CODE — publishing anyway"
+fi
+
 # Collect engagement insights for posted items (2026-09-20). The insights columns
 # are what Growth::WeeklyReview aggregates per pillar to steer hashtags/content,
 # and the command that fills them existed since May -- but nothing invoked it (no

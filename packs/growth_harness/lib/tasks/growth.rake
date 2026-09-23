@@ -166,6 +166,41 @@ namespace :growth do
          "posts=#{result.post_ids.inspect} (shortfall=#{outcome[:shortfall]})"
   end
 
+  desc 'Spend library photos to restore publish runway when renders are blocked (dry run; APPLY=1 to schedule, LIMIT=N, FORCE=1)'
+  task :library_fallback, [:persona_name] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    goal = Growth::Goal.active.for_persona(persona).first
+    if goal.nil?
+      puts 'Library: no active goal — nothing to top up.'
+      next
+    end
+
+    apply = ENV['APPLY'] == '1'
+    force = ENV['FORCE'] == '1'
+    limit = ENV['LIMIT'].presence&.to_i
+    engine = Growth::LibraryFallback.new(goal: goal)
+
+    runway = engine.remaining_runway_hours
+    if !force && runway > Growth::LibraryFallback::RUNWAY_TRIGGER_H
+      puts "Library: skipped — runway #{runway.round(1)}h is outside the " \
+           "#{Growth::LibraryFallback::RUNWAY_TRIGGER_H}h trigger (fresh renders remain the source)."
+      next
+    end
+
+    if apply
+      r = engine.call(limit: limit, force: force)
+      puts "Library: runway=#{r.runway_hours}h budget=#{r.budget} examined=#{r.examined} " \
+           "created=#{r.created} rejected=#{r.rejected} skipped=#{r.skipped} posts=#{r.post_ids.inspect}"
+    else
+      # Dry run: no gates, no writes — just what the trigger and the selector offer.
+      pool = Photos::ListAvailable.call(persona: goal.persona).photos
+      puts "Library: DRY RUN — runway=#{runway.round(1)}h (trigger " \
+           "#{Growth::LibraryFallback::RUNWAY_TRIGGER_H}h, target " \
+           "#{Growth::LibraryFallback::RUNWAY_TARGET_H}h); candidates=#{pool.size} " \
+           "newest=#{pool.first(5).map(&:id).inspect}. APPLY=1 to spend (gates re-run, fail-closed)."
+    end
+  end
+
   desc 'Capture a follower-count snapshot for the active goal'
   task :snapshot_followers, [:persona_name] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
