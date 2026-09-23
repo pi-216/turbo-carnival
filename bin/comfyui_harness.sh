@@ -1137,9 +1137,21 @@ cmd_shutdown() {
   # Queue-first guard (2026-09-07): never SIGTERM a ComfyUI whose native
   # queue still holds renders (running or pending). Killing live queued work
   # is counterproductive — refuse and keep the claim so work drains.
+  #
+  # ONLY a claim is worth keeping. Measured 2026-09-23 10:04:16: this branch fired
+  # with NO claim in the state file (the operator's foreign instance was mid-render)
+  # and logged "keeping claim  alive so they drain" — an empty job id and a claim
+  # that does not exist, written into the audit trail a later diagnosis reads, plus
+  # a nonzero exit for a tick that had nothing to refuse. With no claim there is
+  # nothing of ours to protect and nothing of ours to stop (kill_comfyui refuses
+  # without a recorded pid), so say so and carry on down the normal path: the
+  # foreign instance is left running either way.
   if comfyui_up && ! comfyui_queue_empty; then
-    log "shutdown: REFUSED — ComfyUI queue still has renders (running/pending); keeping claim $job_id alive so they drain"
-    return 3
+    if [ -n "$job_id" ]; then
+      log "shutdown: REFUSED — ComfyUI queue still has renders (running/pending); keeping claim $job_id alive so they drain"
+      return 3
+    fi
+    log "shutdown: the ComfyUI on port ${COMFY_PORT} still has renders (running/pending) and THIS TICK HOLDS NO CLAIM — nothing of ours to keep alive or to stop; continuing (the instance is left running)"
   fi
 
   if [ -n "$job_id" ]; then

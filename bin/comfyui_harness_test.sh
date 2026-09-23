@@ -338,6 +338,62 @@ else
   kill -9 "$DECOY" 2>/dev/null
 fi
 
+echo "--- shutdown: the queue-first guard is CLAIM-conditional ---"
+# Measured 2026-09-23 10:04:16: the guard fired with NO claim in the state file (the
+# operator's foreign instance was mid-render) and logged "keeping claim  alive so they
+# drain" -- an empty job id and a claim that did not exist -- then returned 3 for a tick
+# that had nothing to refuse. Only a CLAIM is worth keeping: with none there is nothing
+# of ours to protect and nothing of ours to stop, so it must say so and carry on down the
+# normal path. (The ownership rule that stops kill_comfyui touching a foreign instance is
+# covered above; here kill_comfyui is stubbed so this test can never signal a pid.)
+run_shutdown() { # run_shutdown <tag> <claim?yes|no> <queue_empty?yes|no>
+  : > "$SCRATCH/sd-kill"; : > "$SCRATCH/sd-sched"; : > "$SCRATCH/sd-systemctl"
+  TC_HARNESS_LOG="$SCRATCH/sd-$1.log" \
+  bash -c '
+    source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+    claim="'"$2"'"; qempty="'"$3"'"
+    read_state() {
+      if [ "$claim" = yes ]; then printf "%s\n" "comfyui-testjob-1" "" "424242" "launched";
+      else printf "%s\n" "" "" "" ""; fi
+    }
+    comfyui_up() { return 0; }
+    comfyui_queue_empty() { [ "$qempty" = yes ]; return $?; }
+    hb_alive() { return 1; }
+    comfy_unit() { echo test-unit; }
+    stop_heartbeat() { :; }
+    kill_comfyui() { printf "KILL\n" >> '"$SCRATCH"'/sd-kill; }
+    sched() { printf "%s\n" "$*" >> '"$SCRATCH"'/sd-sched; }
+    systemctl() { printf "%s\n" "$*" >> '"$SCRATCH"'/sd-systemctl; }
+    vram_mib() { echo 612; }
+    gpu_idle() { return 1; }
+    TELE_FILE=""
+    STATE_FILE="'"$SCRATCH"'/sd-claim-'"$1"'"; rm -f "$STATE_FILE"
+    rc=0; cmd_shutdown || rc=$?; printf "rc=%s" "$rc"
+  ' > "$SCRATCH/sd-$1.out" 2>/dev/null
+}
+
+run_shutdown no-claim no no
+is "no claim + busy queue: continues (rc=0)" "rc=0" "$(cat "$SCRATCH/sd-no-claim.out")"
+is "no claim + busy queue: says THIS TICK HOLDS NO CLAIM" "1" \
+   "$(grep -c 'HOLDS NO CLAIM' "$SCRATCH/sd-no-claim.log")"
+is "no claim + busy queue: never claims to keep a claim" "0" \
+   "$(grep -c 'keeping claim' "$SCRATCH/sd-no-claim.log")"
+is "no claim + busy queue: reaches the no-claim path" "1" \
+   "$(grep -c 'no claim in state file' "$SCRATCH/sd-no-claim.log")"
+is "no claim + busy queue: touches no systemd unit" "0" "$(grep -c 'stop' "$SCRATCH/sd-systemctl")"
+
+run_shutdown claim-busy yes no
+is "claim + busy queue: still refuses (rc=3)" "rc=3" "$(cat "$SCRATCH/sd-claim-busy.out")"
+is "claim + busy queue: names the claim it keeps" "1" \
+   "$(grep -c 'keeping claim comfyui-testjob-1 alive' "$SCRATCH/sd-claim-busy.log")"
+is "claim + busy queue: kills nothing" "0" "$(grep -c 'KILL' "$SCRATCH/sd-kill")"
+is "claim + busy queue: releases nothing" "0" "$(grep -c 'release' "$SCRATCH/sd-sched")"
+
+run_shutdown claim-empty yes yes
+is "claim + empty queue: proceeds (rc=0)" "rc=0" "$(cat "$SCRATCH/sd-claim-empty.out")"
+is "claim + empty queue: stops the instance" "1" "$(grep -c 'KILL' "$SCRATCH/sd-kill")"
+is "claim + empty queue: releases the claim" "1" "$(grep -c 'release --gpu' "$SCRATCH/sd-sched")"
+
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi
 exit "$FAILED"
