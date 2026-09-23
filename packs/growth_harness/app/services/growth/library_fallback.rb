@@ -56,8 +56,20 @@ module Growth
   #     predates the current gate stack or its producer died before gating. A
   #     rejection is recorded as a Growth::Decision and never scheduled.
   #   * IDEMPOTENT: the selector excludes any photo a post already references, and
-  #     (photo_id, persona_id) is UNIQUE on scheduling_posts -- so a repeat call
-  #     cannot double-post, and the post row is its own marker.
+  #     (photo_id, persona_id) is UNIQUE on scheduling_posts -- index
+  #     `index_posts_on_photo_id_and_persona_id`, created by the original
+  #     create_scheduling_posts migration (20251209222756) and mirrored in
+  #     db/schema.rb, so it is ENFORCED BY THE DATABASE and not only by this
+  #     class's `exists?` -- so a repeat call cannot double-post, and the post row
+  #     is its own marker. Scheduling::Post also validates it (2026-09-23) so the
+  #     human-facing scheduling form reports a duplicate instead of raising
+  #     RecordNotUnique. The DB half is what makes this safe to run from three
+  #     independent drivers at once (bin/scheduled_posting.sh hourly,
+  #     Growth::AbandonedRenderWorker every 5 min, CadenceEngine#sync): they are
+  #     triggered by the same condition and select the same candidates, so an
+  #     interleaved pair both passes `exists?`. Pinned by
+  #     spec/models/scheduling/post_photo_uniqueness_spec.rb -- do NOT re-add a
+  #     second unique index on these columns.
   #   * BUYS RUNWAY ONLY -- it CANNOT feed Growth::GateRead's cohort. That cohort
   #     requires `photos.created_at >= INTERVENTION_AT` (2026-09-21T23:35Z); every
   #     spendable library photo here is dated 08-23..08-30, so a post built from

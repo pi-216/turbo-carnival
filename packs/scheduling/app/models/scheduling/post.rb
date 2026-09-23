@@ -11,6 +11,19 @@ module Scheduling
 
     validates :photo, presence: true, if: :ready_to_post?
 
+    # A photo is posted at most ONCE per persona. This is load-bearing, not
+    # tidiness: Growth::LibraryFallback#spend and Growth::RenderSalvage use "a
+    # Post row for this photo exists" as their idempotency MARKER, and they are
+    # driven by three independent callers (bin/scheduled_posting.sh hourly,
+    # Growth::AbandonedRenderWorker every 5 min, Growth::CadenceEngine#sync) --
+    # two of which fire on the same trigger and the same candidate list, so a
+    # check-then-act `exists?` alone lets an interleaved pair double-post the
+    # same image. The DB-level guarantee is the unique index added in
+    # 20260923233500; this validation only turns the violation into a friendly
+    # error on the human-facing scheduling path. allow_nil keeps
+    # `awaiting_image` drafts (photo_id NULL) unrestricted.
+    validates :photo_id, uniqueness: { scope: :persona_id }, allow_nil: true
+
     scope :posted, -> { where(status: 'posted') }
     scope :with_strategy, ->(strategy_name) { where(strategy_name: strategy_name) }
     scope :awaiting_photo, -> { where(photo_id: nil) }
