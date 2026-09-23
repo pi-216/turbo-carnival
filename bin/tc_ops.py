@@ -896,6 +896,15 @@ def check_render_starved():
         _rpid = comfyui_serving_pid()
         gate = reserve_gate_clause(comfyui_reserve_ok(_rpid), _rpid,
                                    holder_class_of(_rpid) if _rpid else None)
+        # The lever travels WITH the ask. This item is the ONLY escalation that
+        # reaches a human on a starved tick (the runway forecast is a later, milder
+        # signal: measured 2026-09-23 the CRITICAL fired at 24.3h of zero output while
+        # dry_out was still 6.2d out), and naming the holder without the lever leaves
+        # it as "your session is in the way" -- the unactionable ask this board exists
+        # to end. Route: enablement when his own session is the pin, agent otherwise.
+        _holders = gpu_vram_holders()
+        _reserve = comfyui_reserve_ok(_rpid)
+        lever = operator_holder_lever(_reserve, _holders, _rpid)
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
@@ -903,7 +912,9 @@ def check_render_starved():
             f"photos_{STARVE_WINDOW_H}h=0 refusals_{STARVE_WINDOW_H}h={refused} "
             f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else "")
             + gate
-            + (f"; {fit}" if fit else ""),
+            + (f"; {fit}" if fit else "")
+            + lever,
+            starve_route(_reserve, _holders, _rpid),
         )
     return None
 
@@ -4691,12 +4702,20 @@ def runway_route(holder_classes):
 # is a single flag the harness's own launch line already carries, so it must travel
 # WITH the ask instead of being re-derived by whoever reads it.
 OPERATOR_LEVER_CLAUSE = (
-    " The lever that needs nobody to close anything: an instance carrying the SAME "
-    "`--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh "
-    "plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED by the render "
-    "harness instead of yielded to, so the loop resumes the moment that session goes "
-    "idle. Without the flag every tick refuses on the launch args, and the card stays "
-    "idle-but-unusable even when nothing is rendering on it."
+    " TWO things must be true before the harness can render through that session, and "
+    "only the operator can make either true. (1) LAUNCH ARGS: an instance carrying the "
+    "SAME `--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh "
+    "plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of "
+    "yielded to, so the loop resumes as soon as that session has room; without the flag "
+    "every tick refuses on the launch args even when the card is otherwise empty. "
+    "(2) THE CARD ITSELF: the flag alone is NOT sufficient while the instance HOLDS its "
+    "models -- an adopted instance still has to clear the scheduler's fit floor, and a "
+    "resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses "
+    "`vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid "
+    "3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at "
+    "free=6413MiB -- nothing rendered). Closing that instance, or freeing its model "
+    "cache (ComfyUI's own 'Free model and node cache', or POST /free), returns ~23GiB to "
+    "the card and the next tick renders."
 )
 
 
@@ -4720,6 +4739,22 @@ def operator_holder_lever(reserve, holders, serving_pid):
         if str(pid).strip() == serving and str(klass or "").strip().lower() == "operator":
             return OPERATOR_LEVER_CLAUSE
     return ""
+
+
+def starve_route(reserve, holders, serving_pid):
+    """PURE: which queue a render-STARVATION item belongs in.
+
+    The starvation item is filed for the agent by default -- the agent owns the
+    business call (yield the window, wait out the holder, top up elsewhere). It is
+    enablement, and must reach the human, in the ONE case no in-repo action can
+    clear: the card is pinned by the OPERATOR's own :8188 session, which no agent may
+    touch and whose launch line no agent may change. Same rule and same 5th-tuple
+    mechanism as runway_route, kept separate because this signal fires FIRST: measured
+    2026-09-23, the CRITICAL `zero-accepted-output-24h` fired at 24.3h with zero
+    photos while dry_out was still 6.2d out, so the runway forecast had not fired and
+    the only lever the human holds never reached him.
+    """
+    return "tim" if operator_holder_lever(reserve, holders, serving_pid) else "agent"
 
 
 def check_queue_runway():
@@ -5813,7 +5848,14 @@ def audit_checks():
         _AUDIT_CHECK = chk.__name__
         try:
             res = chk()
-            if isinstance(res, tuple) and len(res) == 4:
+            # len >= 4, NOT == 4: a check may return a 5th element (the queue the
+            # condition belongs in -- see cmd_probe). Accepting only the 4-tuple made
+            # every ROUTED check that FIRES read as "raised" here, so the audit that
+            # exists to prove the monitoring is live would have reported the board's
+            # most important routed signals as broken the moment they fired. Measured
+            # 2026-09-23: check_render_starved returned its 5-tuple and this line
+            # called it RAISED while the probe filed it correctly.
+            if isinstance(res, tuple) and len(res) >= 4:
                 results.append((chk.__name__, "fired"))
             elif res is None:
                 results.append((chk.__name__, "quiet"))
@@ -6541,6 +6583,36 @@ def cmd_selftest(_argv):
                bool(operator_holder_lever(reserve, holders, pid)), want)
     expect("operator_holder_lever[names-the-flag]",
            "--reserve-vram" in operator_holder_lever(False, _op_holders, "553489"), True)
+    # ...and the CARD half. A clause that promises the flag alone is the unactionable
+    # ask this board exists to end: a flagged instance that still HOLDS its models is
+    # adopted and then refused vram_insufficient (measured 2026-09-22 14:00:41, flagged
+    # pid 3662070, 17074MiB held, claim refused at free=6413MiB, nothing rendered).
+    expect("operator_holder_lever[names-the-card-half]",
+           "16GiB" in operator_holder_lever(False, _op_holders, "553489"), True)
+    expect("operator_holder_lever[names-the-resident-hold]",
+           "holds" in operator_holder_lever(False, _op_holders, "553489").lower(), True)
+
+    # starve_route: the STARVATION item reaches the human only when his own session is
+    # the pin -- the same lever test as the runway item, asserted separately because
+    # this signal fires FIRST (measured 2026-09-23: the CRITICAL at 24.3h of zero
+    # output fired while dry_out was still 6.2d out, so the runway item had not fired
+    # and the lever never reached him).
+    starve_cases = [
+        ("operator-pins-the-flagless-server", False, _op_holders, "553489", "tim"),
+        ("flagged-server-is-adoptable", True, _op_holders, "553489", "agent"),
+        ("no-instance", None, _op_holders, "553489", "agent"),
+        ("operator-holds-but-not-the-server", False, _op_holders, "999999", "agent"),
+        ("supervised-unit-is-waited-out", False,
+         [(553489, "main.py", 17074, "unit")], "553489", "agent"),
+        ("our-own-mislaunch", False, [(553489, "main.py", 17074, "agent")], "553489", "agent"),
+        ("co-tenant-beside-operator", False,
+         [(1, "labeler", 14336, "agent"), (553489, "main.py", 23014, "operator")],
+         "553489", "tim"),
+        ("no-holders", False, [], "553489", "agent"),
+    ]
+    for name, reserve, holders, pid, want in starve_cases:
+        expect(f"starve_route[{name}]", starve_route(reserve, holders, pid), want)
+    expect("starve_route[None-holders]", starve_route(False, None, "553489"), "agent")
 
     # WHO holds the card decides the RESPONSE (an operator's own interactive session
     # is a person to ask; a supervised unit is a resource-policy question), so the
@@ -7163,6 +7235,17 @@ def cmd_selftest(_argv):
         expect("checks_audit[broken-check-reads-quiet]", [o for _, o in _res], ["quiet"])
         expect("checks_audit[broken-check-attributed]",
                (_none[0] or {}).get("check"), "_fake_broken_check")
+
+        # A ROUTED check (5-tuple, the shape cmd_probe consumes) must read as FIRED,
+        # not raised: accepting only the 4-tuple made every routed signal that fires
+        # look broken to the audit that proves the monitoring is live.
+        def _fake_routed_check():
+            return ("k", "t", "warn", "e", "tim")
+
+        globals()["CHECKS"] = [_fake_routed_check]
+        _res2, _ = audit_checks()
+        expect("checks_audit[routed-5-tuple-reads-fired]",
+               [o for _, o in _res2], ["fired"])
     finally:
         globals()["run"], globals()["CHECKS"] = _orig_run, _orig_checks
         globals()["_AUDIT_SINK"], globals()["_AUDIT_CHECK"] = None, None

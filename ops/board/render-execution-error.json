@@ -1,18 +1,14 @@
 {
   "key": "render-execution-error",
-  "title": "a render died inside the workflow: ComfyUI API error: HTTP 500 (09-22 00:05Z)",
-  "severity": "warn",
-  "evidence": "2 ComfyUI execution error(s) in the last 24h; newest ComfyUI API error: HTTP 500 (09-22 00:05Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. TWO classes land here and only one is the payload: (a) the workflow dying on its input -- an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node, `index is out of bounds` (2026-09-21 11:16Z); (b) ComfyUI running out of VRAM mid-render, whose NEXT job then fails with the HTTP 500 seen here (2026-09-22 00:05Z). Class (b) is tracked with its budget numbers as `comfyui-torch-oom` -- read that entry for the cause instead of re-deriving it from this row. Neither is Rails code. Reconciled orphans are excluded.",
-  "status": "auto-closed",
+  "title": "UNVERIFIED: no render was attempted in the 24h window",
+  "severity": "info",
+  "evidence": "0 render(s) were ATTEMPTED in the last 24h, so the absence of a fresh ComfyUI execution error is UNVERIFIED, not a repair -- an absence claim is only as strong as its interval coverage. Filed so a render drought cannot auto-close an open execution-error item (the mechanism by which the CLIPSeg empty-mask defect left the board on 2026-09-22 20:25Z). Self-closes as soon as a render runs.",
+  "status": "open",
   "first_seen": "2026-09-21T07:40:00-0400",
-  "last_seen": "2026-09-22T19:30:56-0400",
-  "seen_count": 73,
+  "last_seen": "2026-09-23T03:36:09-0400",
+  "seen_count": 76,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T23:49:57-0400",
-      "note": "CORRECTION to the note above: this key is probe-owned (source: probe), so the probe will auto-close it when its window (24h, newest error 09-22 00:05Z) passes with no new execution error -- the open-until-verified intent cannot hold on a probe-owned key. If it self-closes on 09-23 and the CLIPSeg crop path is still unverified, re-file by hand for the next claimed render window."
-    },
     {
       "ts": "2026-09-22T01:40:35-0400",
       "note": "2026-09-22 05:4xZ ops-triage: CORRECTION + RETRY LIVENESS VERIFIED from primary evidence (devlog + DB) -- this closes the last unverified claim on this entry. (1) The bounded retry IS live and effective: at 00:05Z 09-22 the class-(b) OOM path logged 'Growth::ContentGenerator retrying render after ComfyUI error: Allocation on device 0 would exceed allowed memory.' and the INSERT that follows created ComfyuiJob 7565 (pipeline_run 480, status pending), which then COMPLETED at 00:09:22Z. So a death after the retry commit buys a second render instead of losing the slot. (2) Class (a) is UNEXERCISED, not broken: the CLIPSeg empty-mask death (ComfyuiJob 7563) failed at 11:16:30Z 09-21, which PREDATES the retry commits (4c70264 landed 12:41Z, 81e8c4a 12:46Z) -- that is why PipelineRun 479 reject_reason reads the generic 'render timed out or produced no image' while the ComfyuiJob row carries 'index is out of bounds for dimension with size 0'. Do NOT read that mismatch as the retry failing to fire. No class-(a) death has occurred with the retry in place. (3) CLOCK: devlog and comfyui_jobs.updated_at are UTC; 11:16Z is 07:16 EDT. (4) Class (a) repair stays blocked-on-slot: a 75-node production graph needs a render to verify an edit and we hold no claim (not a Tim ask). Probe-owned: self-closes when no execution error is inside the 24h window (newest 09-22 00:05Z)."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-22T20:25:41-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-23T03:33:59-0400",
+      "note": "2026-09-23 07:3xZ ops-triage: unchanged and expected -- 'no render was attempted in the 24h window' is the CONSEQUENCE of the operator pin, not a separate fault (the harness refuses before requesting a claim). No new event; auto-closes when renders resume."
     }
   ],
   "route": "agent"
