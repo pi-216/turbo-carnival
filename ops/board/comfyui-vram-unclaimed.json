@@ -3,7 +3,7 @@
   "title": "ComfyUI is up with no claim on the 4090 while holding 18.0 GB",
   "severity": "warn",
   "evidence": "port 8188 answering, state=idle, the instance itself holds 18438MiB of the card's 18945MiB (threshold 8192MiB); the instance is IDLE -- native queue empty and last prompt 113 min ago (live window 30 min) -- so this VRAM is residue the next claimant renders against. owner=foreign pid=553489 cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/tmux-spawn-7c88e29e-9ed5-4849-91d9-b7e5514fcd13.scope started=Tue_Sep_22_18:49:19_2026 reserve=missing holder=operator. A foreign instance is not ours to kill (harness ownership rule): shut it down from its own session, or accept the hold.",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-20T09:25:29-0400",
   "last_seen": "2026-09-23T02:25:39-0400",
   "seen_count": 4,
@@ -24,6 +24,10 @@
     {
       "ts": "2026-09-23T02:32:44-0400",
       "note": "2026-09-23 06:4xZ ops-triage: the other half of the previous tick's fix is now VERIFIED LIVE -- the holder_verdict branch keeps this check quiet on an instance that is genuinely in use. Probe at 06:25Z fired it (idle: native queue empty, last prompt 113 min) while checks-audit at 06:36Z read the SAME check quiet, because by then pid 553489 was mid-render (queue depth 2, last prompt 43 s, 23,014 MiB, 98% util). Both directions now observed on live hardware: idle-holding -> fires, actively-rendering -> quiet. No further action: accept the hold, yield."
+    },
+    {
+      "ts": "2026-09-23T02:33:15-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "route": "agent"
