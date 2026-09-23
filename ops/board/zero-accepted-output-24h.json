@@ -11,10 +11,6 @@
   "route": "agent",
   "notes": [
     {
-      "ts": "2026-09-23T03:33:59-0400",
-      "note": "2026-09-23 07:3xZ ops-triage: FIRST FIRE of this CRITICAL (24.3h since the last photo, 2026-09-22 07:07Z). DECISION: owned by the agent, root cause is the operator-pinned 4090 -- not an in-repo defect and not a business call. Last photo 09-22 07:07Z; refusals continuous since 09-22 14:43 EDT (12 lines / 12h). The single lever is now routed to the human on the render-starved item (starve_route -> tim, carrying OPERATOR_LEVER_CLAUSE). No render was attempted and no claim requested this tick (the harness refuses before requesting, so there is nothing to release). This item auto-closes when a photo lands."
-    },
-    {
       "ts": "2026-09-23T05:30:31-0400",
       "note": "2026-09-23 09:2xZ ops-triage: DECISION = keep open, NOT accepted (the acceptance counter must stay loud while the pipeline accepts nothing -- genome #43). Live this tick: 26.3h of zero output (last photo 2026-09-22 07:07Z), publishable=18, dry_out 2026-09-29T10:30Z -> 6.0d; if the pin persists past that clock posting stops with no error of its own. Root cause is outside the repo (operator's :8188 session, pid 553489, 17.8GiB held / 5.3GiB free < the 16GiB fit floor), and no in-repo change can produce output while it holds: the harness refuses on the launch line before it ever asks for a claim. Single lever = render-starved (route=tim). Self-closes on the first photo."
     },
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T10:30:25-0400",
       "note": "2026-09-23 14:3xZ ops-triage: DECISION = the alternative render box is measured OUT; yield stands, no new build. Root cause re-measured live: no photo since id 361 @ 2026-09-22T07:07:41Z (~31.5h), photos_24h=0, publishable=18 with dry_out=2026-09-29T10:30Z (5.8d), followers 157 flat; the card is at 23.5GiB used / 348W with the operator's :8188 instance mid-batch (holder=operator, reserve=missing), so this is contention with a human's live render, not an idle pin. NEW FACT (was never measured): max395/strix is NOT a fallback renderer -- /home/tim/ComfyUI holds only custom_nodes (no main.py, no venv, no models) and that GPU is already 100% committed to SIBLING projects' unclaimed resident services (image_embed uvicorn 5.7GiB at 260% CPU for 25h, a Qwen3-something 27B llama-server, plus our own caption ollama; GTT 12.9GiB of 118GiB in use, box at 100% GPU use). The flux weights are on the shared NAS, but weights are not a renderer: building one there means installing ROCm torch + ComfyUI on a box whose GPU is already fully consumed by other projects' live services, with none of the scheduler's exclusivity. The second instance on the 4090 stays rejected (GPU-policy + it would OOM HIS render). So 'top up elsewhere' -- the agent-owned option in starve_route -- is closed by measurement: the only lever remains the operator's launch line, already routed tim on render-starved with the corrected ask. This item stays OPEN as the standing cost of the drought."
+    },
+    {
+      "ts": "2026-09-23T12:29:10-0400",
+      "note": "2026-09-23 16:3xZ ops-triage: RATION-TO-EXTEND assessed and NOT taken -- arithmetic recorded now so the pre-registered 72h runway trigger does not have to re-derive it. Measured this pass: (1) a cadence change cannot stretch this queue: Growth::PostSlotPlanner.next_slot assigns each clock at POST CREATION (packs/growth_harness/app/services/growth/post_slot_planner.rb), so posts_per_day never re-spaces an existing clock and dry_out stays put; the repo holds no retime utility. (2) The only in-repo lever that could hold a queued clock back is the publisher hold path (both clocks cleared) -- the mechanism the age gate uses -- so rationing through it would pollute held=, the counter the age-gate signal is read from. (3) Per the measured reach ceiling (daily-reach-ceiling: 3-4/day 22.8 impressions vs 1/day 11.2, per-post reach falling 4x), rationing buys runway at about half the daily reach, on an account whose measured engagement is 0 likes / 0 comments on 19 posts. DECISION: keep publishing at the knee (3/day) on the pre-registered schedule; the 72h escalation still carries the call. DROUGHT LIVE 16:2xZ: card 23.4GiB used / 637MiB free, operator :8188 session at 100 percent util / 349W -- active human rendering, not an idle pin."
     }
   ]
 }
