@@ -89,7 +89,7 @@ DURATION=9h
 COMFY_DIR=/mnt/fscache/essdee/ComfyUI
 COMFY_VENV=.venv
 COMFY_PORT=8188
-STATE_FILE="$APP_DIR/log/comfyui_claim.json"
+STATE_FILE="${TC_CLAIM_FILE:-$APP_DIR/log/comfyui_claim.json}"
 HARNESS_LOG="${TC_HARNESS_LOG:-$APP_DIR/log/comfyui_harness.log}"
 HARNESS_LOG_MAX_LINES=1200   # rotate past this (probe flags >1500)
 HARNESS_LOG_KEEP_LINES=600   # retention window kept after rotation
@@ -314,13 +314,20 @@ sys.exit(0 if not d.get("queue_running") and not d.get("queue_pending") else 1)
 }
 
 # True when the running ComfyUI is one WE launched — its pid is recorded as
-# comfy_pid in our state file. Ownership rule: never kill what we did not
-# spawn. If the state file is missing (tmpfs wipe) we conservatively treat it
-# as foreign and leave it alone.
+# comfy_pid in our state file AND that record says we started it. Ownership rule:
+# never kill what we did not spawn. If the state file is missing (tmpfs wipe) we
+# conservatively treat it as foreign and leave it alone.
+#
+# `origin` (2026-09-23): an ADOPTED instance is NOT ours even though our claim
+# covers it — we did not start it, we must not stop it, and calling it ours made
+# the board label the operator's interactive tmux session as our leaked orphan
+# (the loudest possible finding) purely because a claim had adopted it.
 comfyui_ours() {
-  local want pid
+  local want pid origin
   want="$(read_state | sed -n '3p')"
+  origin="$(read_state | sed -n '4p')"
   [ -n "$want" ] || return 1
+  [ "$origin" = "launched" ] || return 1
   pid="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
   [ -n "$pid" ] && [ "$pid" = "$want" ]
 }
@@ -417,11 +424,11 @@ comfyui_attribution() {
 # ComfyUI (fresh launch AND adoption of an orphan) passes through here, so the
 # cgroup assertion and the telemetry sampler always start.
 record_comfy_pid() {
-  local job="$1" cp
+  local job="$1" origin="${2:-launched}" cp
   cp="$(pgrep -f 'main\.py --listen' 2>/dev/null | head -1)"
   if [ -n "$cp" ]; then
-    write_state "$job" "$(read_state | sed -n '2p')" "$cp"
-    log "comfy pid $cp recorded for $job"
+    write_state "$job" "$(read_state | sed -n '2p')" "$cp" "$origin"
+    log "comfy pid $cp recorded for $job (origin=$origin)"
     instrument_comfyui "$job" "$cp"
   fi
 }
@@ -618,7 +625,7 @@ vram_holders() {
 }
 
 read_state() {
-  # echo job_id, heartbeat_pid, comfy_pid from state file (empty strings if absent)
+  # echo job_id, heartbeat_pid, comfy_pid, origin from state file (empty if absent)
   python3 - "$STATE_FILE" <<'PY'
 import json, sys, os
 p = sys.argv[1]
@@ -628,9 +635,11 @@ if os.path.exists(p):
         print(d.get("job_id", ""))
         print(d.get("heartbeat_pid", ""))
         print(d.get("comfy_pid", ""))
+        print(d.get("origin", ""))
         sys.exit(0)
     except Exception:
         pass
+print("")
 print("")
 print("")
 print("")
@@ -638,29 +647,89 @@ PY
 }
 
 write_state() {
-  # args: job_id heartbeat_pid [comfy_pid]
-  python3 - "$STATE_FILE" "$1" "$2" "${3:-}" <<'PY'
+  # args: job_id heartbeat_pid [comfy_pid] [origin]
+  # `origin` is the OWNERSHIP discriminator: "launched" (we started it in this
+  # lease) vs "adopted" (it was already answering when we took the claim).
+  # Without it, adoption records a CO-TENANT's pid as ours, and then both the
+  # leak report and the tick-end kill treat someone else's session as ours.
+  python3 - "$STATE_FILE" "$1" "$2" "${3:-}" "${4:-}" <<'PY'
 import json, sys
-json.dump({"job_id": sys.argv[2], "heartbeat_pid": sys.argv[3], "comfy_pid": sys.argv[4]}, open(sys.argv[1], "w"))
+json.dump({"job_id": sys.argv[2], "heartbeat_pid": sys.argv[3],
+           "comfy_pid": sys.argv[4], "origin": sys.argv[5]},
+          open(sys.argv[1], "w"))
 PY
 }
 
+# PURE decision (no side effects): may we SIGTERM this instance?
+#   args: origin pid stage   (stage: live | gone | not-comfyui)
+# prints "kill" or "refuse:<reason>"; rc 0 = may kill.
+# This is the single owner of the ownership rule, so the kill path and the audit
+# surface can never disagree about it (same shape as vram_ask_for_free/plan).
+kill_verdict() {
+  local origin="$1" pid="$2" stage="${3:-live}"
+  if [ -z "$pid" ]; then echo "refuse:no-recorded-pid"; return 1; fi
+  if [ "$origin" != "launched" ]; then echo "refuse:not-launched-by-us"; return 1; fi
+  case "$stage" in
+    gone)        echo "refuse:already-gone"; return 1 ;;
+    not-comfyui) echo "refuse:pid-reuse"; return 1 ;;
+  esac
+  echo "kill"
+  return 0
+}
+
+# Kill ONLY the instance we started in this lease.
+#
+# WHY (2026-09-23): this used to `pgrep -f 'main\.py --listen'` and SIGTERM (then
+# SIGKILL) EVERY match. That pattern matches every ComfyUI on the box -- the
+# operator's interactive tmux session, another project's supervised unit, any
+# port -- and this function is reached from the tick-end `shutdown` that follows
+# an ADOPTED instance (ensure adopts a foreign instance that carries
+# --reserve-vram, and launch_comfyui records its pid). So the sequence the board
+# itself recommends -- "relaunch your session WITH --reserve-vram so the harness
+# can adopt it" -- armed a kill of that very session at the end of our next tick:
+# a hard-constraint violation (never touch another project's/operator's work)
+# reachable from an ordinary render tick, with no error anywhere.
+#
+# The ownership rule (Tim, 2026-09-07) is: never kill what we did not spawn. It
+# is now enforced at the choke point -- our recorded pid, our recorded origin --
+# instead of relying on every caller to have checked first.
 kill_comfyui() {
-  local pids
-  pids="$(pgrep -f 'main\.py --listen' 2>/dev/null)"
-  if [ -z "$pids" ]; then
-    log "ComfyUI: no main.py process running"
+  local pid origin stage v
+  pid="$(read_state | sed -n '3p')"
+  origin="$(read_state | sed -n '4p')"
+  stage="live"
+  if [ -n "$pid" ]; then
+    if ! kill -0 "$pid" 2>/dev/null; then
+      stage="gone"
+    elif ! tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'main\.py --listen'; then
+      stage="not-comfyui"
+    fi
+  fi
+  v="$(kill_verdict "$origin" "$pid" "$stage")"
+  if [ "$v" != "kill" ]; then
+    case "$v" in
+      refuse:no-recorded-pid)
+        log "ComfyUI: NOT killed — no comfy_pid in our state file, so there is no instance we can prove we started (a pgrep sweep here would kill a co-tenant's; OUR orphan does have a recorded pid, and ensure's self-heal is the path that stops it)" ;;
+      refuse:not-launched-by-us)
+        log "ComfyUI: NOT killed — pid $pid was ADOPTED (origin=${origin:-unrecorded}), not launched by us in this lease; whoever started it owns stopping it" ;;
+      refuse:already-gone)
+        log "ComfyUI: pid $pid already gone" ;;
+      refuse:pid-reuse)
+        log "ComfyUI: NOT killed — pid $pid no longer looks like a ComfyUI (pid reuse); refusing" ;;
+      *)
+        log "ComfyUI: NOT killed — ownership verdict $v" ;;
+    esac
     return 0
   fi
-  log "ComfyUI: SIGTERM to PIDs: $pids"
-  kill -TERM $pids 2>/dev/null
+  log "ComfyUI: SIGTERM to our pid $pid (origin=launched)"
+  kill -TERM "$pid" 2>/dev/null
   local waited=0
-  while kill -0 $(echo "$pids" | head -1) 2>/dev/null && [ "$waited" -lt 30 ]; do
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
     sleep 2; waited=$((waited + 2))
   done
-  if kill -0 $(echo "$pids" | head -1) 2>/dev/null; then
+  if kill -0 "$pid" 2>/dev/null; then
     log "ComfyUI: still alive after TERM, SIGKILL"
-    kill -KILL $pids 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
     sleep 3
   fi
   log "ComfyUI: down (port check: $(comfyui_up && echo 'STILL UP' || echo 'closed'))"
@@ -992,11 +1061,12 @@ launch_comfyui() {
   local job="$1"
   ensure_comfyui_deps
   # Adopt-or-launch: if a ComfyUI is already answering on the port (foreign
-  # or adopted orphan), recording its pid makes it "ours" — never spawn a
-  # second instance that would fail to bind (queue-first adoption, 2026-09-07).
+  # or adopted orphan), record its pid — never spawn a second instance that
+  # would fail to bind (queue-first adoption, 2026-09-07). The record carries
+  # origin=adopted, so "covered by our claim" never becomes "ours to kill".
   if comfyui_up; then
-    log "launch_comfyui: ComfyUI already answering — adopting existing instance for $job"
-    record_comfy_pid "$job"
+    log "launch_comfyui: ComfyUI already answering — adopting existing instance for $job (origin=adopted: our claim covers it, we did not start it, so the tick-end shutdown must NOT stop it)"
+    record_comfy_pid "$job" adopted
     return 0
   fi
 
@@ -1054,10 +1124,15 @@ cmd_heartbeat() {
 }
 
 cmd_shutdown() {
-  local job_id hb_pid comfy_pid
+  local job_id hb_pid comfy_pid origin
   job_id="$(read_state | head -1)"
   hb_pid="$(read_state | sed -n '2p')"
   comfy_pid="$(read_state | sed -n '3p')"
+  # Read BEFORE the state file is removed below: the tail of this function reports
+  # whether the port is still answering, and "still answering" means two opposite
+  # things depending on whether the instance was ours (a failed stop -> WARNING)
+  # or adopted (expected: it belongs to whoever started it).
+  origin="$(read_state | sed -n '4p')"
 
   # Queue-first guard (2026-09-07): never SIGTERM a ComfyUI whose native
   # queue still holds renders (running or pending). Killing live queued work
@@ -1100,7 +1175,11 @@ cmd_shutdown() {
   local vm
   vm="$(vram_mib)"
   if comfyui_up; then
-    log "shutdown: WARNING port ${COMFY_PORT} still answering"
+    if [ "$origin" = "launched" ]; then
+      log "shutdown: WARNING port ${COMFY_PORT} still answering after stopping OUR instance"
+    else
+      log "shutdown: adopted instance (origin=${origin:-unrecorded}, pid ${comfy_pid:-none}) left RUNNING on port ${COMFY_PORT} — expected, not ours to stop. Our claim was released above; the next ensure adopts it again (or yields to it)."
+    fi
   elif gpu_idle; then
     log "shutdown: clean — port closed, GPU idle (VRAM ${vm} MiB)"
   else
@@ -1138,6 +1217,15 @@ cmd_deps() {
   return 3
 }
 
+cmd_killverdict() {
+  # Offline: `killverdict <origin> <pid> [stage]` -> "kill" | "refuse:<reason>".
+  # Exists so the ownership rule can be exercised (and audited) with no GPU, no
+  # state file and no process: the alternative -- reading the shell for a `kill` --
+  # is how a pgrep sweep survived in a production shutdown path unnoticed.
+  local origin="${1:-}" pid="${2:-}" stage="${3:-live}"
+  kill_verdict "$origin" "$pid" "$stage"
+}
+
 case "${1:-}" in
   status)    cmd_status ;;
   ensure)    shift; cmd_ensure "$@" ;;
@@ -1148,7 +1236,8 @@ case "${1:-}" in
   shutdown)  cmd_shutdown ;;
   ownqueue)  own_queued_jobs ;;
   reconcile) reconcile_own_queue ;;
+  killverdict) shift; cmd_killverdict "$@" ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile|killverdict ORIGIN PID [STAGE]}" >&2
     exit 1 ;;
 esac

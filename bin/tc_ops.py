@@ -1940,8 +1940,11 @@ def check_gate_cohort_starved():
         f"arithmetic, not by waiting. Render loop: {v[2]} refusal(s) in the last "
         f"{STARVE_WINDOW_H}h, so no new post-intervention photo can enter the pool -- the cohort "
         f"is fed only by renders (publication lags them by the queue depth). That is why a GPU "
-        f"refusal starves the STRATEGY decision and not merely a render window. Not a Tim ask: "
-        f"the holder is another project's live job. Self-closes when the loop stops being refused."
+        f"refusal starves the STRATEGY decision and not merely a render window"
+        + starvation_attribution_clause()
+        + ". Nothing here is ours to repair -- the refusal itself is correct (an instance "
+          "launched without --reserve-vram cannot be submitted to) -- and this entry is not an "
+          "ask on the holder: it self-closes when the loop stops being refused."
     )
 
 
@@ -2990,6 +2993,35 @@ def comfyui_holder_verdict(queue_depth, last_prompt_age_s):
     return "idle"
 
 
+def claim_record():
+    """Our claim state file as a dict; {} when absent/unreadable (we hold no claim)."""
+    try:
+        with open(CLAIM_FILE) as fh:
+            rec = json.load(fh)
+        return rec if isinstance(rec, dict) else {}
+    except Exception:
+        return {}
+
+
+def ownership_label(record, pid):
+    """PURE: 'ours' ONLY when the claim record proves we LAUNCHED that pid.
+
+    Mirrors comfyui_ours() in bin/comfyui_harness.sh, which now requires
+    origin=launched. An ADOPTED instance's pid sits in the same record (ensure
+    adopts a foreign ComfyUI that carries --reserve-vram), so pid equality alone is
+    not ownership -- and mislabelling it ours is exactly how the operator's own
+    interactive session gets reported as our leaked orphan, the loudest finding the
+    board can emit. Empty pid -> 'unknown' (there is no instance to attribute).
+    """
+    rec = record if isinstance(record, dict) else {}
+    if not pid:
+        return "unknown"
+    if (str(rec.get("comfy_pid") or "") == str(pid)
+            and (rec.get("origin") or "") == "launched"):
+        return "ours"
+    return "foreign"
+
+
 def comfyui_attribution():
     """'owner=ours|foreign pid=… cgroup=… started=…' for the process serving 8188.
 
@@ -3002,13 +3034,9 @@ def comfyui_attribution():
     pid = (out.splitlines() or [""])[0].strip() if rc == 0 else ""
     if not pid:
         return "owner=unknown"
-    who = "foreign"
-    try:
-        with open(CLAIM_FILE) as fh:
-            if str(json.load(fh).get("comfy_pid") or "") == pid:
-                who = "ours"
-    except Exception:
-        pass
+    # `ours` requires the recorded pid AND origin=launched (see ownership_label):
+    # an ADOPTED instance is not ours to call a leak.
+    who = ownership_label(claim_record(), pid)
     cg = "?"
     try:
         cg = Path(f"/proc/{pid}/cgroup").read_text().strip().split("::")[-1] or "?"
@@ -3064,6 +3092,45 @@ def comfyui_reserve_ok(pid=None):
     return reserve_flag_in_cmdline(cmdline)
 
 
+def harness_kill_ownership_present():
+    """Does the harness still own the close-path ownership rule? None if unreadable.
+
+    WHY this is asserted and not assumed: the shutdown path used to SIGTERM (then
+    SIGKILL) EVERY `main.py --listen` process on the box, and it is reached right
+    after an ADOPTED foreign instance — so the very response the board recommends
+    to the launch-args refusal ("relaunch with --reserve-vram, the harness will
+    adopt it") armed a kill of the operator's own session. A harness that stops
+    enforcing the rule at the choke point must fail the suite, not leave the board
+    quiet about a live footgun.
+    """
+    try:
+        txt = (APP / "bin" / "comfyui_harness.sh").read_text()
+    except Exception:
+        return None
+    return ("kill_verdict() {" in txt
+            and 'v="$(kill_verdict "$origin" "$pid" "$stage")"' in txt
+            and "if comfyui_up && ! comfyui_reserve_ok; then" in txt)
+
+
+def may_kill_instance(origin, pid, stage="live"):
+    """Mirror of the harness's kill_verdict(): may we SIGTERM this instance?
+
+    The ownership rule in one place: only an instance WE launched, proven by a
+    recorded pid, is ours to stop. An adopted instance, an unrecorded pid and an
+    old state file without an origin all refuse — err toward leaving a process
+    alone, because the alternative direction kills somebody else's work.
+    """
+    if not pid:
+        return "refuse:no-recorded-pid"
+    if origin != "launched":
+        return "refuse:not-launched-by-us"
+    if stage == "gone":
+        return "refuse:already-gone"
+    if stage == "not-comfyui":
+        return "refuse:pid-reuse"
+    return "kill"
+
+
 def harness_reserve_gate_present():
     """Does the harness still gate renders on the launch args? None when unreadable.
 
@@ -3117,6 +3184,40 @@ def reserve_gate_clause(reserve, pid=None, holder=None, owner=None):
             f"how much VRAM is free (see COMFY_RESERVE_VRAM). Response: {response}")
 
 
+def attribution_or_unattributed(clause):
+    """PURE: a derived attribution clause, or an explicit "not this gate" note.
+
+    A check that did not measure the cause must SAY SO rather than stay silent --
+    silence reads as "no cause", and the caller's reader then supplies one from
+    memory. The fallback names the gate that is NOT firing and points at the check
+    that owns the attribution, so the reader is sent to a measurement.
+    """
+    return clause or (
+        "; the launch-args gate is NOT firing (no :8188 instance is up without "
+        "--reserve-vram), so the refusal is the VRAM/claim path -- check_render_starved "
+        "carries that attribution and this entry deliberately does not guess a holder")
+
+
+def starvation_attribution_clause():
+    """The MEASURED why of the current refusal, for a check that cannot derive it.
+
+    check_gate_cohort_starved reasons about a COHORT, not about the GPU, so it has no
+    business asserting a holder -- and it used to: its evidence closed with the
+    hardcoded foreign-project holder attribution, which was FALSE the moment
+    the blocker became the OPERATOR's own interactive tmux ComfyUI (measured
+    2026-09-23 03:2xZ: pid 553489, holder=operator, launched without --reserve-vram,
+    rendering at 100% util). A board surface that names the wrong cause sends the
+    reader to the wrong response: "another project's job" reads as nobody-here-may-
+    touch-it, while the operator's session is a human's to end and is yielded to, not
+    argued with. Derive it from the live instance through the same discriminator
+    check_render_starved uses, and say explicitly when that gate is not the cause.
+    """
+    pid = comfyui_serving_pid()
+    reserve = comfyui_reserve_ok(pid) if pid else None
+    return attribution_or_unattributed(
+        reserve_gate_clause(reserve, pid, holder_class_of(pid) if pid else None))
+
+
 def reserve_gate_blocks(reserve, free_mib, ask_gb):
     """PURE: is the launch-args gate the ONLY explanation for a refusal?
 
@@ -3155,13 +3256,11 @@ def check_reserve_gate_blocked():
     if free is None or not ask:  # narrowing only; the predicate above already implies it
         return None
     free_gib, ask_gb = free / 1024, float(ask)
-    owner = "ours"
-    try:
-        with open(CLAIM_FILE) as fh:
-            if str(json.load(fh).get("comfy_pid") or "") != pid:
-                owner = "foreign"
-    except Exception:
-        owner = "unknown"
+    # "ours" means WE launched it -- see ownership_label (an adopted instance's pid
+    # is in the record too). No readable record means we hold no claim, so anything
+    # answering :8188 is foreign; it used to print "unknown", which reads as
+    # "cannot tell" for a fact we do know.
+    owner = ownership_label(claim_record(), pid)
     holder = holder_class_of(pid) if pid else None
     return (
         "comfyui-reserve-gate-blocked",
@@ -6444,6 +6543,23 @@ def cmd_selftest(_argv):
     expect("reserve_gate_clause[attributable-elsewhere]",
            "never restart an instance we did not launch"
            in reserve_gate_clause(False, "1", "other"), True)
+    # attribution_or_unattributed: a check that did NOT measure the cause must say so
+    # rather than leave the reader to supply one from memory. A check whose evidence
+    # closed with a hardcoded foreign-project holder was
+    # false the moment the blocker became the operator's own session.
+    expect("attribution_or_unattributed[passes-clause-through]",
+           attribution_or_unattributed("; measured x"), "; measured x")
+    _un = attribution_or_unattributed("")
+    expect("attribution_or_unattributed[names-not-firing]", "NOT firing" in _un, True)
+    expect("attribution_or_unattributed[points-at-owner]",
+           "check_render_starved" in _un, True)
+    # Guard the CLASS, not the instance: no check source may hardcode a holder
+    # attribution it does not measure. This is the regression that produced the false
+    # foreign-project holder line on gate-cohort-starved. The needle is assembled so
+    # the guard's own text cannot satisfy it.
+    _self_src = Path(__file__).read_text()
+    for _bad in ("another project's" + " live job",):
+        expect(f"no-hardcoded-holder[{_bad}]", _bad in _self_src, False)
     # Firing rule: the differential. The card must have room, or the VRAM path
     # already explains the refusal (check_render_starved carries it) and firing here
     # would file one refusal twice.
@@ -6463,6 +6579,43 @@ def cmd_selftest(_argv):
     # leave the board reporting a gate the launcher no longer has.
     expect("harness_still_gates_on_the_launch_args",
            harness_reserve_gate_present(), True)
+
+    # Close-path ownership: only an instance WE launched is ours to stop. The
+    # harness's shutdown used to SIGTERM every `main.py --listen` process, and it
+    # runs right after an ADOPTED foreign instance -- so "relaunch with
+    # --reserve-vram so the harness adopts it" (the board's own response to the
+    # launch-args refusal) armed a kill of the operator's session.
+    for name, origin, pid, stage, want in [
+        ("ours", "launched", "1234", "live", "kill"),
+        ("adopted-foreign", "adopted", "553489", "live", "refuse:not-launched-by-us"),
+        ("unrecorded-origin", "", "1234", "live", "refuse:not-launched-by-us"),
+        ("no-recorded-pid", "launched", "", "live", "refuse:no-recorded-pid"),
+        ("already-gone", "launched", "1234", "gone", "refuse:already-gone"),
+        ("pid-reuse", "launched", "1234", "not-comfyui", "refuse:pid-reuse"),
+    ]:
+        expect(f"may_kill_instance[{name}]", may_kill_instance(origin, pid, stage), want)
+    expect("harness_still_owns_kill_ownership", harness_kill_ownership_present(), True)
+    # ...and the LABEL the board prints must agree with the rule the launcher
+    # enforces: a pid that is in our claim record because we ADOPTED it is foreign.
+    for name, rec, pid, want in [
+        ("launched-by-us", {"comfy_pid": "553489", "origin": "launched"}, "553489", "ours"),
+        ("adopted-is-foreign", {"comfy_pid": "553489", "origin": "adopted"}, "553489", "foreign"),
+        ("legacy-record-no-origin", {"comfy_pid": "553489"}, "553489", "foreign"),
+        ("other-pid", {"comfy_pid": "1", "origin": "launched"}, "553489", "foreign"),
+        ("no-record", {}, "553489", "foreign"),
+        ("no-instance", {"comfy_pid": "553489", "origin": "launched"}, "", "unknown"),
+    ]:
+        expect(f"ownership_label[{name}]", ownership_label(rec, pid), want)
+    # ...and the mirror must AGREE with the launcher's own offline surface, not
+    # merely with itself: run the harness's decision for the same inputs.
+    _hv = APP / "bin" / "comfyui_harness.sh"
+    if _hv.exists():
+        for _origin, _pid, _stage in (("launched", "1234", "live"),
+                                      ("adopted", "553489", "live"),
+                                      ("launched", "", "live")):
+            _out, _rc = run([str(_hv), "killverdict", _origin, _pid, _stage])
+            expect(f"harness-killverdict-matches-mirror[{_origin},{_pid or 'none'},{_stage}]",
+                   (_out or "").strip(), may_kill_instance(_origin, _pid, _stage))
 
     # adaptive_ask_gb: the fit policy, mirrored from the harness. Full ask when the
     # card is free; free minus headroom otherwise; the FLOOR when even that falls

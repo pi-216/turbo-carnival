@@ -1,0 +1,13 @@
+{
+  "key": "comfyui-reserve-gate-blocked",
+  "title": "renders are refused by the launch args of the live :8188 instance while the 4090 has room (20.7GiB free vs ask 19GiB)",
+  "severity": "warn",
+  "evidence": "port 8188 answering, free=20.7GiB vs ask 19GiB (so free VRAM is NOT the cause), claim=idle; the :8188 instance (pid 553489, owner unknown, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); the harness yields the window rather than submitting to an unflagged instance, so renders stay blocked until that instance exits or is relaunched with --reserve-vram. Nothing here is ours to restart.",
+  "status": "open",
+  "first_seen": "2026-09-22T23:30:35-0400",
+  "last_seen": "2026-09-22T23:30:35-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "route": "agent",
+  "notes": []
+}

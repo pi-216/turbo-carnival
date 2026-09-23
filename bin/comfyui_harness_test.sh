@@ -297,6 +297,47 @@ else
   printf '  SKIP  nothing answering :8188 at test time (%s)\n' "$(cat "$SCRATCH/status.out")"
 fi
 
+echo "--- kill: only an instance WE launched is ours to stop ---"
+# The close path (tick-end `shutdown`) used to `pgrep -f 'main\.py --listen'` and
+# SIGTERM (then SIGKILL) EVERY match. It runs right after an ADOPTED foreign
+# instance -- so the response the board itself recommends to the launch-args
+# refusal ("relaunch with --reserve-vram, the harness adopts it") armed a kill of
+# the operator's own tmux session at the end of our next tick. Ownership is now
+# the RECORDED pid PLUS origin=launched, enforced in kill_comfyui itself.
+export TC_CLAIM_FILE="$SCRATCH/claim.json"
+setsid bash -c 'exec -a "python main.py --listen 0.0.0.0" sleep 300' &
+DECOY=$!
+sleep 1
+if ! tr '\0' ' ' < "/proc/$DECOY/cmdline" 2>/dev/null | grep -q 'main.py --listen'; then
+  printf '  SKIP  could not stage a decoy matching the discovery pattern\n'
+else
+  write_claim() {
+    printf '{"job_id": "", "heartbeat_pid": "", "comfy_pid": "%s", "origin": "%s"}\n' "$1" "$2" > "$TC_CLAIM_FILE"
+  }
+  close_path() {
+    bash -c 'source '"$APP_DIR"'/bin/comfyui_harness.sh killverdict launched 1 live >/dev/null 2>&1; kill_comfyui' \
+      >> "$SCRATCH/kill.log" 2>&1
+  }
+  alive() { kill -0 "$1" 2>/dev/null && echo yes || echo no; }
+
+  write_claim "$DECOY" adopted
+  close_path
+  is "ADOPTED (foreign) instance survives the close path" "yes" "$(alive "$DECOY")"
+  is "the refusal to kill is logged with the reason" "1" \
+     "$(grep -c 'NOT killed — pid .* was ADOPTED' "$SCRATCH/kill.log")"
+
+  rm -f "$TC_CLAIM_FILE"
+  close_path
+  is "no recorded pid -> nothing killed" "yes" "$(alive "$DECOY")"
+
+  write_claim "$DECOY" launched
+  close_path
+  sleep 1
+  is "our OWN instance (origin=launched) is stopped" "no" "$(alive "$DECOY")"
+
+  kill -9 "$DECOY" 2>/dev/null
+fi
+
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi
 exit "$FAILED"
