@@ -890,12 +890,19 @@ def check_render_starved():
         # with_util: this is the one check where "is the blocker WORKING or merely
         # resident?" decides the ask, and it only runs on a starved tick.
         fit = vram_fit_note(with_util=True)
+        # The launch-args gate fires BEFORE the claim is ever requested, so when it
+        # is up it is the reason the tick was refused -- named first, or the reader
+        # re-derives the cause from the VRAM arithmetic (which may merely coincide).
+        _rpid = comfyui_serving_pid()
+        gate = reserve_gate_clause(comfyui_reserve_ok(_rpid), _rpid,
+                                   holder_class_of(_rpid) if _rpid else None)
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
             "warn",
             f"photos_{STARVE_WINDOW_H}h=0 refusals_{STARVE_WINDOW_H}h={refused} "
             f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else "")
+            + gate
             + (f"; {fit}" if fit else ""),
         )
     return None
@@ -3008,8 +3015,166 @@ def comfyui_attribution():
     except Exception:
         pass
     started = run(["ps", "-o", "lstart=", "-p", pid])[0].strip().replace(" ", "_") or "?"
+    reserve = "ok" if reserve_flag_in_cmdline(_proc_cmdline(pid)) else "missing"
     return (f"owner={who} pid={pid} cgroup={cg} started={started} "
-            f"holder={holder_class_of(pid)}")
+            f"reserve={reserve} holder={holder_class_of(pid)}")
+
+
+# --- The --reserve-vram gate: a refusal that is NOT about free memory -----------
+# bin/comfyui_harness.sh refuses to submit a render to ANY instance serving :8188
+# that was not launched with --reserve-vram, and it refuses on the ARGS *before* it
+# ever asks the scheduler for a claim (cmd_ensure: `comfyui_up && ! comfyui_reserve_ok
+# -> return 2`). So whenever such an instance is up, free VRAM is NOT the operative
+# reason -- and the board could not see that at all: its refusal evidence reasoned
+# only about free-vs-ask, so a foreign unflagged instance sitting on a card with room
+# would have read as "nothing is blocking us, the ask fits", the exact
+# silent-refusal shape the 18h starvation had (six ticks reporting a structural
+# conflict that the consumer's own log disproved).
+def reserve_flag_in_cmdline(cmdline):
+    """PURE: does this argv carry --reserve-vram? Mirrors the harness's discriminator.
+
+    The harness tests the NUL-stripped cmdline with a glob (`case "$cmdline" in
+    *--reserve-vram*)`), so a substring test is the faithful mirror -- it also
+    matches the `--reserve-vram=5` form. False for an empty/unreadable cmdline,
+    which the caller must treat as "cannot tell", not as "missing".
+    """
+    return bool(cmdline) and "--reserve-vram" in str(cmdline)
+
+
+def comfyui_serving_pid():
+    """The pid serving :8188, or '' -- the single discovery pattern for this file."""
+    out, rc = run(["pgrep", "-f", r"main\.py --listen"])
+    if rc != 0 or not out:
+        return ""
+    return (out.splitlines() or [""])[0].strip()
+
+
+def comfyui_reserve_ok(pid=None):
+    """Is the instance serving :8188 carrying --reserve-vram? True/False/None.
+
+    None when there is no instance (or its argv is unreadable): an absent instance
+    is not a missing flag, and the gate only fires on an instance that is UP.
+    """
+    pid = pid or comfyui_serving_pid()
+    if not pid:
+        return None
+    cmdline = _proc_cmdline(pid)
+    if not cmdline:
+        return None
+    return reserve_flag_in_cmdline(cmdline)
+
+
+def harness_reserve_gate_present():
+    """Does the harness still gate renders on the launch args? None when unreadable.
+
+    The mirror above is only worth having while the harness owns that rule, so the
+    two tokens that implement it are asserted in selftest: a harness that stops
+    refusing on the args must fail the suite rather than leave this board reporting
+    a gate that no longer exists.
+    """
+    try:
+        txt = (APP / "bin" / "comfyui_harness.sh").read_text()
+    except Exception:
+        return None
+    return ("*--reserve-vram*) return 0" in txt
+            and "if comfyui_up && ! comfyui_reserve_ok; then" in txt)
+
+
+# What may be done about the gate, by holder class -- mirrors the harness's
+# holder_response_note(), because the class decides the legal response: the operator's
+# session is a human's to end, another project's unit is theirs to change, and an
+# agent-owned instance means OUR launch line dropped the flag.
+RESERVE_GATE_RESPONSE = {
+    "operator": "the OPERATOR's interactive session -- a human is using the shared "
+                "install; yield the window, do not touch/restart/re-flag it (a running "
+                "process's args are not ours to change)",
+    "unit": "another project's supervised unit -- its launch line is that project's to "
+            "change; yield, do not touch it",
+    "agent": "one of OUR agent cgroups -- our launch line dropped the flag; fix the "
+             "launch args in bin/comfyui_harness.sh, not the process",
+}
+
+
+def reserve_gate_clause(reserve, pid=None, holder=None, owner=None):
+    """PURE: the launch-args refusal as a clause, or '' when that gate is not firing.
+
+    Split from the probe so the wording and the firing rule are testable without a
+    GPU, and so the SAME clause serves both surfaces: the refusal evidence of
+    check_render_starved (which must name the gate that actually fired) and
+    check_reserve_gate_blocked (the case no other check can explain).
+    """
+    if reserve is not False:
+        return ""
+    who = f"pid {pid}, " if pid else ""
+    who += f"owner {owner}, " if owner else ""
+    who += f"holder {holder}" if holder else ""
+    response = RESERVE_GATE_RESPONSE.get(
+        holder or "", "holder unattributable -- yield and report it; never restart an "
+                      "instance we did not launch")
+    return (f"; the :8188 instance ({who.rstrip(', ')}) was launched WITHOUT "
+            "--reserve-vram, so `ensure` refuses on the ARGS before it ever asks the "
+            "scheduler for a claim — this refusal is about the launch line, not about "
+            f"how much VRAM is free (see COMFY_RESERVE_VRAM). Response: {response}")
+
+
+def reserve_gate_blocks(reserve, free_mib, ask_gb):
+    """PURE: is the launch-args gate the ONLY explanation for a refusal?
+
+    True only when an instance is up WITHOUT the flag AND free memory would allow the
+    claim (free >= ask) -- the case no other check can explain. Below the ask the
+    harness would refuse anyway, and check_render_starved already carries that
+    condition (its evidence now names this gate when it applies), so firing here too
+    would file the same refusal twice.
+    """
+    if reserve is not False or free_mib is None or not ask_gb:
+        return False
+    try:
+        return float(free_mib) >= float(ask_gb) * 1024
+    except (TypeError, ValueError):
+        return False
+
+
+def check_reserve_gate_blocked():
+    """The launch-args gate is the ONLY thing standing between us and a render.
+
+    Deliberately NOT fired while free VRAM is below the ask: there the harness would
+    refuse anyway, and check_render_starved already carries the condition (its
+    evidence now names this gate when it applies). This fires on the differential --
+    the card has room, so free memory cannot explain the refusal, and without this
+    check nothing on the board would: the render loop would sit refused every tick
+    while every measured number read healthy.
+    """
+    if not comfyui_up():
+        return None
+    pid = comfyui_serving_pid()
+    reserve = comfyui_reserve_ok(pid)
+    free = gpu_vram_free_mib()
+    ask = our_reservation_gb()
+    if not reserve_gate_blocks(reserve, free, ask):
+        return None
+    if free is None or not ask:  # narrowing only; the predicate above already implies it
+        return None
+    free_gib, ask_gb = free / 1024, float(ask)
+    owner = "ours"
+    try:
+        with open(CLAIM_FILE) as fh:
+            if str(json.load(fh).get("comfy_pid") or "") != pid:
+                owner = "foreign"
+    except Exception:
+        owner = "unknown"
+    holder = holder_class_of(pid) if pid else None
+    return (
+        "comfyui-reserve-gate-blocked",
+        f"renders are refused by the launch args of the live :8188 instance while the "
+        f"{GPU} has room ({free_gib:.1f}GiB free vs ask {ask_gb:.0f}GiB)",
+        "warn",
+        f"port 8188 answering, free={free_gib:.1f}GiB vs ask {ask_gb:.0f}GiB (so free "
+        f"VRAM is NOT the cause), claim={our_claim()[0]}"
+        + reserve_gate_clause(reserve, pid, holder, owner)
+        + "; the harness yields the window rather than submitting to an unflagged "
+          "instance, so renders stay blocked until that instance exits or is relaunched "
+          "with --reserve-vram. Nothing here is ours to restart.",
+    )
 
 
 def check_comfyui_vram_unclaimed():
@@ -4749,6 +4914,7 @@ CHECKS = [
     check_weekly_review_gate_wired,
     check_gate_cohort_starved,
     check_comfyui_vram_unclaimed,
+    check_reserve_gate_blocked,
     check_telemetry_oom,
     check_comfyui_torch_oom,
     check_harness_log_growth,
@@ -6249,6 +6415,54 @@ def cmd_selftest(_argv):
     expect("_fmt_age[seconds]", _fmt_age(47.4), "47s ago")
     expect("_fmt_age[minutes]", _fmt_age(744.0), "12.4 min ago")
     expect("_fmt_age[hours]", _fmt_age(7200.0), "2.0h ago")
+
+    # reserve_flag_in_cmdline / reserve_gate_clause / reserve_gate_blocks: the
+    # launch-args gate (bin/comfyui_harness.sh refuses to submit to an instance
+    # launched without --reserve-vram, BEFORE it asks the scheduler for a claim).
+    # The board reasoned only about free-vs-ask, so an unflagged instance on a card
+    # with room would have read as "nothing is blocking us".
+    for name, cmd, want in [
+        ("listen-only", "--listen 0.0.0.0", False),
+        ("unflagged-2026-09-22", "--listen 0.0.0.0 --enable-manager", False),
+        ("flagged", "--listen 0.0.0.0 --reserve-vram 5", True),
+        ("flagged-equals-form", "--listen 0.0.0.0 --reserve-vram=5", True),
+        ("empty", "", False),
+        ("unreadable", None, False),
+    ]:
+        expect(f"reserve_flag_in_cmdline[{name}]", reserve_flag_in_cmdline(cmd), want)
+    # The clause fires ONLY on a confirmed-missing flag: an absent instance (None) and
+    # a flagged one (True) must both add nothing, or every clean tick would invent a
+    # gate that is not there.
+    expect("reserve_gate_clause[flagged]", reserve_gate_clause(True, "553489", "operator"), "")
+    expect("reserve_gate_clause[no-instance]", reserve_gate_clause(None), "")
+    _op = reserve_gate_clause(False, "553489", "operator")
+    expect("reserve_gate_clause[operator-names-response]",
+           "OPERATOR" in _op and "yield the window" in _op, True)
+    expect("reserve_gate_clause[operator-flag-named]", "--reserve-vram" in _op, True)
+    expect("reserve_gate_clause[owner-agent-fixes-launch-line]",
+           "bin/comfyui_harness.sh" in reserve_gate_clause(False, "1", "agent"), True)
+    expect("reserve_gate_clause[attributable-elsewhere]",
+           "never restart an instance we did not launch"
+           in reserve_gate_clause(False, "1", "other"), True)
+    # Firing rule: the differential. The card must have room, or the VRAM path
+    # already explains the refusal (check_render_starved carries it) and firing here
+    # would file one refusal twice.
+    for name, reserve, free_mib, ask_gb, want in [
+        ("card-has-room", False, 22000, 21, True),
+        ("exactly-the-ask", False, 21504, 21, True),
+        ("below-ask", False, 20000, 21, False),
+        ("flagged-is-not-a-gate", True, 22000, 21, False),
+        ("no-instance", None, 22000, 21, False),
+        ("free-unknown", False, None, 21, False),
+        ("ask-unknown", False, 22000, None, False),
+    ]:
+        expect(f"reserve_gate_blocks[{name}]",
+               reserve_gate_blocks(reserve, free_mib, ask_gb), want)
+    # ...and the mirror is only valid while the harness owns that rule: if either
+    # token implementing the gate disappears there, this suite must fail rather than
+    # leave the board reporting a gate the launcher no longer has.
+    expect("harness_still_gates_on_the_launch_args",
+           harness_reserve_gate_present(), True)
 
     # adaptive_ask_gb: the fit policy, mirrored from the harness. Full ask when the
     # card is free; free minus headroom otherwise; the FLOOR when even that falls

@@ -5,15 +5,11 @@
   "evidence": "1 post(s) held in the window; 1 still in the held state (unpublished, both clocks cleared, so never released by the publisher). The gate holds a post whose render's apparent-age read comes back juvenile and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its clock: that publishes the render the gate rejected. A hold drops the post out of the cadence count, so the producer owes a replacement render; check_future_queue_empty only fires once the queue reaches zero, days later. The INPUT half of the fix is the adult age anchor in the persona's positive prompt (PersonaAgeAnchor); >= 3 holds in the window means that anchor is not landing. Held rows: #345 (photo 353): forced: photo 353 had an independent free-form read of early-teens-to-early-twenties while the structured probe said young adult; the prompt carried n",
   "status": "open",
   "first_seen": "2026-09-21T13:50:20-0400",
-  "last_seen": "2026-09-22T21:36:07-0400",
-  "seen_count": 62,
+  "last_seen": "2026-09-22T22:39:49-0400",
+  "seen_count": 66,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-21T13:55:52-0400",
-      "note": "2026-09-21 17:5xZ ops-triage: DECIDED + new machinery. (1) The hold is a DELIBERATE safety action (growth_decisions 636): photo 353's render read juvenile, so Growth::PersonaAgeGate cleared both publisher clocks. Do NOT restore them -- that publishes a minor-reading render on a public adult account; the watchdog's 'set scheduled_at or reclassify' advice was the unsafe direction and is why this check now exists. (2) INPUT half verified APPLIED: pipeline_steps 40, workflow node 88 (Text Multiline -> 73 StringConcatenate -> CLIP text encode) now reads 'adult woman in her late twenties, petite face, small nose, s1_dram, sarah1a3'. (3) Built check_age_gate_holds + age_hold_verdict (bin/tc_ops.py, commit cf282ef): critical iff a juvenile-flagged row is still publishable (live clock or no hold marker = the gate's fail-open risk), warn at >=3 holds/48h (the anchor not landing), info at 1-2. (4) Verified: selftest 254 assertions 0 failures; probe files this item against the live DB naming '#345 (photo 353)'; new 'tc_ops.py queue' prints publishable=16 status_rows=18 held=1. (5) The replacement render the cadence engine owes is queued behind a foreign 4090 claim (prx-tg-pixel-posttrain-v3, 11.0h) -- blocked on slot, NOT a Tim ask. Item self-closes when the hold leaves the 48h window."
-    },
     {
       "ts": "2026-09-21T14:35:52-0400",
       "note": "2026-09-21 18:4xZ ops-triage: ROOT-CAUSE FIX for this hold's worst failure mode -- the monitoring layer advised UNDOING it. The 13:05 watchdog counted the queue by status (18 while only 17 could publish) and reported post 345 as a defect: \"set scheduled_at or reclassify\". That advice would publish a render the age gate read as a minor on a public adult account, and it regenerated on every tick that counted the wrong way. Fixed structurally, not with one prompt edit: (1) all three monitoring prompts (tc-growth-harness-brain, tc-overnight-watchdog, tc-weekly-persona-review) now answer the queue question with the repo-owned command python3 bin/tc_ops.py queue (publishable vs status_rows vs held) and state that a held row is a DELIBERATE safety action that must never be \"repaired\"; (2) new probe check cron-prompt-queue-status-count (bin/tc_ops.py: pure verdict cron_prompt_queue_count_verdict + 6 selftest cases) fires on any prompt that counts the queue by status without carrying the owned command, so the next prompt edit cannot rot back. NEGATIVE CONTROL: the check reported 3 hits on the live store before the edits and is silent after. (3) queue and selftest are now listed in the tc_ops usage block, so the next agent can find them. Verified: selftest 260 assertions 0 failures; probe re-run 0 critical / 1 warn / 2 info (unchanged board); hermes cron doctor no issues; deliver=local preserved on all three jobs (store backed up to cache/scratch/jobs.json.bak-20260921T143442). The hold itself is unchanged and deliberate (photo 353 / post 345); its replacement render is still blocked behind the foreign 4090 claim. Item self-closes when the hold leaves the 48h window."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-22T16:04:20-0400",
       "note": "2026-09-22 20:0xZ ops-triage: unchanged and working as designed -- 1 held post (345), both clocks cleared, never released, and a hold correctly drops its row out of the cadence count. No render has been attempted since 07:01Z, so no new hold could arise this window. Probe-owned (48h), self-closes when the hold leaves it."
+    },
+    {
+      "ts": "2026-09-22T22:39:34-0400",
+      "note": "Accepted condition, no action: the one held render is a deliberate safety action by the age gate (both clocks cleared, never released) -- see the publisher's predicate, which is why publishable=20 != status_rows=21. Decision: leave the hold in place; the queue/dry_out accounting already excludes it, so it neither starves the queue nor needs a clock restored (restoring it would publish a render the age gate read as a minor). Probe-owned and self-closing."
     }
   ]
 }
