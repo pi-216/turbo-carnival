@@ -1843,7 +1843,7 @@ def gate_cohort_params(src):
     return min_c, ia
 
 
-def gate_cohort_verdict(published, queued, refusals, min_cohort=GATE_COHORT_MIN):
+def gate_cohort_verdict(published, feasible, refusals, min_cohort=GATE_COHORT_MIN):
     """PURE: is the refusal FROZEN pool the thing keeping the gate unreadable?
 
     Three answers, and the middle one is the point: a short cohort with the render
@@ -1852,9 +1852,13 @@ def gate_cohort_verdict(published, queued, refusals, min_cohort=GATE_COHORT_MIN)
     loop REFUSED is a different fact with a different meaning: nothing can enter
     the pool, so "re-read later" is not available. Returns (severity, forecast,
     refusals) or None for "not this condition" / unreadable inputs.
+
+    `feasible` is the queued count the gate can actually COUNT at the review --
+    the window's slots that can still carry insights by then (see
+    cohort_feasible_count) -- never the raw slot count, which overstates it.
     """
     try:
-        forecast = int(published) + int(queued)
+        forecast = int(published) + int(feasible)
     except (TypeError, ValueError):
         return None
     try:
@@ -1869,11 +1873,32 @@ def gate_cohort_verdict(published, queued, refusals, min_cohort=GATE_COHORT_MIN)
 # The cohort the NEXT weekly review will read, from the app's OWN cadence (the
 # last Growth::Review plus the goal's review_interval_days -- no hardcoded
 # weekday), split into the pool and the part of it that lands inside the window.
+#
+# TWO numbers describe the window's queued posts, and the difference between
+# them is the point. `queued` is what the SLOTS suggest (every draft/scheduled
+# post whose slot falls inside the window); `slot_minutes` is the same set as
+# minutes-before-the-review-instant, from which the check derives the FEASIBLE
+# count. Growth::GateRead#cohort_size requires `insights_updated_at`, and
+# insights are collected a measured lag AFTER publication, so a post whose slot
+# sits inside the last `lag_h` hours of the window can never testify about the
+# intervention. Measured 2026-09-23: the four post-intervention slots in the
+# 09-28 window are 09-27 09:00 .. 09-28 10:30, while the fastest observed
+# publish->insights lag is 32h -- so ALL FOUR are infeasible, and counting them
+# made this check report a shortfall of 1 where the true one is 5.
+#
+# `lag_h` is the FASTEST observed lag (the optimistic bound: if even that makes
+# a slot infeasible the verdict cannot depend on a slow estimate) and -1 means
+# the DB holds no measured pair, which the pure layer reads as NO CUTOFF -- the
+# pre-lag behaviour, so a missing measurement can never invent a shortfall.
 GATE_COHORT_SQL = (
     "with rv as (select greatest("
     " coalesce((select max(reviewed_at) from growth_reviews), (now() at time zone 'UTC'))"
     " + (select review_interval_days from growth_goals where status = 'active' limit 1)"
-    " * interval '1 day', (now() at time zone 'UTC') + interval '1 day') as next_review)"
+    " * interval '1 day', (now() at time zone 'UTC') + interval '1 day') as next_review),"
+    " lg as (select coalesce(min(floor(extract(epoch from (insights_updated_at - posted_at))"
+    " / 3600)), -1)::int as lag_h from scheduling_posts"
+    " where insights_updated_at is not null and posted_at is not null"
+    "   and insights_updated_at > posted_at)"
     " select to_char((select next_review from rv), 'MM-DD HH24:MI') || '|'"
     " || (select count(*) from photos where created_at >= '{ia}') || '|'"
     " || (select count(*) from scheduling_posts p join photos ph on ph.id = p.photo_id"
@@ -1883,8 +1908,65 @@ GATE_COHORT_SQL = (
     " || (select count(*) from scheduling_posts p join photos ph on ph.id = p.photo_id"
     "      where ph.created_at >= '{ia}' and p.status in ('draft','scheduled')"
     "        and p.scheduled_at between (select next_review from rv) - interval '7 days'"
-    "                                and (select next_review from rv))"
+    "                                and (select next_review from rv)) || '|'"
+    " || (select lag_h from lg) || '|'"
+    " || coalesce((select string_agg("
+    "      round(extract(epoch from ((select next_review from rv) - p.scheduled_at)) / 60)::text,"
+    "      ',' order by p.scheduled_at)"
+    "      from scheduling_posts p join photos ph on ph.id = p.photo_id"
+    "      where ph.created_at >= '{ia}' and p.status in ('draft','scheduled')"
+    "        and p.scheduled_at between (select next_review from rv) - interval '7 days'"
+    "                                and (select next_review from rv)), '')"
 )
+
+
+def as_int(value):
+    """PURE: int(value) or None. A psql cell arrives as text; a shape change must
+    read as UNKNOWN rather than raising inside a check."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def slot_can_carry_insights(minutes_before_review, lag_h):
+    """PURE: can a post whose slot sits this many minutes before the review
+    instant still carry insights AT that instant?
+
+    Growth::GateRead#cohort_size counts only posts with `insights_updated_at`,
+    and insights are collected a measured lag AFTER publication, so a slot inside
+    the last `lag_h` hours of the window is structurally unable to testify about
+    the intervention -- it is not a late arrival, it is a post the gate can never
+    count. An UNKNOWN lag (None, unparseable, or negative) means NO cutoff: the
+    pre-lag behaviour, so a missing measurement can never invent a shortfall.
+    """
+    m = as_int(minutes_before_review)
+    lag = as_int(lag_h)
+    if m is None or lag is None or lag < 0:
+        return True
+    return m >= lag * 60
+
+
+def cohort_feasible_count(slots_csv, lag_h):
+    """PURE: how many of the window's queued slots can carry insights in time.
+
+    Returns None when the slot list is unreadable, which the caller reads as "no
+    bound" and falls back to the raw queued count -- an unparseable row must
+    report what it reported before this bound existed, never a fabricated
+    shortfall. An EMPTY list is 0, which is a real measurement.
+    """
+    toks = [t.strip() for t in str(slots_csv or "").split(",") if t.strip()]
+    if not toks:
+        return 0
+    ok = seen = 0
+    for tok in toks:
+        m = as_int(tok)
+        if m is None:
+            continue
+        seen += 1
+        if slot_can_carry_insights(m, lag_h):
+            ok += 1
+    return None if seen == 0 else ok
 
 
 def check_gate_cohort_starved():
@@ -1904,6 +1986,16 @@ def check_gate_cohort_starved():
     refused. Self-closing: when the loop stops being refused the pool grows again
     and this goes quiet -- and that is the only in-repo fix (a foreign holder is
     not ours to touch).
+
+    A SECOND, independent bound, measured 2026-09-23: the cohort also requires
+    `insights_updated_at`, and insights are collected a lag after publication
+    (fastest observed 32h, median 58h over 12 posts), so a slot inside the last
+    `lag_h` hours of the window can never testify. Counting raw slots therefore
+    overstated the cohort by the whole in-window queue: the 09-28 window's four
+    post-intervention slots run 09-27 09:00 .. 09-28 10:30, every one of them
+    inside the final 32h, so the true cohort is 0 and the shortfall is 5 -- not
+    the 1 the slot count suggested. The feasibility bound is derived from the DB
+    (never a remembered constant) and is skipped when no lag has been measured.
     """
     src = ""
     try:
@@ -1915,32 +2007,48 @@ def check_gate_cohort_starved():
     if not row:
         return None
     parts = row.split("|")
-    if len(parts) != 4:
+    if len(parts) != 6:
         return None
-    review_at, pool, published, queued = parts
+    review_at, pool, published, queued, lag_h, slots = parts
+    feasible = cohort_feasible_count(slots, lag_h)
+    if feasible is None:
+        # Slot list unreadable: no bound, i.e. exactly the pre-lag behaviour.
+        feasible = queued
     refusals = psql(
         "select count(*) from growth_decisions where action in "
         "('comfyui_unclaimed','cadence_blocked') and decided_at > "
         f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
-    v = gate_cohort_verdict(published, queued, refusals, min_cohort)
+    v = gate_cohort_verdict(published, feasible, refusals, min_cohort)
     if not v:
         return None
+    lag_n = as_int(lag_h)
+    lag_txt = (f"{lag_n}h" if lag_n is not None and lag_n >= 0
+               else "unmeasured (no cutoff applied)")
+    slot_total = None
+    pub_n, q_n = as_int(published), as_int(queued)
+    if pub_n is not None and q_n is not None:
+        slot_total = pub_n + q_n
     return (
         "gate-cohort-starved",
         f"the next gate read cannot be a measurement: {v[1]} post-intervention "
-        f"post(s) inside the {review_at} review window (need {min_cohort}) "
-        f"while the render loop is refused",
+        f"post(s) can carry insights inside the {review_at} review window "
+        f"(need {min_cohort}) while the render loop is refused",
         v[0],
         f"next weekly review {review_at}Z; its window is [(review - 7d), review]. "
         f"Post-intervention pool (photos rendered at/after {intervention}Z -- the content-mix "
-        f"lever, inside Growth::GateRead::INTERVENTION_AT): {pool}. Inside that window: "
-        f"{published} already published + {queued} queued = {v[1]}, against MIN_COHORT_POSTS="
-        f"{min_cohort}. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") "
-        f"regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by "
-        f"arithmetic, not by waiting. Render loop: {v[2]} refusal(s) in the last "
-        f"{STARVE_WINDOW_H}h, so no new post-intervention photo can enter the pool -- the cohort "
-        f"is fed only by renders (publication lags them by the queue depth). That is why a GPU "
-        f"refusal starves the STRATEGY decision and not merely a render window"
+        f"lever, inside Growth::GateRead::INTERVENTION_AT): {pool}. Inside that window the SLOTS "
+        f"hold {published} published + {queued} queued"
+        + (f" = {slot_total}" if slot_total is not None else "")
+        + f", but Growth::GateRead#cohort_size ALSO requires insights_updated_at, and insights "
+        f"arrive a measured {lag_txt} after publication (fastest observed publish->insights lag, "
+        f"taken from the DB) -- so a slot inside the window's last {lag_txt} can never testify. "
+        f"FEASIBLE cohort: {published} published + {feasible} queued = {v[1]}, against "
+        f"MIN_COHORT_POSTS={min_cohort}. Below it Growth::GateRead returns :extend "
+        f"(\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL "
+        f"read is deferred by arithmetic, not by waiting. Render loop: {v[2]} refusal(s) in the "
+        f"last {STARVE_WINDOW_H}h, so no new post-intervention photo can enter the pool -- the "
+        f"cohort is fed only by renders (publication lags them by the queue depth). That is why a "
+        f"GPU refusal starves the STRATEGY decision and not merely a render window"
         + starvation_attribution_clause()
         + ". Nothing here is ours to repair -- the refusal itself is correct (an instance "
           "launched without --reserve-vram cannot be submitted to) -- and this entry is not an "
@@ -5887,7 +5995,7 @@ def cmd_selftest(_argv):
     expect("gate_cohort_params[unreadable]",
            gate_cohort_params(""), (GATE_COHORT_MIN, GATE_INTERVENTION_AT))
     cohort_cases = [
-        # (name, published, queued, refusals, want severity)
+        # (name, published, feasible_queued, refusals, want severity)
         ("frozen-pool", "0", "4", "4", "warn"),
         ("frozen-pool-one-short", "1", "3", "2", "warn"),
         ("loop-running-short-cohort", "0", "1", "0", None),
@@ -5902,6 +6010,40 @@ def cmd_selftest(_argv):
         expect(f"gate_cohort_verdict[{name}]", v[0] if v else None, want)
     expect("gate_cohort_verdict[reports-forecast-and-refusals]",
            gate_cohort_verdict("0", "4", "4"), ("warn", 4, 4))
+
+    # THE FEASIBILITY BOUND. The cohort requires insights_updated_at and insights
+    # arrive a lag after publication, so a slot inside the window's last `lag_h`
+    # hours can never testify about the intervention -- it is not a late arrival,
+    # it is a post the gate can never count. Measured 2026-09-23: the four
+    # post-intervention slots in the 09-28 window all sit inside the final 32h
+    # (the fastest observed lag), so counting raw slots reported a shortfall of 1
+    # where the true one is 5. The bound must be DERIVED (never remembered) and
+    # must VANISH when no lag has been measured, or a missing measurement would
+    # invent a shortfall and make the check board noise.
+    infeas_cases = [
+        # (name, minutes_before_review, lag_h, want)
+        ("slot-inside-lag", 30, 32, False),
+        ("slot-exactly-at-lag", 32 * 60, 32, True),
+        ("slot-before-lag", 40 * 60, 32, True),
+        ("lag-unmeasured", 30, -1, True),
+        ("lag-unparseable", 30, None, True),
+        ("slot-unparseable", None, 32, True),
+    ]
+    for name, mins, lag, want in infeas_cases:
+        expect(f"slot_can_carry_insights[{name}]",
+               slot_can_carry_insights(mins, lag), want)
+    feas_cases = [
+        # (name, slots_csv, lag_h, want)
+        ("empty", "", 32, 0),
+        ("none", None, 32, 0),
+        ("all-infeasible", "120,240,600,900", 32, 0),
+        ("mixed", "120,2400,60", 32, 1),
+        ("no-cutoff-when-unmeasured", "120,240,60", -1, 3),
+        ("unreadable", "x,y", 32, None),
+    ]
+    for name, csv, lag, want in feas_cases:
+        expect(f"cohort_feasible_count[{name}]",
+               cohort_feasible_count(csv, lag), want)
 
     # cron_delivery_verdict: job records -> severity. The delivery failure is
     # silent from inside the repo (the run succeeds, the output file exists), so

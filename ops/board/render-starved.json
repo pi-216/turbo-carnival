@@ -1,12 +1,12 @@
 {
   "key": "render-starved",
-  "title": "no photo in 12h while the render request was refused 10x",
+  "title": "no photo in 12h while the render request was refused 11x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=10 holder=none; the :8188 instance (pid 553489, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); free=20.7GiB vs ask 19GiB; outside-scheduler holders: 553489 main.py 2.3GiB (operator-interactive session)",
+  "evidence": "photos_12h=0 refusals_12h=11 holder=none; the :8188 instance (pid 553489, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); free=5.0GiB vs ask 16GiB; outside-scheduler holders: 553489 main.py 18.0GiB (operator-interactive session) -- free 5.0GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 0% busy over 10s; the :8188 instance is ACTIVELY RENDERING (last prompt 3.3 min ago) -- a batch is driving the card, not idle residue",
   "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-09-22T23:30:34-0400",
-  "seen_count": 40,
+  "last_seen": "2026-09-23T00:35:58-0400",
+  "seen_count": 42,
   "source": "probe",
   "notes": [
     {
