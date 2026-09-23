@@ -904,7 +904,11 @@ def check_render_starved():
         # to end. Route: enablement when his own session is the pin, agent otherwise.
         _holders = gpu_vram_holders()
         _reserve = comfyui_reserve_ok(_rpid)
-        lever = operator_holder_lever(_reserve, _holders, _rpid)
+        # Sized to the LIVE card: "your session holds models" and "your session has
+        # released them" are two different asks, and this clause is the only thing that
+        # reaches Tim (see OPERATOR_LEVER_CLAUSE_ARGS_ONLY).
+        lever = operator_holder_lever(_reserve, _holders, _rpid,
+                                      gpu_vram_free_mib(), our_reservation_gb())
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
@@ -4860,26 +4864,84 @@ OPERATOR_LEVER_CLAUSE = (
 )
 
 
-def operator_holder_lever(reserve, holders, serving_pid):
-    """PURE: the actionable lever for a runway escalation held by the OPERATOR.
+# The lever for the state where the card ITSELF is also blocked. Kept because it is
+# still the truth in that state; see the args-only clause below for the other one.
+#
+# The lever must be sized to the LIVE card, because the two states are two different
+# asks and printing the wrong one sends the human to a no-op. Measured 2026-09-23: this
+# text was printed VERBATIM every tick through `escalations` -- the one surface that
+# reaches Tim -- including its remedy ("Closing that instance, or freeing its model
+# cache ... returns ~23GiB to the card and the next tick renders"). By 13:2xZ the
+# operator's session had gone IDLE and released its models (1.6GiB held of 24GiB, 2%
+# util, 72W), so the card carried 21.8GiB free -- above the ask the harness would make
+# -- and the ONLY thing still refusing was the launch line. The digest was therefore
+# asking him to free a cache that was already free, and implying a second condition he
+# could not satisfy: the exact unactionable ask this board exists to end. A lever is a
+# function of the live free reading, not a fixed story about the card as it looked when
+# the pin was first diagnosed.
+OPERATOR_LEVER_CLAUSE_ARGS_ONLY = (
+    " ONE thing must be true before the harness can render through that session, and "
+    "only the operator can make it true -- LAUNCH ARGS: an instance carrying the SAME "
+    "`--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh "
+    "plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of "
+    "yielded to, so the loop resumes the moment the flag is there; without it every "
+    "tick refuses on the launch args. THE CARD IS NOT THE BLOCKER (live: {free:.1f}GiB "
+    "free vs the {ask:.0f}GiB ask the harness would make), so freeing its model cache "
+    "changes nothing. Relaunch that session carrying the same flag, or close it: "
+    "either way the next hourly tick renders."
+)
 
-    Empty unless BOTH halves are true: the :8188 instance is up WITHOUT
-    --reserve-vram (reserve is False -- True means the harness adopts it, so there is
-    nothing to ask for, and None means no instance to speak about), AND the operator's
-    own session is one of the card's holders AND IS that same instance (pid match).
-    The pid match keeps the clause honest: a card held by an operator process that is
-    not the :8188 server must not be sent a lever about a process it is not holding.
-    `holders` is gpu_vram_holders()' shape: [(pid, name, used_mib, class)].
+
+def operator_pins_flagless_server(reserve, holders, serving_pid):
+    """PURE: is the OPERATOR's own session the :8188 server, up WITHOUT --reserve-vram?
+
+    Empty-lever conditions, one place: reserve must be False (True means the harness
+    adopts it, so there is nothing to ask for; None means no instance to speak about),
+    the serving pid must be known, and the operator's own session must BE that pid --
+    the pid match keeps the clause honest, because a card held by an operator process
+    that is not the :8188 server must not be sent a lever about a process it is not
+    holding. `holders` is gpu_vram_holders()' shape: [(pid, name, used_mib, class)].
+
+    Extracted so the ROUTE and the WORDING consult one predicate rather than two copies
+    of it: a route and a clause that disagree would either ask a human for something he
+    does not hold, or stay silent about the one lever he does.
     """
     if reserve is not False:
-        return ""
+        return False
     serving = str(serving_pid or "").strip()
     if not serving:
-        return ""
+        return False
     for pid, _name, _mib, klass in holders or []:
         if str(pid).strip() == serving and str(klass or "").strip().lower() == "operator":
-            return OPERATOR_LEVER_CLAUSE
-    return ""
+            return True
+    return False
+
+
+def operator_lever_clause(reserve, holders, serving_pid, free_mib=None, ask_gb=None):
+    """PURE: the operator's lever, sized to the LIVE state of the card.
+
+    '' when his session is not the pin. Otherwise the args-only clause when the live
+    free reading already clears the ask the harness would make, and the two-condition
+    clause when it does not -- or when that reading is unavailable, which MUST fall
+    back to the fuller text: an unreadable card is not evidence that the card is clear,
+    and a clause that over-promises costs the human a wasted trip.
+    """
+    if not operator_pins_flagless_server(reserve, holders, serving_pid):
+        return ""
+    if free_mib is None or not ask_gb or not reserve_gate_blocks(False, free_mib, ask_gb):
+        return OPERATOR_LEVER_CLAUSE
+    return OPERATOR_LEVER_CLAUSE_ARGS_ONLY.format(
+        free=float(free_mib) / 1024, ask=float(ask_gb))
+
+
+def operator_holder_lever(reserve, holders, serving_pid, free_mib=None, ask_gb=None):
+    """The operator lever, or '' when this is not about his instance.
+
+    The single entry point the call sites and the suite use; it delegates to the pure
+    builder above, so a caller passing no live reading gets the two-condition text
+    rather than a clause asserting a card state nobody measured.
+    """
+    return operator_lever_clause(reserve, holders, serving_pid, free_mib, ask_gb)
 
 
 def starve_route(reserve, holders, serving_pid):
@@ -4895,7 +4957,7 @@ def starve_route(reserve, holders, serving_pid):
     photos while dry_out was still 6.2d out, so the runway forecast had not fired and
     the only lever the human holds never reached him.
     """
-    return "tim" if operator_holder_lever(reserve, holders, serving_pid) else "agent"
+    return "tim" if operator_pins_flagless_server(reserve, holders, serving_pid) else "agent"
 
 
 def check_queue_runway():
@@ -4944,7 +5006,8 @@ def check_queue_runway():
         extra += ("; the card is held by the OPERATOR's own interactive session -- no "
                   "in-repo action can free it, so this is filed as enablement (a GPU-policy "
                   "call on a session no agent may touch)")
-        extra += operator_holder_lever(comfyui_reserve_ok(), holders, comfyui_serving_pid())
+        extra += operator_holder_lever(comfyui_reserve_ok(), holders, comfyui_serving_pid(),
+                                       gpu_vram_free_mib(), our_reservation_gb())
     return (
         "queue-runway-short",
         "the publish queue drains inside 3 days and the render loop cannot top it up",
@@ -5498,8 +5561,16 @@ def human_digest(recs, now=None):
     """Render the open board as one markdown digest -- a surface a human can READ.
 
     Pure: takes the records, returns text. Bounded by construction (evidence and
-    notes truncated, file rewritten rather than appended), so regenerating it on
-    every probe run cannot grow it.
+    notes elided to a cap, file rewritten rather than appended), so regenerating it
+    on every probe run cannot grow it.
+
+    Both ends of a long field are KEPT (digest_elide, not a front slice): this file's
+    convention composes the measured condition first and the ASK last, so a front
+    truncation drops exactly the sentence the human needs. Measured 2026-09-23:
+    `render-starved`'s evidence was cut at 300 chars in this committed surface --
+    "... (see COMFY_RESERVE" and nothing more -- so the enablement item Tim actually
+    reads showed the gate and hid the ask, the same defect `escalations` was fixed
+    for one surface over.
 
     Split by route, because the two queues have different readers: `tim` items are
     the only ones that may be pushed to the operator (enablement), while `agent`
@@ -5564,11 +5635,12 @@ def human_digest(recs, now=None):
                          f"| last {r.get('last_seen', '')}")
             evidence = " ".join((r.get("evidence") or "").split())
             if evidence:
-                lines.append(f"- evidence: {evidence[:DIGEST_EVIDENCE_CHARS]}")
+                lines.append(f"- evidence: {digest_elide(evidence)}")
             notes = r.get("notes") or []
             if notes:
                 latest = " ".join((notes[-1].get("note") or "").split())
-                lines.append(f"- latest note ({notes[-1].get('ts', '')}): {latest[:DIGEST_NOTE_CHARS]}")
+                lines.append(f"- latest note ({notes[-1].get('ts', '')}): "
+                             f"{digest_elide(latest, DIGEST_NOTE_CHARS)}")
             lines.append("")
     return "\n".join(lines)
 
@@ -6858,6 +6930,39 @@ def cmd_selftest(_argv):
     expect("operator_holder_lever[names-the-resident-hold]",
            "holds" in operator_holder_lever(False, _op_holders, "553489").lower(), True)
 
+    # ...and the lever must be SIZED TO THE LIVE CARD. The same operator pin is two
+    # different asks depending on whether his session still HOLDS its models, and the
+    # frozen text printed the held-models ask (remedy: "freeing its model cache ...
+    # returns ~23GiB") on the one surface that reaches him. Measured 2026-09-23 13:2xZ:
+    # the session had gone idle and released its models (1.6GiB held, 21.8GiB free),
+    # so the remedy was a no-op and the real ask -- the launch line alone -- was buried
+    # behind a condition he could not satisfy.
+    _card_clear = operator_holder_lever(False, _op_holders, "553489",
+                                        free_mib=21800, ask_gb=19.0)
+    expect("operator_holder_lever[card-clear-is-ONE-ask]",
+           "ONE thing must be true" in _card_clear, True)
+    expect("operator_holder_lever[card-clear-drops-the-stale-promise]",
+           "returns ~23GiB" in _card_clear, False)
+    expect("operator_holder_lever[card-clear-says-the-remedy-is-a-no-op]",
+           "changes nothing" in _card_clear, True)
+    expect("operator_holder_lever[card-clear-quotes-the-live-free]",
+           "21.3GiB" in _card_clear, True)
+    expect("operator_holder_lever[card-clear-still-names-the-flag]",
+           "--reserve-vram" in _card_clear, True)
+    expect("operator_holder_lever[card-blocked-keeps-BOTH-halves]",
+           "TWO things must be true" in operator_holder_lever(
+               False, _op_holders, "553489", free_mib=5526, ask_gb=16.0), True)
+    expect("operator_holder_lever[unreadable-free-keeps-BOTH-halves]",
+           "TWO things must be true" in operator_holder_lever(
+               False, _op_holders, "553489", free_mib=None, ask_gb=None), True)
+    # A free reading with NO ask is not a clearance either: the ask is what the harness
+    # would request, and without it there is nothing to compare the card against.
+    expect("operator_holder_lever[no-ask-is-not-a-clearance]",
+           "TWO things must be true" in operator_holder_lever(
+               False, _op_holders, "553489", free_mib=21800, ask_gb=None), True)
+    expect("operator_holder_lever[args-only-clause-still-routes-to-tim]",
+           starve_route(False, _op_holders, "553489"), "tim")
+
     # starve_route: the STARVATION item reaches the human only when his own session is
     # the pin -- the same lever test as the runway item, asserted separately because
     # this signal fires FIRST (measured 2026-09-23: the CRITICAL at 24.3h of zero
@@ -6979,7 +7084,7 @@ def cmd_selftest(_argv):
     # note, since the latest triage pass is the part that says where the item
     # stands.
     d_empty = human_digest([], now="2026-09-20T00:00:00Z")
-    long_evidence = "x" * (DIGEST_EVIDENCE_CHARS + 50)
+    long_evidence = "HEAD " + "x" * (DIGEST_EVIDENCE_CHARS + 50) + " TAIL-THE-ASK"
     digest_rec = {
         "key": "k1", "title": "t1", "severity": "warn", "evidence": long_evidence,
         "source": "manual", "seen_count": 3, "first_seen": "2026-09-19T00:00:00Z",
@@ -6995,8 +7100,13 @@ def cmd_selftest(_argv):
         ("empty-has-no-items", "## WARN" in d_empty, False),
         ("key-present", "`k1`" in d_one, True),
         ("newest-note-only", "NEW NOTE" in d_one and "OLD NOTE" not in d_one, True),
-        ("evidence-bounded", (long_evidence not in d_one)
-         and ("x" * DIGEST_EVIDENCE_CHARS in d_one), True),
+        ("evidence-bounded", (long_evidence not in d_one), True),
+        # ...and the ASK survives the bound. A front slice of this field cut
+        # `render-starved`'s evidence at 300 chars ("... (see COMFY_RESERVE") and hid
+        # the sentence naming what the operator must do -- the same defect fixed one
+        # surface over in `escalations` (see digest_elide).
+        ("evidence-keeps-the-ask", "TAIL-THE-ASK" in d_one, True),
+        ("evidence-elides-the-middle", " … " in d_one, True),
         ("records-route-count", "enablement for Tim: 0 | agent decisions: 1" in d_one, True),
         ("splits-tim-and-agent", "enablement for Tim: 1 | agent decisions: 2" in d_two, True),
         ("tim-item-in-enablement-section",

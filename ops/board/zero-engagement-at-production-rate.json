@@ -5,8 +5,8 @@
   "evidence": "22 post(s) published in the last 14d, 19 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=59 (mean reach 3.1/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-23T08:41:23-0400",
-  "seen_count": 61,
+  "last_seen": "2026-09-23T09:30:46-0400",
+  "seen_count": 64,
   "source": "probe",
   "route": "agent",
   "notes": [
