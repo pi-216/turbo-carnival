@@ -5,8 +5,8 @@
   "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 7. Inside that window: 0 already published + 4 queued = 4, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: 8 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window. Not a Tim ask: the holder is another project's live job. Self-closes when the loop stops being refused.",
   "status": "open",
   "first_seen": "2026-09-22T17:59:02-0400",
-  "last_seen": "2026-09-22T21:34:21-0400",
-  "seen_count": 11,
+  "last_seen": "2026-09-22T21:36:20-0400",
+  "seen_count": 12,
   "source": "probe",
   "route": "agent",
   "notes": [
