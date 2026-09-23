@@ -5,15 +5,11 @@
   "evidence": "photos created in last 24h = 0",
   "status": "open",
   "first_seen": "2026-09-23T03:25:25-0400",
-  "last_seen": "2026-09-23T14:25:17-0400",
-  "seen_count": 30,
+  "last_seen": "2026-09-23T15:34:17-0400",
+  "seen_count": 32,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-23T06:40:23-0400",
-      "note": "decision unchanged: keep open, not accepted. Live read 10:40Z: no photo since id 361 @ 2026-09-22 07:07:41Z (27.6h); the card is held by the operator's :8188 session (holder=operator, pid 553489, 18.2GiB of 24GiB, 0%, 25W, launched without --reserve-vram, free 5.4GiB < the 16GiB fit floor) so both gates refuse. No in-repo lever can produce a render while ~11GiB is unavailable; the lever stays on render-starved/route=tim. publishable=18, dry_out=2026-09-29T10:30Z (6.0d)."
-    },
     {
       "ts": "2026-09-23T08:43:21-0400",
       "note": "2026-09-23 12:4xZ ops-triage: DECISION unchanged -- KEEP OPEN, not accepted, no in-repo lever. Live read this tick: no photo since id 361 @ 2026-09-22T07:07:41Z (29.6h; photos_24h=0 photos_12h=0), followers flat 157, queue publishable=18 with dry_out=2026-09-29T10:30Z (5.9d runway). The card is held by the operator's own :8188 session (holder=operator, pid 553489, reserve=missing) and is NOW ACTIVELY RENDERING -- 21226MiB used / 2855MiB free, 64% util, 282W at 12:41Z, versus 0%/25W when this item first fired -- so the refusal is contention with a human mid-batch, not an idle pin, and yielding is unambiguously correct. Both gates still fire (launch-args first, then the 16GiB floor vs ~2.8GiB free). NEW THIS TICK: I went looking for a GPU-free supply lever that could cover the outage and there is NONE -- the 51 Sarah photos with no post are not spare content (13 are NSFW-purged siblings that the nsfw_purge path deleted only the POST row for, 28 are from the superseded 2026-05-28 bulk batch, 10 are 2026-08 strays), so publishing them would put unvetted/off-era imagery on the public feed. Recorded so the next tick does not re-derive it or act on it."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T14:36:53-0400",
       "note": "2026-09-23 18:3xZ ops-triage: the GPU-free lever is now BUILT, VERIFIED LIVE, and COMMITTED (534a189) -- and its true size is corrected DOWN, which is the material change here. Growth::LibraryFallback spends the render library (photos rendered, never posted) when the publish runway drops under the SAME 72h threshold this board escalates on, topping up to 96h at <=3 posts/call, every photo re-gated fail-closed. Verified by real execution, not specs alone: the APPLY path ran against the live gates and DB inside a rolled-back transaction and created post 354 (photo 308, strategy=library-fallback, nsfw 0.0197, aes 6.4239, scheduled 09-29T14:00Z, one library_fallback decision), row proven present inside the tx and absent after rollback; the dormant branch confirmed live (runway 136.1h > 72h). CORRECTION to the prior pass: that pass reported '~36 usable posts (~12 d)' and 'a continued hold extends coverage to ~18 d'. Measured now: of 51 servable unposted photos only 8 are spendable. 15 of the 23 August photos are NSFW-classified (0.68-0.9999), and ALL 28 of the older May batch fail RealismGate on sharpness (6.7-16.1 vs the 30.0 floor) though their aesthetics are fine (5.4-7.3). That May rejection was independently reproduced -- my numpy Laplacian variance matches the gate's numbers exactly (8.18 / 11.27) and a visual read of photo 124 shows genuine blur against photo 308's clear detail -- so the gate is right and the threshold sits in an empty valley (nothing scores 16-121). Honest lever size: ~2.7 days at 3/day, so a continued hold now reaches publishing silence around 10-02, NOT 10-17. The correction is recorded in the class comment and the publisher step so no future pass re-derives an inflated buffer. No claim requested, no render attempted."
+    },
+    {
+      "ts": "2026-09-23T15:34:01-0400",
+      "note": "2026-09-23 20:0xZ ops-triage: ROOT CAUSE now has a concrete, measured fix path -- the render loop is single-host and that is the whole drought. DECIDED (agent-owned, no Tim dependency): arm a SECOND render host on max395 (strix). Feasibility VERIFIED this pass, not assumed: ~/activity/ComfyUI is a real install (git HEAD 99073836, main.py, .venv py3.14.7), torch 2.12.0a0+rocm7.13.0a with torch.cuda.is_available()==True, device 'Radeon 8060S Graphics', ComfyUI 0.36.0 SERVED :8188 on demand with an empty queue, and it carries the clipseg/impact-pack/IPAdapter/was-ns node family this workflow uses. Every model pipeline 21 (turbo-one-step-clean) references resolves there from the shared NAS -- verified file by file: flux1-dev.sft 23.8GB; t5xxl_fp16 9.8GB; clipLFullFP32... 0.49GB; ae.safetensors 0.34GB; and the three persona LoRAs (sarah1a3, flux_realism_lora, tg) under loras/flux/. CORRECTION to the 18:4xZ note: 'max395 has no ComfyUI' is WRONG for ~/activity/ComfyUI. REMAINING GATE, measured: the workflow's weights are ~34.4GB fp16 while max395 had only 29-32GB RAM free with co-tenants resident (Qwen3.8-27B llama-server ~70GB RSS at 100% iGPU, image_embed 5.6GB, ollama caption server) -- so fp16 does NOT fit today; the smaller NAS unet (Flux1-DedistilledMixTuned 11.9GB -> ~22.4GB) does, and a co-tenant-aware live-free check is required at claim time. Do NOT test-load 34GB on a shared box: the kernel's OOM victim would be the neighbouring project's service, not ours. Recorded in docs/second-render-path.md + a pointer in bin/comfyui_harness.sh. Wiring (remote base URL, remote harness mode, strix claim) is the next pass's work."
     }
   ]
 }

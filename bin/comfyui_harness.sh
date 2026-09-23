@@ -25,6 +25,15 @@
 #       Stop the heartbeat loop, SIGTERM ComfyUI, verify port closed + GPU
 #       idle, then release the scheduler claim. Always leaves the GPU free.
 # =============================================================================
+# THIS HARNESS IS THE 4090 (LOCAL) RENDER PATH ONLY. That single-host dependency
+# is the root cause of the recurring render drought -- a hold on this card blocks
+# ALL rendering (Growth::LibraryFallback records 1.5-96h holds since 2026-08-16).
+# A SECOND host is feasible and already installed: max395 (strix) runs ComfyUI on
+# ROCm and resolves every model this pipeline's workflow needs (measured
+# 2026-09-23). Read docs/second-render-path.md before extending this file for a
+# remote GPU -- it carries the evidence, the memory gate, and the verified
+# bring-up commands.
+# =============================================================================
 set -u
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
