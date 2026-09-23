@@ -1,7 +1,10 @@
 # Second render path — max395 (strix) ComfyUI on ROCm
 
-**Status: feasibility VERIFIED (2026-09-23), wiring NOT done.** This file exists so the
-next agent (or a human) does not re-probe what is already measured.
+**Status: install VERIFIED; the PRODUCTION WORKFLOW DOES NOT FIT — memory-blocked (not just
+unwired).** Measured 2026-09-23 20:3xZ: the workflow needs **~40 GB of host RAM** and max395 has
+**34 GB available** at current co-tenant load, so this host cannot render the pipeline as
+configured. Read the "MEASURED footprint" section below before re-proposing this path; it
+replaces the 34.4 GB estimate this file carried earlier the same day.
 
 ## Why this exists
 
@@ -56,17 +59,69 @@ max395 is a **shared** box; it hosts other projects' resident services:
 | ollama `llama-server` (caption endpoint, `:11434`) | ~1.6 GB RSS |
 | `rocm-smi --showuse` | iGPU 100 % busy at probe time |
 
-Live headroom at probe time: `ram_free` 29–32 GB, `GTT free` 64 GB, swap 8 GB (65 MB used).
+Live headroom re-read 2026-09-23 20:3xZ: `Mem total 119 GB, used 84, free 13, buff/cache 22,
+available 34 GB`; `GTT Total Used 13.0 GB of 118.1 GB`; largest RSS `llama-server` 66.4 GB.
 
-The workflow's weight footprint is **~34.4 GB fp16** (23.8 + 9.8 + 0.49 + 0.34 + LoRAs), which
-**does not fit** in ~30 GB of free RAM alongside those services. Options, in order:
+### MEASURED footprint — from the pipeline's OWN last successful render log
 
-1. render at the smaller FLUX unet already on the NAS (`Flux1-DedistilledMixTuned.safetensors`,
-   11.9 GB → ~22.4 GB total footprint, fits) — but confirm the persona LoRAs still behave;
-2. keep fp16 and take a scheduler claim on `strix`, then size the ask against live free GTT;
-3. wait for the co-tenants to free RAM.
+`/mnt/nas-ai-models/gpu-scheduler/logs/comfyui-comfyui-1790060460-2244597-1.log` (2026-09-22
+07:08Z, game box) records what the workflow actually loads. This is the authoritative number —
+an inventory of the workflow's file references is NOT, because the graph also loads a model the
+earlier estimate missed:
 
-**Do not launch a 34 GB load on spec** — the kernel would choose its own victim and it will not
+```
+[INFO] Total VRAM 24080 MB, total RAM 124374 MB
+[INFO] model_type FLUX          -> Requested to load Flux
+[INFO] loaded partially; 16895.84 MB usable, 16535.69 MB loaded, 6164.44 MB offloaded
+[INFO] model_type EPS           -> Requested to load SDXL
+[INFO] loaded completely; 6100.50 MB usable, 4897.05 MB loaded, full load: True
+[INFO] Requested to load FluxClipModel_ / SDXLClipModel / AutoencoderKL / AutoencodingEngine
+[INFO] Prompt executed in 347.09 seconds
+```
+
+- The flux UNet is **fp16, ~22.7 GB** (16535.69 loaded + 6164.44 offloaded). `Pipeline 21`'s
+  `UNETLoader` carries `weight_dtype: 'default'`, i.e. the file's native dtype — not fp8.
+- **The Pony SDXL checkpoint IS loaded** (`Requested to load SDXL` -> 4897 MB resident), together
+  with the SDXL VAE and the SDXL CLIP model. It is `checkpoints/pony/Pornmaster_v2551619
+  .safetensors` (7.11 GB on disk); the earlier 34.4 GB table omitted both it and the SDXL VAE.
+  Verified from the LIVE graph (`pipeline_steps.comfy_workflow_json`, pipeline 21): nodes 43
+  UNETLoader, 71 VAELoader(SDXL), 81 DualCLIPLoader, 87 CheckpointLoaderSimple(pony), 90
+  VAELoader(ae) — all five reachable from the `SaveImage` terminal.
+
+**Host-RAM requirement of the production workflow ≈ 39–40 GB** (flux fp16 22.7 + t5 fp16 9.8 +
+clipL 0.49 + pony SDXL 4.9 + SDXL VAE + flux ae + LoRAs). max395 has **34 GB available**, so it
+is **short by ~6 GB**: this is a hard memory gate, not a wiring gap. ComfyUI offloads to host
+RAM, it does not compress it — a `--lowvram`-style flag moves weights between VRAM and RAM, it
+does not shrink them.
+
+**The ONE in-repo lever that would clear the gate, and its arithmetic.** Setting `Pipeline 21`'s
+`UNETLoader` to `weight_dtype: 'fp8_e4m3fn'` removes ~11.4 GB (22.7 -> ~11.3 GB) and lands the
+requirement at **~28 GB — it fits.** It is the same weights at lower precision, not a different
+model. DECISION 2026-09-23 20:4xZ: **not taken**, because
+
+1. it changes the images the persona pipeline produces, and it cannot be A/B-validated while the
+   only capable card is held by the operator (this loop does not ship unverifiable product
+   changes);
+2. it does not unblock anything on its own — the 4090 path is blocked by the operator's launch
+   ARGS (below), and a max395 render additionally needs the remote wiring;
+3. the defect it would also blunt (`comfyui-torch-oom`, the fp16 22.7 GB UNet over-committing a
+   24 GB card) is already contained by `--reserve-vram` and its board item self-closes.
+
+Trigger to take it: the first time a card we hold is free to validate an fp8-vs-fp16 A/B, or if
+max395 becomes the only path. Do NOT take it blind and do not pair it with a host-conditional
+variant — two hosts rendering at two precisions would make the corpus heterogeneous and void the
+09-28 gate comparison anyway.
+
+Two other levers that were considered and NOT taken:
+
+1. swapping the flux UNet for `Flux1-DedistilledMixTuned.safetensors` (11.9 GB) lands the total at
+   **~30 GB — it fits, with ~4 GB margin** — but that is a *different model*, a real product
+   change, and the persona LoRAs were trained against flux1-dev. Same decision as the fp8 lever:
+   not taken blind.
+2. taking a scheduler claim on `strix` does NOT help: the gate is host RAM, and a claim grants
+   exclusivity among scheduler users only — it cannot evict the co-tenants.
+
+**Do not launch a ~40 GB load on spec** — the kernel would choose its own victim and it will not
 be ours (`llama-server` is the largest process on the box).
 
 ## How to bring the host up (verified commands)
@@ -83,6 +138,13 @@ returns before ComfyUI is listening; poll `/system_stats` instead of trusting th
 Stop it by PID (`pgrep -af "[m]ain.py --listen"` on that host) — it is not under our harness.
 
 ## What wiring still requires (agent-owned, not a Tim ask)
+
+**Order matters: wiring alone buys nothing.** Steps 1–4 below do not produce a photo while the
+host is ~6 GB of RAM short of the workflow (see the MEASURED footprint section — a lever must be
+taken first, and taking one blind is the thing this file forbids). Sized honestly: step 2 is not
+a flag but a build — `cmd_ensure`'s GPU, `COMFY_DIR`, `nvidia-smi` probes, the `systemd --user`
+unit/cgroup isolation and the heartbeat all assume this box, so a remote mode is a second
+lifecycle, not a parameter.
 
 1. **Render submission against a remote base URL.** `config/initializers/comfyui.rb` reads
    `COMFYUI_BASE_URL` (default `http://localhost:8188`) and `SubmitJob` posts the workflow there,
