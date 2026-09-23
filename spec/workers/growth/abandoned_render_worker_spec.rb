@@ -27,8 +27,33 @@ RSpec.describe Growth::AbandonedRenderWorker do
     expect(Growth::CadenceEngine).to receive(:new).with(goal: goal).and_return(engine)
     expect(engine).to receive(:recover_abandoned)
       .and_return(target: 3, existing: 2, shortfall: 1, result: salvage_result(1))
+    # Shortfall still open after recovery => the library is asked too.
+    expect(engine).to receive(:top_up_from_library).and_return(nil)
 
     described_class.new.perform
+  end
+
+  it 'does NOT ask for the library when recovery closed the whole shortfall' do
+    engine = instance_double(Growth::CadenceEngine)
+    allow(Growth::CadenceEngine).to receive(:new).and_return(engine)
+    allow(engine).to receive(:recover_abandoned)
+      .and_return(target: 3, existing: 3, shortfall: 0, result: nil)
+    expect(engine).not_to receive(:top_up_from_library)
+
+    described_class.new.perform
+  end
+
+  # The library lever had NO driver at all: reachable only by a hand-run rake
+  # task. The always-on loop is the driver, and it must keep running when the
+  # library itself fails (a fallback may never break the loop that carries it).
+  it 'survives a library failure' do
+    engine = instance_double(Growth::CadenceEngine)
+    allow(Growth::CadenceEngine).to receive(:new).and_return(engine)
+    allow(engine).to receive(:recover_abandoned)
+      .and_return(target: 3, existing: 2, shortfall: 1, result: nil)
+    allow(engine).to receive(:top_up_from_library).and_raise(StandardError, 'boom')
+
+    expect { described_class.new.perform }.not_to raise_error
   end
 
   it 'does nothing when no goal is active' do

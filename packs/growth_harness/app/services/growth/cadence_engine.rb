@@ -72,7 +72,7 @@ module Growth
 
       if shortfall.zero?
         return { created: 0, target: target, existing: existing, shortfall: 0, salvage: salvage,
-                 budget_exhausted: false, elapsed_seconds: elapsed(started_at) }
+                 library: nil, budget_exhausted: false, elapsed_seconds: elapsed(started_at) }
       end
 
       created = 0
@@ -118,6 +118,16 @@ module Growth
 
       log_blockage(failures.first) if failures.any?
 
+      # LAST RESORT, GPU-FREE: the fresh path could not keep the queue at target
+      # (a refused/blocked render, an exhausted budget, a dead pillar pool), so
+      # spend the render LIBRARY to protect the publish runway. The fallback
+      # enforces its OWN threshold (RUNWAY_TRIGGER_H, the same 72h the ops board
+      # escalates on, so the lever and the alarm cannot disagree), spends at most
+      # MAX_PER_CALL, and is idempotent -- when the runway is healthy this is one
+      # query and a no-op, which is exactly why it can sit on the tick's path too
+      # (the always-on worker drives it without a GPU: see #top_up_from_library).
+      library = top_up_from_library(limit: shortfall)
+
       {
         created: created,
         target: target,
@@ -125,6 +135,7 @@ module Growth
         shortfall: shortfall,
         failures: failures,
         salvage: salvage,
+        library: library_summary(library),
         budget_exhausted: budget_stopped,
         elapsed_seconds: elapsed(started_at)
       }
@@ -150,6 +161,28 @@ module Growth
       shortfall = [target - existing, 0].max
       result = shortfall.zero? ? nil : Growth::RenderSalvage.new(goal: goal).call(limit: shortfall)
       { target: target, existing: existing, shortfall: shortfall, result: result }
+    end
+
+    # Spend the render LIBRARY (photos already rendered, never posted) when the
+    # publish runway is inside Growth::LibraryFallback::RUNWAY_TRIGGER_H.
+    #
+    # GPU-FREE, and therefore driven from OUTSIDE #sync as well. WHY: the growth
+    # tick SKIPS its whole cadence step when it cannot acquire the 4090 -- the
+    # right call for RENDERING, but it also skips every path that needs no GPU at
+    # all. That is the exact gating bug that left Growth::RenderSalvage without a
+    # driver while three paid-for renders sat unposted for 13h (see
+    # #recover_abandoned). The render LIBRARY is the last GPU-free source of
+    # publishable content in a drought, so it must not inherit that bug: the
+    # always-on 5-minute worker (Growth::AbandonedRenderWorker) calls this
+    # directly, with no claim, no scheduler and no render.
+    #
+    # Failures are swallowed: a fallback must never break the caller it is bolted
+    # onto, and Growth::LibraryFallback already fail-closes per photo.
+    def top_up_from_library(limit: nil)
+      Growth::LibraryFallback.new(goal: goal).call(limit: limit)
+    rescue StandardError => e
+      Rails.logger.error("Growth::CadenceEngine library top-up failed: #{e.class} - #{e.message}")
+      nil
     end
 
     private
@@ -184,6 +217,19 @@ module Growth
     rescue StandardError => e
       Rails.logger.error("Growth::CadenceEngine salvage failed: #{e.class} - #{e.message}")
       { recovered: 0, rejected: 0, skipped: 0, post_ids: [], examined: 0 }
+    end
+
+    # Flatten Growth::LibraryFallback's Result into the plain hash #sync returns,
+    # so the tick's output line and the worker's log can both read it without
+    # knowing the struct.
+    def library_summary(result)
+      return nil if result.nil?
+
+      {
+        created: result.created, rejected: result.rejected, skipped: result.skipped,
+        post_ids: result.post_ids, examined: result.examined, budget: result.budget,
+        triggered: result.triggered, runway_hours: result.runway_hours, reason: result.reason
+      }
     end
 
     # How many scheduled+draft posts should be in the future queue.

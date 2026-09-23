@@ -16,6 +16,49 @@ RSpec.describe Growth::CadenceEngine do
   end
 
   describe '#sync' do
+    # The library lever is the LAST GPU-FREE source of publishable content, and it
+    # shipped with no driver -- reachable only by a hand-run rake task, so the
+    # plan "spend the library when the runway crosses 72h" had no executor in the
+    # drought it was written for. These examples pin the wiring: the tick asks for
+    # it when the fresh path left a shortfall, and never when the queue is at target.
+    it 'spends the render library when the fresh path leaves a shortfall' do
+      spent = Growth::LibraryFallback::Result.new(
+        created: 2, rejected: 0, skipped: 0, post_ids: [11, 12], examined: 3,
+        runway_hours: 70.0, budget: 2, triggered: true, reason: nil
+      )
+      expect(Growth::LibraryFallback).to receive(:new).with(goal: goal)
+                                                    .and_return(double(call: spent))
+      allow(engine).to receive(:generate_fresh) do
+        { success: false, error: 'render refused (comfyui_unclaimed)', run_id: 1 }
+      end
+
+      result = engine.sync
+
+      expect(result[:library][:created]).to eq(2)
+      expect(result[:library][:post_ids]).to eq([11, 12])
+    end
+
+    it 'never touches the library while the queue is already at target' do
+      allow(engine).to receive(:scheduled_posts_count).and_return(7) # target 7, shortfall 0
+      expect(Growth::LibraryFallback).not_to receive(:new)
+
+      result = engine.sync
+
+      expect(result[:library]).to be_nil
+    end
+
+    it 'swallows a library failure so the tick still reports its own result' do
+      allow(Growth::LibraryFallback).to receive(:new).and_raise(StandardError, 'boom')
+      allow(engine).to receive(:generate_fresh) do
+        { success: false, error: 'render refused', run_id: 1 }
+      end
+
+      result = engine.sync
+
+      expect(result[:created]).to eq(0)
+      expect(result[:library]).to be_nil
+    end
+
     it 'moves ON to another pillar when the first is NSFW-rejected, and records a pillar_shift' do
       rejected = { success: false, error: 'nsfw_rejected (label=lingerie score=0.97)', run_id: 1 }
       accepted = {

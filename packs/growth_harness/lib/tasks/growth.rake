@@ -86,6 +86,12 @@ namespace :growth do
     if salvage[:examined].to_i.positive? || salvage[:recovered].to_i.positive?
       puts "Salvage: examined=#{salvage[:examined]} recovered=#{salvage[:recovered]} rejected=#{salvage[:rejected]} skipped=#{salvage[:skipped]} posts=#{(salvage[:post_ids] || []).inspect}"
     end
+    library = result[:library]
+    if library && (library[:created].to_i.positive? || library[:rejected].to_i.positive?)
+      puts "Library: runway=#{library[:runway_hours]}h budget=#{library[:budget]} examined=#{library[:examined]} " \
+           "created=#{library[:created]} rejected=#{library[:rejected]} skipped=#{library[:skipped]} " \
+           "posts=#{library[:post_ids].inspect}"
+    end
   end
 
   desc 'Pre-publish age gate: hold queued posts whose render reads juvenile (dry run; APPLY=1 to hold, LIMIT=N)'
