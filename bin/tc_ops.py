@@ -2974,10 +2974,10 @@ def holder_activity_clause(verdict, age_s):
     """
     if verdict == "live":
         return (f"; the :8188 instance is ACTIVELY RENDERING (last prompt {_fmt_age(age_s)})"
-                " -- a batch is driving the card, not idle residue")
+                " -- a batch is driving the card, not idle residue.")
     if verdict == "idle":
         return (f"; the :8188 instance is idle (last prompt {_fmt_age(age_s)})"
-                " -- resident residue, not work")
+                " -- resident residue, not work.")
     return ""
 
 
@@ -4858,9 +4858,15 @@ OPERATOR_LEVER_CLAUSE = (
     "resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses "
     "`vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid "
     "3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at "
-    "free=6413MiB -- nothing rendered). Closing that instance, or freeing its model "
-    "cache (ComfyUI's own 'Free model and node cache', or POST /free), returns ~23GiB to "
-    "the card and the next tick renders."
+    "free=6413MiB -- nothing rendered). CLOSING that instance clears BOTH conditions at "
+    "once and the next tick renders -- `ensure` then claims the card and launches its own "
+    "flagged instance. Freeing its model cache clears only (2): the instance stays "
+    "FLAGLESS, and `ensure` returns 2 on the launch args BEFORE it ever asks the "
+    "scheduler for a claim (bin/comfyui_harness.sh: `if comfyui_up && ! comfyui_reserve_ok` "
+    "-> return 2, ahead of the claim loop), so no amount of freed VRAM starts a render "
+    "through it. The relaunch is the fix; the cache is not. If you would rather keep the "
+    "card for your own session, say so once: the launch line stops being re-raised and "
+    "the drought is recorded as accepted policy (the zero-output item stays open as its cost)."
 )
 
 
@@ -4888,7 +4894,9 @@ OPERATOR_LEVER_CLAUSE_ARGS_ONLY = (
     "tick refuses on the launch args. THE CARD IS NOT THE BLOCKER (live: {free:.1f}GiB "
     "free vs the {ask:.0f}GiB ask the harness would make), so freeing its model cache "
     "changes nothing. Relaunch that session carrying the same flag, or close it: "
-    "either way the next hourly tick renders."
+    "either way the next hourly tick renders. If you would rather keep the card for your "
+    "own session, say so once: the launch line stops being re-raised and the drought is "
+    "recorded as accepted policy (the zero-output item stays open as its cost)."
 )
 
 
@@ -6952,6 +6960,42 @@ def cmd_selftest(_argv):
     expect("operator_holder_lever[card-blocked-keeps-BOTH-halves]",
            "TWO things must be true" in operator_holder_lever(
                False, _op_holders, "553489", free_mib=5526, ask_gb=16.0), True)
+    # ...and in that state the remedy must not over-promise the OTHER way either. The
+    # frozen text offered two ways to clear the card half -- "Closing that instance, or
+    # freeing its model cache ... the next tick renders" -- as if either worked. Only
+    # closing does: `ensure` returns 2 on the launch args while the instance is up and
+    # flagless (bin/comfyui_harness.sh, `if comfyui_up && ! comfyui_reserve_ok`), BEFORE
+    # the claim loop, so a cache-free leaves the instance exactly as unroutable as it
+    # was. Measured live 2026-09-23 14:2xZ: pid 553489 up, reserve=missing, 19.6GiB
+    # free -- refused on the ARGS, not on the card.
+    _card_blocked = operator_holder_lever(False, _op_holders, "553489",
+                                          free_mib=5526, ask_gb=16.0)
+    expect("operator_holder_lever[card-blocked-cache-free-is-not-the-fix]",
+           "clears only (2)" in _card_blocked, True)
+    expect("operator_holder_lever[card-blocked-closing-is-the-fix]",
+           "CLOSING that instance clears BOTH" in _card_blocked, True)
+    expect("operator_holder_lever[card-blocked-names-the-gate-order]",
+           "BEFORE it ever asks the scheduler" in _card_blocked, True)
+    expect("operator_holder_lever[card-blocked-drops-the-or-either-promise]",
+           "or freeing its model cache" in _card_blocked, False)
+    # The ask must be ANSWERABLE, not merely repeated. Sighted 67 times over three days
+    # with the operator's session in the way of a shared card: if neither "relaunch it
+    # with the flag" nor "close it" is a step he wants to take, an unanswerable ask can
+    # only be re-raised -- the nag this board exists to replace with a decision. Both
+    # clauses name the alternative, and accepting does NOT hide the cost.
+    expect("operator_holder_lever[card-clear-ask-is-answerable]",
+           "accepted policy" in _card_clear, True)
+    expect("operator_holder_lever[card-blocked-ask-is-answerable]",
+           "accepted policy" in _card_blocked, True)
+    expect("operator_holder_lever[accepting-does-not-hide-the-cost]",
+           "zero-output item stays open" in _card_clear, True)
+    # The activity clause is followed by the lever, which opens with a capital letter:
+    # without terminal punctuation the two read as one sentence ("not idle residue TWO
+    # things must be true"), measured live 2026-09-23 on the only surface Tim reads.
+    expect("holder_activity_clause[live-ends-a-sentence]",
+           holder_activity_clause("live", 234.0).endswith("residue."), True)
+    expect("holder_activity_clause[idle-ends-a-sentence]",
+           holder_activity_clause("idle", 234.0).endswith("work."), True)
     expect("operator_holder_lever[unreadable-free-keeps-BOTH-halves]",
            "TWO things must be true" in operator_holder_lever(
                False, _op_holders, "553489", free_mib=None, ask_gb=None), True)

@@ -5,8 +5,8 @@
   "evidence": "photos created in last 24h = 0",
   "status": "open",
   "first_seen": "2026-09-23T03:25:25-0400",
-  "last_seen": "2026-09-23T09:30:41-0400",
-  "seen_count": 19,
+  "last_seen": "2026-09-23T10:30:32-0400",
+  "seen_count": 24,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -29,6 +29,10 @@
     {
       "ts": "2026-09-23T09:29:52-0400",
       "note": "2026-09-23 13:4xZ ops-triage: DECISION unchanged \u2014 KEEP OPEN, not accepted. Live: no photo since id 361 @2026-09-22T07:07:41Z (~30.5h), publishable=18, held=1, followers 157 flat, dry_out=2026-09-29T10:30Z (5.9d). NEW this tick: the operator's :8188 session went IDLE and released its models (pid 553489, 1.6GiB of 24GiB, 2% util / 72W), so the card carries 21.8-22.2GiB free \u2014 ABOVE the harness's ask \u2014 and the SINGLE remaining refusal is the LAUNCH LINE (launched without --reserve-vram; the harness refuses on the args before it ever asks for a claim). I fixed the escalation surface to say exactly that instead of asking Tim to free a cache that is already free (see the 13:4xZ note on render-starved). No in-repo lever renders through an unflagged instance (that is the measured over-commit OOM of 09-22T00:05Z), and a co-resident private-port second instance was rejected. Single lever = render-starved (route=tim). Self-closes on the first photo."
+    },
+    {
+      "ts": "2026-09-23T10:30:25-0400",
+      "note": "2026-09-23 14:3xZ ops-triage: DECISION = the alternative render box is measured OUT; yield stands, no new build. Root cause re-measured live: no photo since id 361 @ 2026-09-22T07:07:41Z (~31.5h), photos_24h=0, publishable=18 with dry_out=2026-09-29T10:30Z (5.8d), followers 157 flat; the card is at 23.5GiB used / 348W with the operator's :8188 instance mid-batch (holder=operator, reserve=missing), so this is contention with a human's live render, not an idle pin. NEW FACT (was never measured): max395/strix is NOT a fallback renderer -- /home/tim/ComfyUI holds only custom_nodes (no main.py, no venv, no models) and that GPU is already 100% committed to SIBLING projects' unclaimed resident services (image_embed uvicorn 5.7GiB at 260% CPU for 25h, a Qwen3-something 27B llama-server, plus our own caption ollama; GTT 12.9GiB of 118GiB in use, box at 100% GPU use). The flux weights are on the shared NAS, but weights are not a renderer: building one there means installing ROCm torch + ComfyUI on a box whose GPU is already fully consumed by other projects' live services, with none of the scheduler's exclusivity. The second instance on the 4090 stays rejected (GPU-policy + it would OOM HIS render). So 'top up elsewhere' -- the agent-owned option in starve_route -- is closed by measurement: the only lever remains the operator's launch line, already routed tim on render-starved with the corrected ask. This item stays OPEN as the standing cost of the drought."
     }
   ]
 }
