@@ -919,6 +919,41 @@ def render_error_verdict(rows):
     return ("warn", rows[0])
 
 
+def render_attempts_in_window(hours=RENDER_ERR_WINDOW_H):
+    """How many renders were ATTEMPTED in the window, or None when unreadable."""
+    rows = psql_lines(
+        "select count(*) from comfyui_jobs "
+        f"where created_at > (now() at time zone 'UTC') - interval '{hours} hours'")
+    try:
+        return int(rows[0])
+    except (TypeError, IndexError, ValueError):
+        return None
+
+
+def render_coverage_verdict(attempts):
+    """Pure: renders ATTEMPTED in the window -> an INFO (severity, evidence) or None.
+
+    The fresh-error check is an ABSENCE check, and an absence claim is only as
+    strong as the observation's coverage of the interval. In a zero-render window
+    the check returns None exactly as it does after a real repair -- and
+    cmd_probe auto-closes every probe-sourced item whose key is not returned, so a
+    DROUGHT silently "repairs" an open defect. That is not hypothetical: the
+    CLIPSeg empty-mask defect (job 7563) left the board at 2026-09-22 20:25Z with
+    "condition no longer reproduces" purely because zero renders ran in its 24 h
+    window, and had to be re-filed by hand. Returning an INFO here keeps the item
+    alive and says why; it self-closes the moment a render runs (attempts > 0
+    restores the ordinary path).
+    """
+    if attempts is None or attempts > 0:
+        return None
+    return ("info", f"0 render(s) were ATTEMPTED in the last {RENDER_ERR_WINDOW_H}h, so "
+            "the absence of a fresh ComfyUI execution error is UNVERIFIED, not a "
+            "repair -- an absence claim is only as strong as its interval coverage. "
+            "Filed so a render drought cannot auto-close an open execution-error "
+            "item (the mechanism by which the CLIPSeg empty-mask defect left the "
+            "board on 2026-09-22 20:25Z). Self-closes as soon as a render runs.")
+
+
 def check_render_execution_errors():
     """A render that dies INSIDE the workflow -- a node exception, not a timeout.
 
@@ -948,15 +983,23 @@ def check_render_execution_errors():
         "order by updated_at desc limit 5")
     v = render_error_verdict(rows)
     if not v:
+        cov = render_coverage_verdict(render_attempts_in_window())
+        if cov:
+            sev, ev = cov
+            return ("render-execution-error",
+                    "UNVERIFIED: no render was attempted in the 24h window",
+                    sev, ev)
         return None
     sev, newest = v
     n = len([r for r in (rows or []) if r and r.strip()])
+    attempts = render_attempts_in_window()
     return (
         "render-execution-error",
         f"a render died inside the workflow: {newest}",
         sev,
-        f"{n} ComfyUI execution error(s) in the last {RENDER_ERR_WINDOW_H}h; "
-        f"newest {newest}. The producer now NAMES this (Growth::ContentGenerator "
+        f"{n} ComfyUI execution error(s) in the last {RENDER_ERR_WINDOW_H}h"
+        + (f" out of {attempts} render attempt(s)" if attempts else "")
+        + f"; newest {newest}. The producer now NAMES this (Growth::ContentGenerator "
         "carries the ComfyUI error into the run's failure reason and the brain's "
         "decision row) instead of reporting every render death as a timeout, and "
         "it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's "
@@ -3233,22 +3276,80 @@ def comfy_oom_scan():
     return hits
 
 
-def newest_comfy_launch_args():
-    """Launch args of the newest ComfyUI start, as the harness itself logged them.
+def launch_args_for_log(log_name, tail_bytes=COMFY_LAUNCH_TAIL_BYTES, path=None):
+    """(args_or_None, launch_line_found) for the ComfyUI start that WROTE `log_name`.
 
-    The harness prints them verbatim ("launching ComfyUI ... args='...'"), so the
-    evidence can show whether --reserve-vram was actually in force for the process
-    whose log carries the OOM -- the flag being set in the script is not the same
-    fact as the flag reaching the budget.
+    Pairing is by LOG, never by recency. The newest `launching ComfyUI` line in
+    the harness log belongs to whatever ComfyUI started LAST, while an OOM's log
+    belongs to the process that wrote it -- reading the two from different
+    processes fabricates a cause. Measured 2026-09-23: the OOM's log was written
+    by a launch at 2026-09-21 20:00Z that carried NO args= at all (it predates
+    --reserve-vram), while `newest_comfy_launch_args()` returned the 2026-09-22
+    03:01Z launch that carried `--reserve-vram 5` -- so the board told the next
+    reader the flag "did not reach the budget" and sent them into comfy_aimdo's
+    simple_vram_headroom path, which was in fact working: every launch since the
+    flag capped 'usable' at 16238-16895 MB against 20831-21719 MB before it, with
+    zero OOMs.
+
+    Three outcomes, and the middle one is the whole point:
+      (args, True)  -- the launch line for this log carries args=.
+      (None, True)  -- the line exists but carries NO args= field. Not "unknown":
+                       the harness logs the whole launch line, so an absent args=
+                       is a FACT about that start -- it was launched without
+                       --reserve-vram.
+      (None, False) -- no launch line in the tail names this log (unknown).
     """
-    text = tail_text(HARNESS_LOG, COMFY_LAUNCH_TAIL_BYTES)
-    last = None
-    for m in re.finditer(r"launching ComfyUI .*?args='([^']*)'", text):
-        last = m.group(1)
-    return last
+    text = tail_text(path or HARNESS_LOG, tail_bytes)
+    args = None
+    found = False
+    for ln in text.splitlines():
+        if "launching ComfyUI" not in ln:
+            continue
+        m = re.search(r"log:\s*(\S+)\s*$", ln)
+        if not m or not m.group(1).endswith("/" + log_name):
+            continue
+        found = True
+        a = re.search(r"args='([^']*)'", ln)
+        args = a.group(1) if a else None
+    return args, found
 
 
-def comfy_oom_verdict(hits, now=None, window_h=COMFY_OOM_WINDOW_H, launch_args=None):
+def comfy_usable_cap_after(after_mtime, log_dir=None):
+    """(highest 'usable' MB, n_logs) across ComfyUI logs written AFTER after_mtime.
+
+    The one fact that answers "did --reserve-vram reach the BUDGET?" (as opposed
+    to merely reaching the command line) is the 'usable' figure ComfyUI logs for
+    its own dynamic-VRAM budget: a launch carrying the flag must hold it under
+    the value that OOM'd. ComfyUI sizes that budget from FREE memory, so the
+    quieter the card the higher it reads -- which is why the number has to be
+    MEASURED per launch rather than reasoned about from the flag.
+    """
+    best = None
+    n = 0
+    try:
+        logs = sorted((log_dir or COMFY_LOG_DIR).glob("comfyui-*.log"),
+                      key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return None, 0
+    for p in logs:
+        try:
+            if p.stat().st_mtime <= after_mtime:
+                continue
+        except OSError:
+            continue
+        n += 1
+        for m in COMFY_USABLE_PAT.finditer(tail_text(p, COMFY_OOM_TAIL_BYTES)):
+            try:
+                v = float(m.group(1))
+            except ValueError:
+                continue
+            if best is None or v > best:
+                best = v
+    return best, n
+
+
+def comfy_oom_verdict(hits, now=None, window_h=COMFY_OOM_WINDOW_H, launch_args=None,
+                      usable_after=None):
     """Newest in-window torch OOM -> (severity, evidence) or None.
 
     `now` and `window_h` are parameters so the self-closing behaviour -- the
@@ -3268,14 +3369,27 @@ def comfy_oom_verdict(hits, now=None, window_h=COMFY_OOM_WINDOW_H, launch_args=N
     if h.get("usable"):
         bits.append(f"the budget was {h['usable']}")
     if launch_args:
-        bits.append(f"newest launch args: {launch_args}")
+        bits.append(f"launch args for THAT log: {launch_args}")
+    if usable_after and usable_after[0]:
+        cap, nl = usable_after
+        bits.append(f"the {nl} launch(es) since held the budget at <= {cap:.0f} MB usable")
     return ("warn", f"{len(live)} ComfyUI torch-OOM(s) in the last {window_h:g}h; "
                     + "; ".join(bits))
 
 
 def check_comfyui_torch_oom():
     hits = comfy_oom_scan()
-    v = comfy_oom_verdict(hits, launch_args=newest_comfy_launch_args())
+    args = None
+    usable_after = None
+    if hits:
+        args, found = launch_args_for_log(hits[0]["log"])
+        if not found:
+            args = "UNKNOWN -- no launch line in the harness log names this log"
+        elif args is None:
+            args = ("NONE -- that start carried no --reserve-vram (its launch line "
+                    "has no args=, i.e. the process predates the flag)")
+        usable_after = comfy_usable_cap_after(hits[0]["mtime"])
+    v = comfy_oom_verdict(hits, launch_args=args, usable_after=usable_after)
     if not v:
         return None
     sev, evidence = v
@@ -3286,11 +3400,16 @@ def check_comfyui_torch_oom():
         evidence + ". This is the CAUSE of the HTTP-500 / timeout rows tracked as "
         "render-execution-error: ComfyUI sizes its dynamic-VRAM budget from FREE "
         "memory, so the emptier the card the MORE it loads -- over-committing is "
-        "fatal, offloading is merely slower. Judge the fix by the budget line: a "
-        "launch carrying --reserve-vram (bin/comfyui_harness.sh COMFY_RESERVE_VRAM) "
-        "should hold 'usable' well under the ~21719 MB that failed; if it still "
-        "reads ~21 GB, the flag did not reach the budget (check comfy_aimdo's "
-        "simple_vram_headroom path against the runtime .venv). Self-closes when no "
+        "fatal, offloading is merely slower. Compare the failing budget ONLY "
+        "against the launch args named above, which are read from the launch line "
+        "of the SAME log that carries the OOM -- an older start's budget says "
+        "nothing about a newer launch's flags. Two questions, in order: (1) did "
+        "that start carry --reserve-vram (bin/comfyui_harness.sh "
+        "COMFY_RESERVE_VRAM) at all? (2) if it did and 'usable' still sits at the "
+        "failing value, the flag did not reach the budget -- check comfy_aimdo's "
+        "simple_vram_headroom path against the runtime .venv "
+        "(/mnt/fscache/essdee/ComfyUI/.venv, comfy_aimdo 0.5.5 accepts it; the "
+        "sibling venv/ holds 0.4.3 and silently falls back). Self-closes when no "
         "OOM is inside the window.",
     )
 
@@ -6289,6 +6408,60 @@ def cmd_selftest(_argv):
     expect("comfy_oom_verdict[names-launch-args]", "--reserve-vram 5" in _ev, True)
     expect("comfy_oom_verdict[names-allocation]",
            "21.32 GiB allocated" in _ev and "78.00 MiB requested" in _ev, True)
+    expect("comfy_oom_verdict[names-usable-cap]",
+           "held the budget at <= 21719 MB usable"
+           in ((comfy_oom_verdict([_oom(1.0)], now=_now,
+                                  usable_after=(21719.11, 5)) or ("", ""))[1]), True)
+
+    # render_coverage_verdict: an ABSENCE check in a ZERO-coverage window must not
+    # read as a repair -- cmd_probe auto-closes any probe-sourced item whose key is
+    # not returned, so a render drought silently closed the CLIPSeg empty-mask
+    # defect on 2026-09-22 20:25Z.
+    cov_cases = [
+        ("zero-attempts-is-info", (render_coverage_verdict(0) or ("",))[0], "info"),
+        ("zero-attempts-names-coverage",
+         "0 render(s) were ATTEMPTED" in (render_coverage_verdict(0) or ("", ""))[1], True),
+        ("attempts-without-error-is-silent", render_coverage_verdict(7), None),
+        ("unreadable-count-is-silent", render_coverage_verdict(None), None),
+    ]
+    for name, got, want in cov_cases:
+        expect(f"render_coverage_verdict[{name}]", got, want)
+
+    # launch_args_for_log: the args must come from the launch line of the SAME
+    # log that carries the OOM, never from the newest line. Measured 2026-09-23:
+    # the newest line belonged to a LATER start, so the board attributed
+    # --reserve-vram to a process that predated the flag and pointed the reader at
+    # comfy_aimdo's headroom path, which was working.
+    with tempfile.TemporaryDirectory() as _td:
+        _hp = Path(_td) / "harness.log"
+        _hp.write_text(
+            "[2026-09-21 20:00:53] launching ComfyUI (/x) in unit u1 "
+            "(MemoryMax=infinity) — log: /logs/comfyui-old.log\n"
+            "[2026-09-22 03:01:00] launching ComfyUI (/x) in unit u2 "
+            "(MemoryMax=infinity) args='--listen 0.0.0.0 --reserve-vram 5' "
+            "— log: /logs/comfyui-new.log\n")
+        expect("launch_args_for_log[old-line-has-no-args]",
+               launch_args_for_log("comfyui-old.log", path=_hp), (None, True))
+        expect("launch_args_for_log[new-line-carries-args]",
+               launch_args_for_log("comfyui-new.log", path=_hp),
+               ("--listen 0.0.0.0 --reserve-vram 5", True))
+        expect("launch_args_for_log[absent-log-is-unknown]",
+               launch_args_for_log("comfyui-absent.log", path=_hp), (None, False))
+
+        # comfy_usable_cap_after: the MEASURED budget of every launch since --
+        # the only fact that says whether --reserve-vram reached the budget.
+        _ld = Path(_td) / "logs"
+        _ld.mkdir()
+        (_ld / "comfyui-a.log").write_text(
+            "[INFO] loaded partially; 20831.78 MB usable, 20561.55 MB loaded, "
+            "2138.58 MB offloaded\n")
+        (_ld / "comfyui-b.log").write_text(
+            "[INFO] loaded partially; 16895.84 MB usable, 16000.00 MB loaded, "
+            "100.00 MB offloaded\n")
+        expect("comfy_usable_cap_after[highest-and-count]",
+               comfy_usable_cap_after(0.0, log_dir=_ld), (20831.78, 2))
+        expect("comfy_usable_cap_after[none-after]",
+               comfy_usable_cap_after(time.time() + 60, log_dir=_ld), (None, 0))
 
     # checks_audit_verdict: a RAISING check is visible (the probe files
     # probe-error-<name>); an UNREADABLE DB read is not -- psql() returns None
