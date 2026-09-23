@@ -3384,6 +3384,62 @@ def check_reserve_gate_blocked():
     )
 
 
+def unclaimed_vram_verdict(card_mib, own_mib, threshold_mib=UNCLAIMED_COMFYUI_VRAM_MIB):
+    """PURE: may the board blame THIS instance for the card's VRAM?
+
+    -> (held_mib, attributed) when it may, None when it may not.
+
+    `nvidia-smi memory.used` is CARD-level: it counts every co-tenant, so it cannot
+    support a claim about who holds the memory (genome #66; the repo measure on the
+    same trap is `vram_ask_for_free`, which had to stop deriving an ask from a
+    card-level reading). Measured 2026-09-23: the instance held 18,438 MiB of the
+    card's 18,945 MiB, so the old card-level title happened to be true -- but a BT-Net
+    labeler holding 14 GiB beside an idle ComfyUI holding 300 MiB produces the SAME
+    reading and the SAME title, which would send a reader to shut down the wrong
+    process. The instance's own hold decides, and an unreadable hold keeps the
+    detection (fires as `attributed=False` so the wording names the card, not the
+    instance) because a failure to attribute must not silence a possible leak.
+    """
+    if card_mib is None or card_mib < threshold_mib:
+        return None
+    if own_mib is None:
+        return (card_mib, False)
+    if own_mib < threshold_mib:
+        return None
+    return (own_mib, True)
+
+
+def comfyui_instance_vram_mib(pid=None):
+    """The MiB the :8188 instance ITSELF holds, 0 when it is not a compute process.
+
+    None only when nvidia-smi itself is unreadable -- "not listed" is a legible
+    answer (a warm-but-empty instance holds nothing), whereas a failed query is not.
+    """
+    pid = pid or comfyui_serving_pid()
+    if not pid:
+        return None
+    out, rc = run(["nvidia-smi", "--query-compute-apps=pid,used_memory",
+                   "--format=csv,noheader,nounits"])
+    if rc != 0 or out is None:
+        return None
+    try:
+        want = int(pid)
+    except (TypeError, ValueError):
+        return None
+    total = 0
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            p, mib = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        if p == want:
+            total += mib
+    return total
+
+
 def check_comfyui_vram_unclaimed():
     """ComfyUI is up while NOBODY holds the GPU, pinning VRAM, and is IDLE.
 
@@ -3392,8 +3448,9 @@ def check_comfyui_vram_unclaimed():
     against. Deliberately NOT fired when a claim exists (another project holding
     the slot and running the shared install is normal sharing, and the harness
     adopts foreign instances rather than killing them, so there is nothing to
-    action), and NOT fired while the instance is live (see
-    comfyui_holder_verdict). Sampled from hardware, not inferred from the port
+    action), NOT fired while the instance is live (see comfyui_holder_verdict), and
+    NOT fired on a card-level reading that belongs to a co-tenant (see
+    unclaimed_vram_verdict). Sampled from hardware, not inferred from the port
     being open.
     """
     if not comfyui_up():
@@ -3402,18 +3459,29 @@ def check_comfyui_vram_unclaimed():
     if g.get("status") in ("busy", "claimed"):
         return None
     used = gpu_vram_used_mib()
-    if used is None or used < UNCLAIMED_COMFYUI_VRAM_MIB:
+    verdict = unclaimed_vram_verdict(used, comfyui_instance_vram_mib())
+    if verdict is None:
         return None
+    held, attributed = verdict
     depth = comfyui_queue_depth()
     age = comfyui_last_prompt_age_s()
     if comfyui_holder_verdict(depth, age) != "idle":
         return None
     last = "never" if age is None else f"{age / 60:.0f} min ago"
+    if attributed:
+        title = (f"ComfyUI is up with no claim on the {GPU} while holding "
+                 f"{held / 1024:.1f} GB")
+        held_note = f"the instance itself holds {held}MiB of the card's {used}MiB"
+    else:
+        title = (f"ComfyUI is up with no claim on the {GPU}; the card holds "
+                 f"{held / 1024:.1f} GB and its own share is unreadable")
+        held_note = (f"card-level vram_used={held}MiB (the instance's own hold is "
+                     "unreadable, so this is an UPPER bound that a co-tenant may own)")
     return (
         "comfyui-vram-unclaimed",
-        f"ComfyUI is up with no claim on the {GPU} while holding {used / 1024:.1f} GB",
+        title,
         "warn",
-        f"port 8188 answering, state={g.get('status')}, vram_used={used}MiB "
+        f"port 8188 answering, state={g.get('status')}, {held_note} "
         f"(threshold {UNCLAIMED_COMFYUI_VRAM_MIB}MiB); the instance is IDLE -- native "
         f"queue empty and last prompt {last} (live window {COMFYUI_LIVE_WINDOW_S // 60} "
         f"min) -- so this VRAM is residue the next claimant renders against. "
@@ -6272,6 +6340,28 @@ def cmd_selftest(_argv):
     for name, depth, age, want in holder_cases:
         expect(f"comfyui_holder_verdict[{name}]",
                comfyui_holder_verdict(depth, age), want)
+
+    # unclaimed_vram_verdict: the card-level reading is an UPPER BOUND, not the
+    # instance's own hold -- the title used to assert "ComfyUI ... holding 18.5 GB"
+    # from `nvidia-smi memory.used`, which a co-tenant produces just as well. The
+    # instance's own per-pid hold decides; an unreadable own-hold keeps the detection
+    # but must be worded as the card's, never as the instance's.
+    vram_cases = [
+        ("own-holds-it", 18945, 18438, (18438, True)),
+        ("co-tenant-holds-it", 18945, 300, None),
+        ("not-a-compute-process", 18945, 0, None),
+        ("own-unreadable-keeps-detection", 18945, None, (18945, False)),
+        ("card-under-threshold", 4000, 3900, None),
+        ("card-unreadable", None, 18438, None),
+        ("both-unreadable", None, None, None),
+        ("own-at-threshold", 18945, UNCLAIMED_COMFYUI_VRAM_MIB,
+         (UNCLAIMED_COMFYUI_VRAM_MIB, True)),
+        ("card-at-threshold", UNCLAIMED_COMFYUI_VRAM_MIB, UNCLAIMED_COMFYUI_VRAM_MIB,
+         (UNCLAIMED_COMFYUI_VRAM_MIB, True)),
+    ]
+    for name, card, own, want in vram_cases:
+        expect(f"unclaimed_vram_verdict[{name}]",
+               unclaimed_vram_verdict(card, own), want)
 
     # cron_prompt_orphan_verdict: a prompt line that calls ANY unclaimed ComfyUI an
     # orphan, without the owner= gate, is the defect (it names a co-tenant's live
