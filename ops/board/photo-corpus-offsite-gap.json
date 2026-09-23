@@ -25,6 +25,10 @@
     {
       "ts": "2026-09-22T05:36:33-0400",
       "note": "2026-09-22 09:4xZ ops-triage: both legs re-verified today, so the ask stays a pure one-yes/no. Second copy: log/corpus_backup_2026-09-22.log -> verified 178 resolvable corpus file(s); missing=0, EXIT=0, 78G at corpus-backup/snapshots/tue (7 new files, 10 transferred vs the mon link). Off-site package: corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still on disk and intact -- sha256 d5d03c729de8cb9ae49164678629091ee749ca3677aab5250df1c49ca3bc3520, gzip -t OK, 172 entries. Nothing left to build; the only missing fact is the destination."
+    },
+    {
+      "ts": "2026-09-23T08:43:21-0400",
+      "note": "2026-09-23 12:4xZ ops-triage: ask unchanged and re-verified today -- the second copy is healthy and the off-site package is intact, so this remains a pure one-yes/no on the destination. SECOND COPY: log/corpus_backup_2026-09-23.log -> 'verified 178 resolvable corpus file(s); missing=0', EXIT=0, 78G at corpus-backup/snapshots/wed (nightly cron, 09-23 03:15). OFF-SITE PACKAGE: corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still on disk, 183,555,035 bytes, built 09-21 15:52. NOTHING IN-REPO IS BLOCKED ON THIS -- the withhold is deliberate: bin/corpus_backup.sh runs the upload only when CORPUS_BACKUP_OFFSITE=1 because it writes into Tim's own B2 account (aws --profile b2_tim -> s3://tim-training-data/turbo-carnival/corpus), which is his billing surface and therefore his call, not a default to assume."
     }
   ]
 }

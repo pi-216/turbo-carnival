@@ -5,8 +5,8 @@
   "evidence": "photos created in last 24h = 0",
   "status": "open",
   "first_seen": "2026-09-23T03:25:25-0400",
-  "last_seen": "2026-09-23T07:34:51-0400",
-  "seen_count": 14,
+  "last_seen": "2026-09-23T08:41:10-0400",
+  "seen_count": 16,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -21,6 +21,10 @@
     {
       "ts": "2026-09-23T06:40:23-0400",
       "note": "decision unchanged: keep open, not accepted. Live read 10:40Z: no photo since id 361 @ 2026-09-22 07:07:41Z (27.6h); the card is held by the operator's :8188 session (holder=operator, pid 553489, 18.2GiB of 24GiB, 0%, 25W, launched without --reserve-vram, free 5.4GiB < the 16GiB fit floor) so both gates refuse. No in-repo lever can produce a render while ~11GiB is unavailable; the lever stays on render-starved/route=tim. publishable=18, dry_out=2026-09-29T10:30Z (6.0d)."
+    },
+    {
+      "ts": "2026-09-23T08:43:21-0400",
+      "note": "2026-09-23 12:4xZ ops-triage: DECISION unchanged -- KEEP OPEN, not accepted, no in-repo lever. Live read this tick: no photo since id 361 @ 2026-09-22T07:07:41Z (29.6h; photos_24h=0 photos_12h=0), followers flat 157, queue publishable=18 with dry_out=2026-09-29T10:30Z (5.9d runway). The card is held by the operator's own :8188 session (holder=operator, pid 553489, reserve=missing) and is NOW ACTIVELY RENDERING -- 21226MiB used / 2855MiB free, 64% util, 282W at 12:41Z, versus 0%/25W when this item first fired -- so the refusal is contention with a human mid-batch, not an idle pin, and yielding is unambiguously correct. Both gates still fire (launch-args first, then the 16GiB floor vs ~2.8GiB free). NEW THIS TICK: I went looking for a GPU-free supply lever that could cover the outage and there is NONE -- the 51 Sarah photos with no post are not spare content (13 are NSFW-purged siblings that the nsfw_purge path deleted only the POST row for, 28 are from the superseded 2026-05-28 bulk batch, 10 are 2026-08 strays), so publishing them would put unvetted/off-era imagery on the public feed. Recorded so the next tick does not re-derive it or act on it."
     }
   ]
 }
