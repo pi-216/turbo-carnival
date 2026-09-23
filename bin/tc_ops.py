@@ -94,6 +94,16 @@ SEV_ORDER = {"critical": 3, "warn": 2, "info": 1}
 NEEDS_HUMAN = APP / "ops" / "NEEDS_HUMAN.md"
 DIGEST_EVIDENCE_CHARS = 300
 DIGEST_NOTE_CHARS = 400
+# The ASK is a FIRST-CLASS field, not a tail of the evidence. Every operator-facing
+# surface elides evidence to DIGEST_EVIDENCE_CHARS, while the operator lever is
+# 882-1500 chars -- so the sentence naming the step reached the human only when it
+# happened to land in the elided window's tail, and that window opens mid-clause.
+# Measured 2026-09-23 15:2xZ on the live digest: `why: photos_12h=0 ... (see …
+# session, say so once: ...` -- the ask's first words were sliced off, leaving a
+# reader an unexplained fragment with no verb. An ask bounded to this many chars is
+# printed WHOLE (render_ask, no elision) so what arrives is a complete instruction;
+# a longer one is VISIBLY marked cut rather than silently halved.
+ASK_MAX_CHARS = 320
 
 # ROUTE: every open item belongs to exactly one of two queues, and the split IS
 # the fix. `agent` -- a decision the operating agent OWNS and must TAKE (business
@@ -907,8 +917,17 @@ def check_render_starved():
         # Sized to the LIVE card: "your session holds models" and "your session has
         # released them" are two different asks, and this clause is the only thing that
         # reaches Tim (see OPERATOR_LEVER_CLAUSE_ARGS_ONLY).
-        lever = operator_holder_lever(_reserve, _holders, _rpid,
-                                      gpu_vram_free_mib(), our_reservation_gb())
+        # ONE live reading for both texts: the clause and the ask must describe the same
+        # card state, and re-probing between them could let the ask say "close it" while
+        # the argument beside it says the card is not the blocker.
+        _free, _ask_gb = gpu_vram_free_mib(), our_reservation_gb()
+        lever = operator_holder_lever(_reserve, _holders, _rpid, _free, _ask_gb)
+        # The ASK is the same lever cut to ONE bounded instruction, carried as its own
+        # record field. Before it, the ask existed only as the tail of the 1500-char
+        # clause above, and the digest's elision window opened inside it -- the operator
+        # received "(see … session, say so once: …", a fragment. The clause stays as the
+        # argument; this is the step, and it is what the human-facing surfaces print whole.
+        ask = operator_lever_ask(_reserve, _holders, _rpid, _free, _ask_gb)
         return (
             "render-starved",
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
@@ -919,6 +938,7 @@ def check_render_starved():
             + (f"; {fit}" if fit else "")
             + lever,
             starve_route(_reserve, _holders, _rpid),
+            ask,
         )
     return None
 
@@ -4899,6 +4919,25 @@ OPERATOR_LEVER_CLAUSE_ARGS_ONLY = (
     "hourly tick renders."
 )
 
+# The same lever cut down to the ONE instruction, sized to be printed whole on an
+# operator-facing surface (ASK_MAX_CHARS). The clause above is the ARGUMENT -- two
+# conditions, the measurements behind them, what does NOT work; this is the STEP. The
+# instruction is deliberately the LAST sentence: a reader who stops early stops on the
+# action, not on a policy option. The "keep the card" alternative stays, because an ask
+# the holder cannot answer can only ever be re-raised -- but it never stands alone.
+OPERATOR_ASK_CLAUSE = (
+    "If you would rather keep the card for your own session, say so once -- the launch "
+    "line stops being re-raised and the drought is recorded as accepted policy (this "
+    "item staying open as its cost). Otherwise CLOSE that :8188 session: the next "
+    "hourly tick then renders."
+)
+OPERATOR_ASK_CLAUSE_ARGS_ONLY = (
+    "If you would rather keep the card for your own session, say so once -- the launch "
+    "line stops being re-raised and the drought is recorded as accepted policy (this "
+    "item staying open as its cost). Otherwise relaunch that :8188 session carrying "
+    "`--reserve-vram 5`, or close it: either way the next hourly tick renders."
+)
+
 
 def operator_pins_flagless_server(reserve, holders, serving_pid):
     """PURE: is the OPERATOR's own session the :8188 server, up WITHOUT --reserve-vram?
@@ -4940,6 +4979,25 @@ def operator_lever_clause(reserve, holders, serving_pid, free_mib=None, ask_gb=N
         return OPERATOR_LEVER_CLAUSE
     return OPERATOR_LEVER_CLAUSE_ARGS_ONLY.format(
         free=float(free_mib) / 1024, ask=float(ask_gb))
+
+
+def operator_lever_ask(reserve, holders, serving_pid, free_mib=None, ask_gb=None):
+    """PURE: the operator lever as ONE bounded instruction ('' when not his session).
+
+    Same predicate and same live branch as operator_lever_clause, so the short ask can
+    never describe a different card state than the argument beside it: an unreadable
+    reading (or no ask to compare against) keeps the FULLER ask, because an unreadable
+    card is not evidence that the card is clear.
+
+    It exists because the argument does not fit the surface. The digest keeps both ends
+    of a long evidence but only a ~300-char window, the lever is 882-1500 chars, and
+    the window therefore opened INSIDE the ask -- leaving the operator a fragment.
+    """
+    if not operator_pins_flagless_server(reserve, holders, serving_pid):
+        return ""
+    if free_mib is None or not ask_gb or not reserve_gate_blocks(False, free_mib, ask_gb):
+        return OPERATOR_ASK_CLAUSE
+    return OPERATOR_ASK_CLAUSE_ARGS_ONLY
 
 
 def operator_holder_lever(reserve, holders, serving_pid, free_mib=None, ask_gb=None):
@@ -5010,12 +5068,19 @@ def check_queue_runway():
     if refused:
         extra += f"; render refusals_{STARVE_WINDOW_H}h={refused}"
     route = runway_route([row[3] for row in holders])
+    ask = ""
     if route == "tim":
         extra += ("; the card is held by the OPERATOR's own interactive session -- no "
                   "in-repo action can free it, so this is filed as enablement (a GPU-policy "
                   "call on a session no agent may touch)")
+        # ONE reading for the clause and the ask (see check_render_starved).
+        _free, _ask_gb = gpu_vram_free_mib(), our_reservation_gb()
         extra += operator_holder_lever(comfyui_reserve_ok(), holders, comfyui_serving_pid(),
-                                       gpu_vram_free_mib(), our_reservation_gb())
+                                       _free, _ask_gb)
+        # The ASK as its own bounded field -- this item reaches the human too, and the
+        # elided evidence cannot carry a 882-1500-char clause whole (see operator_lever_ask).
+        ask = operator_lever_ask(comfyui_reserve_ok(), holders, comfyui_serving_pid(),
+                                 _free, _ask_gb)
     return (
         "queue-runway-short",
         "the publish queue drains inside 3 days and the render loop cannot top it up",
@@ -5026,6 +5091,7 @@ def check_queue_runway():
         "(needs the 4090, which may be another project's to hold) or make a deliberate "
         "cadence decision -- but make it BEFORE the last clock passes.",
         route,
+        ask,
     )
 
 
@@ -5495,7 +5561,7 @@ def issue_path(key):
     return BOARD / f"{key}.json"
 
 
-def file_issue(key, title, severity, evidence, source="probe", route=None):
+def file_issue(key, title, severity, evidence, source="probe", route=None, ask=None):
     BOARD.mkdir(parents=True, exist_ok=True)
     p = issue_path(key)
     # None means "the default queue" -- checks that do not reason about the route
@@ -5526,6 +5592,12 @@ def file_issue(key, title, severity, evidence, source="probe", route=None):
             "status": "open", "first_seen": now, "last_seen": now,
             "seen_count": 1, "source": source, "route": route, "notes": [],
         }
+    # The ASK is the actionable line, supplied by the check that measured the condition
+    # (render-starved -> operator_lever_ask) and rendered whole by both human surfaces.
+    # None means "leave whatever is there": a check that has no ask on a given tick must
+    # not erase one an operator-facing item was given. "" clears it deliberately.
+    if ask is not None:
+        rec["ask"] = ask
     p.write_text(json.dumps(rec, indent=2) + "\n")
     return rec
 
@@ -5579,6 +5651,12 @@ def human_digest(recs, now=None):
     "... (see COMFY_RESERVE" and nothing more -- so the enablement item Tim actually
     reads showed the gate and hid the ask, the same defect `escalations` was fixed
     for one surface over.
+
+    The ASK is now its own field, printed WHOLE (render_ask, never elided) directly
+    under the route line: keeping both ends of an evidence is not enough when the ask
+    is 882-1500 chars, because the window then opens INSIDE it. Measured 2026-09-23
+    15:2xZ, the live file carried "-- ... (see … session, say so once: ...", a
+    fragment whose first words never reached the reader.
 
     Split by route, because the two queues have different readers: `tim` items are
     the only ones that may be pushed to the operator (enablement), while `agent`
@@ -5641,6 +5719,11 @@ def human_digest(recs, now=None):
             lines.append(f"- route {route_of(r)} | source {r.get('source', 'probe')} "
                          f"| seen {r.get('seen_count', 0)}x | first {r.get('first_seen', '')} "
                          f"| last {r.get('last_seen', '')}")
+            # The ask FIRST and verbatim: it is the only line a human has to act on, and
+            # the evidence under it is the argument for it.
+            ask = render_ask(r.get("ask"))
+            if ask:
+                lines.append(f"- **ask**: {ask}")
             evidence = " ".join((r.get("evidence") or "").split())
             if evidence:
                 lines.append(f"- evidence: {digest_elide(evidence)}")
@@ -5708,11 +5791,21 @@ def cmd_probe(_argv):
             except Exception as e:  # a broken probe must not break the probe run
                 res = (f"probe-error-{chk.__name__}", f"probe {chk.__name__} raised", "warn", str(e)[:200])
             if res:
-                # A check may return a 5th element: the QUEUE this condition belongs
-                # in. Only queue-runway-short does (a card held by the operator's own
-                # session is enablement, not an agent decision) -- see runway_route.
                 key, title, sev, ev = res[:4]
-                rec = file_issue(key, title, sev, ev, **({"route": res[4]} if len(res) > 4 else {}))
+                # 5th element (optional): the QUEUE this condition belongs in. Only the
+                # checks that reason about the route supply one (a card held by the
+                # operator's own session is enablement, not an agent decision) -- see
+                # runway_route / starve_route.
+                # 6th element (optional): the ASK -- the one bounded instruction a human
+                # can act on, stored on the record and printed whole by every surface that
+                # reaches the operator. Only checks that reason about the operator's own
+                # lever supply one.
+                kw = {}
+                if len(res) > 4:
+                    kw["route"] = res[4]
+                if len(res) > 5:
+                    kw["ask"] = res[5]
+                rec = file_issue(key, title, sev, ev, **kw)
                 if res[2] == "critical":
                     found.append(rec)
                 else:
@@ -5871,16 +5964,20 @@ def cmd_file(argv):
     will neither re-file nor auto-close it, so it stays open until a run closes
     it with a reason -- which is what makes it honest to file something a human
     has to decide.
+
+    `--ask` sets the record's bounded instruction (printed whole, ahead of the
+    evidence, on both operator-facing surfaces -- see render_ask). Omit it and any ask
+    the item already carries is left alone, so a refresh never blanks the step.
     """
     if not argv:
         print("usage: tc_ops.py file KEY --title TEXT --evidence TEXT "
-              "[--severity warn|critical|info] [--source manual] [--route agent|tim]",
-              file=sys.stderr)
+              "[--severity warn|critical|info] [--source manual] [--route agent|tim] "
+              "[--ask TEXT]", file=sys.stderr)
         return 2
     key = argv[0]
     opts = {}
     for flag in ("--title", "--evidence", "--evidence-file", "--severity", "--source",
-                 "--route"):
+                 "--route", "--ask"):
         if flag in argv:
             i = argv.index(flag) + 1
             if i >= len(argv) or argv[i].startswith("--"):
@@ -5916,7 +6013,8 @@ def cmd_file(argv):
         except Exception:
             prior = None
     rec = file_issue(key, opts["title"], sev, opts["evidence"],
-                     source=opts.get("source", "manual"), route=route)
+                     source=opts.get("source", "manual"), route=route,
+                     ask=opts.get("ask"))
     # A manual filing must not STEAL a probe-owned key: file_issue adopts the
     # caller's source for any record that was probe-owned, which would silently
     # stop the probe re-filing and auto-closing a signal it can measure.
@@ -6034,6 +6132,22 @@ def digest_elide(text, cap=DIGEST_EVIDENCE_CHARS, marker=" … "):
     return head.rstrip() + marker + tail.lstrip()
 
 
+def render_ask(ask, cap=ASK_MAX_CHARS):
+    """PURE: the ask line, printed WHOLE when it fits, visibly cut when it does not.
+
+    The whole point of a dedicated ask field is that it survives the digest budget
+    intact, so it must NOT go through digest_elide: that rule keeps both ends of a long
+    field, and an ask cut in the middle of its first sentence is the fragment this field
+    exists to remove. A future ask longer than the cap is therefore marked truncated --
+    the reader SEES the cut rather than reading a silently halved instruction -- and the
+    suite asserts every ask the code can build fits, so the marked case never ships.
+    """
+    flat = " ".join(str(ask or "").split())
+    if len(flat) <= cap:
+        return flat
+    return flat[:cap].rstrip() + " …"
+
+
 def escalations_text(recs, limit=DIGEST_NOTE_CHARS, evidence_limit=DIGEST_EVIDENCE_CHARS * 2):
     """Render the enablement queue (`route=tim`) as an operator digest.
 
@@ -6051,6 +6165,13 @@ def escalations_text(recs, limit=DIGEST_NOTE_CHARS, evidence_limit=DIGEST_EVIDEN
     `--reserve-vram`) sat unread in the evidence field the digest never printed.
     A digest that shows bookkeeping instead of the ask teaches its reader that
     nothing is required. The note is kept, labelled and bounded, for continuity.
+
+    The ASK leads (its own record field, rendered whole). Measured 2026-09-23 15:2xZ:
+    the ask lived only at the END of a 1500-char evidence, so this surface printed
+    "(see … session, say so once: …" -- the instruction's first words were outside the
+    elided window and the operator got a fragment with no verb. An operator-facing
+    digest must be able to carry the step in full; anything longer than the ask is
+    detail.
     """
     tim = [r for r in recs if route_of(r) == "tim"]
     if not tim:
@@ -6058,6 +6179,9 @@ def escalations_text(recs, limit=DIGEST_NOTE_CHARS, evidence_limit=DIGEST_EVIDEN
     lines = [f"turbo-carnival: {len(tim)} item(s) need you to unblock", ""]
     for r in tim:
         lines.append(f"[{r.get('severity', 'info')}] {r.get('key', '')}: {r.get('title', '')}")
+        ask = render_ask(r.get("ask"))
+        if ask:
+            lines.append(f"    ask: {ask}")
         why = digest_elide(r.get("evidence"), evidence_limit)
         if why:
             lines.append(f"    why: {why}")
@@ -7017,6 +7141,49 @@ def cmd_selftest(_argv):
     expect("operator_holder_lever[args-only-clause-still-routes-to-tim]",
            starve_route(False, _op_holders, "553489"), "tim")
 
+    # The ASK as its own bounded field. Measured 2026-09-23 15:2xZ: the live digest (the
+    # ONE surface the operator reads) carried "why: photos_12h=0 ... (see … session, say
+    # so once: ..." -- the lever is 882-1500 chars and the elision window is ~300, so the
+    # window opened INSIDE the ask and the instruction's first words never arrived. The
+    # contract this asserts: every ask the code can build fits ASK_MAX_CHARS, ends on the
+    # STEP (a reader who stops early stops on the action), and still names the alternative
+    # in one clause. render_ask then prints it WHOLE -- never through digest_elide.
+    _ask_blocked = operator_lever_ask(False, _op_holders, "553489", free_mib=5435, ask_gb=16.0)
+    _ask_clear = operator_lever_ask(False, _op_holders, "553489", free_mib=22000, ask_gb=19.0)
+    for _nm, _ask in (("card-blocked", _ask_blocked), ("card-clear", _ask_clear)):
+        expect(f"operator_lever_ask[{_nm}-is-bounded]", len(_ask) <= ASK_MAX_CHARS, True)
+        expect(f"operator_lever_ask[{_nm}-ends-on-the-step]",
+               _ask.rstrip().endswith("renders."), True)
+        expect(f"operator_lever_ask[{_nm}-names-the-alternative]",
+               "accepted policy" in _ask, True)
+        expect(f"operator_lever_ask[{_nm}-non-empty]", bool(_ask), True)
+    expect("operator_lever_ask[same-branch-as-the-clause]",
+           (_ask_blocked == OPERATOR_ASK_CLAUSE) and (_ask_clear == OPERATOR_ASK_CLAUSE_ARGS_ONLY),
+           True)
+    # Negative controls: no ask where his session is not the pin, and no ask with no
+    # instance to speak about -- an ask that appears anyway would be an ask about nothing.
+    expect("operator_lever_ask[not-his-session]",
+           operator_lever_ask(False, [(1, "labeler", 14336, "agent")], "553489"), "")
+    expect("operator_lever_ask[no-instance]", operator_lever_ask(None, _op_holders, ""), "")
+    expect("operator_lever_ask[flagged-instance-is-adoptable]",
+           operator_lever_ask(True, _op_holders, "553489"), "")
+    # An unreadable card is NOT evidence that the card is clear: the ask keeps BOTH
+    # conditions, exactly as the clause does -- otherwise it would tell the operator to
+    # relaunch-with-the-flag alone, which the harness will still refuse.
+    expect("operator_lever_ask[unreadable-card-keeps-both]",
+           operator_lever_ask(False, _op_holders, "553489", None, None), OPERATOR_ASK_CLAUSE)
+    expect("operator_lever_ask[no-ask-is-not-a-clearance]",
+           operator_lever_ask(False, _op_holders, "553489", 21800, None), OPERATOR_ASK_CLAUSE)
+
+    # render_ask: whole when it fits (the whole point of the field), and VISIBLY cut when a
+    # future ask outgrows the budget -- a silently halved instruction is the defect again.
+    expect("render_ask[whole-when-it-fits]", render_ask("DO THE THING"), "DO THE THING")
+    expect("render_ask[empty-for-missing]", render_ask(None), "")
+    expect("render_ask[over-cap-is-marked]",
+           render_ask("x" * (ASK_MAX_CHARS + 50)).endswith(" …"), True)
+    expect("render_ask[over-cap-is-bounded]",
+           len(render_ask("x" * (ASK_MAX_CHARS + 50))) <= ASK_MAX_CHARS + 2, True)
+
     # starve_route: the STARVATION item reaches the human only when his own session is
     # the pin -- the same lever test as the runway item, asserted separately because
     # this signal fires FIRST (measured 2026-09-23: the CRITICAL at 24.3h of zero
@@ -7207,6 +7374,39 @@ def cmd_selftest(_argv):
     ]
     for name, got, want in esc_cases:
         expect(f"escalations_text[{name}]", got, want)
+
+    # The ask FIELD on both human surfaces: printed WHOLE (render_ask, never elided) and
+    # BEFORE the evidence, because it is the only line the operator has to act on. A record
+    # without one prints no line -- an empty "ask:" is noise that teaches the reader to skip
+    # the section (the failure this whole surface was rebuilt to avoid).
+    _esc_ask = escalations_text([{**esc_tim, "ask": OPERATOR_ASK_CLAUSE}])
+    expect("escalations_text[ask-printed-whole]", OPERATOR_ASK_CLAUSE in _esc_ask, True)
+    expect("escalations_text[ask-before-the-evidence]",
+           _esc_ask.find("ask:") < _esc_ask.find("why:"), True)
+    expect("escalations_text[no-ask-no-line]", "ask:" in escalations_text([esc_tim]), False)
+    _dig_ask = human_digest([{**esc_tim, "ask": OPERATOR_ASK_CLAUSE}])
+    expect("human_digest[ask-printed-whole]", OPERATOR_ASK_CLAUSE in _dig_ask, True)
+    expect("human_digest[ask-before-the-evidence]",
+           _dig_ask.find("**ask**") < _dig_ask.find("- evidence:"), True)
+    expect("human_digest[no-ask-no-line]", "**ask**" in human_digest([esc_tim]), False)
+
+    # file_issue carries the ask onto the record, and a re-file without one must NOT erase
+    # the ask an operator-facing item was given (a check has no ask on some ticks).
+    _ob_ask, _td_ask = globals()["BOARD"], tempfile.TemporaryDirectory()
+    try:
+        globals()["BOARD"] = Path(_td_ask.name)
+        file_issue("k", "t", "warn", "ev", ask="FIRST ASK")
+        expect("file_issue[stores-the-ask]",
+               json.loads(issue_path("k").read_text()).get("ask"), "FIRST ASK")
+        file_issue("k", "t", "warn", "ev")
+        expect("file_issue[absent-ask-does-not-erase]",
+               json.loads(issue_path("k").read_text()).get("ask"), "FIRST ASK")
+        file_issue("k", "t", "warn", "ev", ask="SECOND ASK")
+        expect("file_issue[updates-the-ask]",
+               json.loads(issue_path("k").read_text()).get("ask"), "SECOND ASK")
+    finally:
+        globals()["BOARD"] = _ob_ask
+        _td_ask.cleanup()
 
     # The ORDER is the fix, not the presence: an item whose newest note is internal
     # bookkeeping must still put the measured ask in front of it. Before this,
@@ -7739,6 +7939,21 @@ def cmd_selftest(_argv):
         expect("probe[files-unreadable-checks]", _filed.get("status"), "open")
         expect("probe[unreadable-names-the-check]",
                "_fake_broken_check" in (_filed.get("evidence") or ""), True)
+
+        # The 6th tuple element (the ASK) must survive the REAL probe loop onto the record
+        # and out to a human surface. This is the wiring a dedicated field dies in: the
+        # check builds it, the loop drops it, and nothing fails -- the operator just gets
+        # the argument without the step, which is the defect this field exists to remove.
+        def _fake_ask_check():
+            return ("fake-ask-item", "t", "warn", "ev", "agent", "DO-THE-THING")
+
+        globals()["CHECKS"] = [_fake_ask_check]
+        with redirect_stdout(io.StringIO()):
+            cmd_probe([])
+        expect("probe[carries-the-ask-from-the-check]",
+               json.loads((_tb / "fake-ask-item.json").read_text()).get("ask"), "DO-THE-THING")
+        expect("probe[ask-field-reaches-the-digest]",
+               "DO-THE-THING" in human_digest(load_all()), True)
     finally:
         (globals()["BOARD"], globals()["NEEDS_HUMAN"],
          globals()["run"], globals()["CHECKS"]) = _ob, _onh, _orun, _ochk
