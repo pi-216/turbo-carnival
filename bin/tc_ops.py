@@ -4685,6 +4685,43 @@ def runway_route(holder_classes):
     return "agent"
 
 
+# The ONE lever a human holds over a card his own session is pinning. The runway
+# escalation is the only board item that reaches a person, and naming the holder
+# without the lever leaves the ask as "your session is in the way" -- while the fix
+# is a single flag the harness's own launch line already carries, so it must travel
+# WITH the ask instead of being re-derived by whoever reads it.
+OPERATOR_LEVER_CLAUSE = (
+    " The lever that needs nobody to close anything: an instance carrying the SAME "
+    "`--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh "
+    "plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED by the render "
+    "harness instead of yielded to, so the loop resumes the moment that session goes "
+    "idle. Without the flag every tick refuses on the launch args, and the card stays "
+    "idle-but-unusable even when nothing is rendering on it."
+)
+
+
+def operator_holder_lever(reserve, holders, serving_pid):
+    """PURE: the actionable lever for a runway escalation held by the OPERATOR.
+
+    Empty unless BOTH halves are true: the :8188 instance is up WITHOUT
+    --reserve-vram (reserve is False -- True means the harness adopts it, so there is
+    nothing to ask for, and None means no instance to speak about), AND the operator's
+    own session is one of the card's holders AND IS that same instance (pid match).
+    The pid match keeps the clause honest: a card held by an operator process that is
+    not the :8188 server must not be sent a lever about a process it is not holding.
+    `holders` is gpu_vram_holders()' shape: [(pid, name, used_mib, class)].
+    """
+    if reserve is not False:
+        return ""
+    serving = str(serving_pid or "").strip()
+    if not serving:
+        return ""
+    for pid, _name, _mib, klass in holders or []:
+        if str(pid).strip() == serving and str(klass or "").strip().lower() == "operator":
+            return OPERATOR_LEVER_CLAUSE
+    return ""
+
+
 def check_queue_runway():
     """The publish queue drains inside RUNWAY_ALERT_H while nothing tops it up.
 
@@ -4731,6 +4768,7 @@ def check_queue_runway():
         extra += ("; the card is held by the OPERATOR's own interactive session -- no "
                   "in-repo action can free it, so this is filed as enablement (a GPU-policy "
                   "call on a session no agent may touch)")
+        extra += operator_holder_lever(comfyui_reserve_ok(), holders, comfyui_serving_pid())
     return (
         "queue-runway-short",
         "the publish queue drains inside 3 days and the render loop cannot top it up",
@@ -6478,6 +6516,31 @@ def cmd_selftest(_argv):
     for name, classes, want in route_cases:
         expect(f"runway_route[{name}]", runway_route(classes), want)
     expect("runway_route[None]", runway_route(None), "agent")
+
+    # operator_holder_lever: the runway ask that reaches a human must CARRY the one
+    # lever he holds, and only when it is really about his instance. The two halves
+    # are asserted apart because each alone makes the clause a lie: a flagged :8188 is
+    # adopted (nothing to ask for), and an operator-held pid that is not the server
+    # would send him a lever about somebody else's process.
+    _op_holders = [(553489, "main.py", 23014, "operator")]
+    lever_cases = [
+        ("unflagged-operator-is-the-server", False, _op_holders, "553489", True),
+        ("flagged-server", True, _op_holders, "553489", False),
+        ("no-instance", None, _op_holders, "553489", False),
+        ("operator-holds-but-not-the-server", False, _op_holders, "999999", False),
+        ("another-class-holds-it", False, [(553489, "main.py", 23014, "unit")], "553489", False),
+        ("no-holders", False, [], "553489", False),
+        ("server-pid-unknown", False, _op_holders, "", False),
+        ("co-tenant-beside-operator", False,
+         [(1, "labeler", 14336, "agent"), (553489, "main.py", 23014, "operator")],
+         "553489", True),
+        ("pid-type-coercion", False, [(553489, "x", 1, " OPERATOR ")], 553489, True),
+    ]
+    for name, reserve, holders, pid, want in lever_cases:
+        expect(f"operator_holder_lever[{name}]",
+               bool(operator_holder_lever(reserve, holders, pid)), want)
+    expect("operator_holder_lever[names-the-flag]",
+           "--reserve-vram" in operator_holder_lever(False, _op_holders, "553489"), True)
 
     # WHO holds the card decides the RESPONSE (an operator's own interactive session
     # is a person to ask; a supervised unit is a resource-policy question), so the
