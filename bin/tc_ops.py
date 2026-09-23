@@ -910,7 +910,7 @@ def check_render_starved():
             f"no photo in {STARVE_WINDOW_H}h while the render request was refused {refused}x",
             "warn",
             f"photos_{STARVE_WINDOW_H}h=0 refusals_{STARVE_WINDOW_H}h={refused} "
-            f"holder={job or 'none'}" + (f" held={held:.1f}h" if held else "")
+            + sched_job_clause(job) + (f" held={held:.1f}h" if held else "")
             + gate
             + (f"; {fit}" if fit else "")
             + lever,
@@ -2767,6 +2767,20 @@ def gpu_vram_holders(min_mib=VRAM_HOLDER_MIN_MIB):
 def vram_blocker_note():
     """The outside-scheduler holders as one line, or '' when the card is clean."""
     return ", ".join(holder_desc(*row) for row in gpu_vram_holders())
+
+
+def sched_job_clause(job):
+    """PURE: the scheduler's own current_job as an evidence clause.
+
+    Labelled `sched_job=`, NEVER `holder=`. The value is a reading of state.json,
+    which reports current_job=null whenever the card is held by a process that never
+    asked for a reservation (an interactive session, another project's tool) -- so the
+    old `holder=none` label stated the opposite of the truth on exactly the refusals
+    that matter, and three comments in this file trace a misdiagnosed starvation to a
+    reader believing it. Genome #66: every refusal names the LIVE-measured holder, which
+    is the `outside-scheduler holders:` clause (gpu_vram_holders), never this reading.
+    """
+    return f"sched_job={job or 'none'}"
 
 
 def harness_constants():
@@ -4837,7 +4851,7 @@ def check_queue_runway():
     refused = psql("select count(*) from growth_decisions where action in "
                    "('comfyui_unclaimed','cadence_blocked') and decided_at > "
                    f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
-    extra = f"; holder={job or 'none'}"
+    extra = "; " + sched_job_clause(job)
     if holders:
         extra += "; outside-scheduler holders: " + ", ".join(holder_desc(*row) for row in holders)
     if refused:
@@ -6751,6 +6765,15 @@ def cmd_selftest(_argv):
            "3662070 main.py 22.2GiB (operator-interactive session)")
     expect("holder_desc[unknown]",
            holder_desc(474174, "[No data]", 716.0, ""), "474174 [No data] 0.7GiB")
+    # sched_job_clause: state.json's current_job is the SCHEDULER's bookkeeping, not the
+    # card's holder. Labelling it `holder=` made an unattributed refusal out of a card
+    # pinned by a no-claim process (the misread this repo re-diagnosed for 12h), so the
+    # token must never read as a claim about who holds the GPU.
+    expect("sched_job_clause[held]", sched_job_clause("gamma2-sanity-v2"),
+           "sched_job=gamma2-sanity-v2")
+    expect("sched_job_clause[free]", sched_job_clause(None), "sched_job=none")
+    expect("sched_job_clause[never-claims-a-holder]",
+           "holder=" in sched_job_clause(None), False)
 
     expect("queue_runway_note[roomy]", queue_runway_note(16, "2026-09-27T10:30:00Z", RUNWAY_NOW),
            "dry_out=2026-09-27T10:30:00Z (last publishable clock; queue drains in 5.5d)")
