@@ -3,16 +3,12 @@
   "title": "a render died inside the workflow: ComfyUI API error: HTTP 500 (09-22 00:05Z)",
   "severity": "warn",
   "evidence": "2 ComfyUI execution error(s) in the last 24h; newest ComfyUI API error: HTTP 500 (09-22 00:05Z). The producer now NAMES this (Growth::ContentGenerator carries the ComfyUI error into the run's failure reason and the brain's decision row) instead of reporting every render death as a timeout, and it RE-SUBMITS once on a node exception (a fresh seed -- seed = the run's base seed + the new ComfyuiJob id -- so the retry draws a different sample). A retry that RECOVERS still leaves this failed row, so read this entry as 'the workflow can die on this input', not as 'a render was lost'. TWO classes land here and only one is the payload: (a) the workflow dying on its input -- an empty CLIPSeg head/hand mask reaching the WAS 'Bounded Image Crop with Mask' node, `index is out of bounds` (2026-09-21 11:16Z); (b) ComfyUI running out of VRAM mid-render, whose NEXT job then fails with the HTTP 500 seen here (2026-09-22 00:05Z). Class (b) is tracked with its budget numbers as `comfyui-torch-oom` -- read that entry for the cause instead of re-deriving it from this row. Neither is Rails code. Reconciled orphans are excluded.",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-21T07:40:00-0400",
   "last_seen": "2026-09-22T19:30:56-0400",
   "seen_count": 73,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T23:49:47-0400",
-      "note": "2026-09-22 03:5xZ ops-triage: DECISION on class (a) -- the empty CLIPSeg head/hand mask reaching Bounded Image Crop with Mask (index is out of bounds, last seen 09-21 11:16Z). I am NOT closing this as no-in-repo-fix: the graph is editable in place via a rake task of the same shape as pipeline:prompt_safety (snapshot the stored comfy_workflow_json into ops/backups, apply a targeted edit, revert by restoring the column), so a repair exists -- what it lacks is VERIFICATION, which for a 75-node production graph is a render, and a bad edit risks the only publish path. Status: blocked-on-slot, not blocked-on-idea. Next claimed 4090 window: snapshot step 40, guard the crop node against a zero-area mask, render once, compare against the pre-change render (same prompt/seed) and keep only if the CLIPSeg path completes and the image passes both gates. Queue has no pressure for it (shortfall 1, dry_out 09-28). Until a verification render lands, this stays open rather than self-closing."
-    },
     {
       "ts": "2026-09-21T23:49:57-0400",
       "note": "CORRECTION to the note above: this key is probe-owned (source: probe), so the probe will auto-close it when its window (24h, newest error 09-22 00:05Z) passes with no new execution error -- the open-until-verified intent cannot hold on a probe-owned key. If it self-closes on 09-23 and the CLIPSeg crop path is still unverified, re-file by hand for the next claimed render window."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-22T16:03:50-0400",
       "note": "2026-09-22 20:0xZ ops-triage: no new event. The 24h window holds the same 3 explained errors (7563 CLIPSeg empty mask, 7564 OOM, 7566 the HTTP 500 that followed). Decisive addition: the eval OOM that class (b) depends on is reproducible ONLY on a near-empty card, because ComfyUI frees its own cached models before sizing its budget (comfy/model_management.py load_models_gpu -> free_memory then lowvram_model_memory). While a foreign holder pins ~18GiB the over-commit cannot occur at all -- one more reason the adoption refusal (and the yield behind it) is the right call. Probe-owned, self-closes as the window advances."
+    },
+    {
+      "ts": "2026-09-22T20:25:41-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "route": "agent"

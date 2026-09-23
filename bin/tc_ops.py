@@ -4107,6 +4107,25 @@ def queue_runway_note(publishable, dry_out_iso, now_iso=None):
     return f"dry_out={dry_out_iso} (last publishable clock; queue drains in {days:.1f}d)"
 
 
+def runway_route(holder_classes):
+    """PURE: which queue a runway escalation belongs in, from the holder classes.
+
+    The runway item is the one that must be ACTIONABLE the moment it fires: it says
+    posting goes silent inside 3 days unless the render loop gets the 4090 back, and
+    the card can be held in ways whose RESPONSE differs. A holder that is the
+    OPERATOR's own interactive session can only be ended by a human, so the ask is
+    enablement (a GPU-policy call) and must reach him -- not the agent queue, whose
+    reader can only re-derive the same dead end, and whose re-derivation is exactly
+    the deferral this board was built to end. Any other holder is decided in-repo:
+    another project's supervised unit is normal sharing with a pre-registered
+    handling (wait / extend), and one of OUR cgroups is our own mislaunch to fix.
+    """
+    for c in holder_classes or []:
+        if str(c or "").strip().lower() == "operator":
+            return "tim"
+    return "agent"
+
+
 def check_queue_runway():
     """The publish queue drains inside RUNWAY_ALERT_H while nothing tops it up.
 
@@ -4133,12 +4152,26 @@ def check_queue_runway():
     if not v:
         return None
     job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
+    # Name the OUTSIDE-scheduler holder too. `holder` reads the scheduler's own
+    # state.json, which reports current_job=null while a no-claim process sits on
+    # 22 GiB (the fiction this repo already documents): an escalation whose evidence
+    # says only `holder=none` is unactionable. And the holder's CLASS is what decides
+    # the route -- a card held by the operator's own session cannot be freed by
+    # anything done in this repo, while any other holder can be waited out.
+    holders = gpu_vram_holders()
     refused = psql("select count(*) from growth_decisions where action in "
                    "('comfyui_unclaimed','cadence_blocked') and decided_at > "
                    f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
     extra = f"; holder={job or 'none'}"
+    if holders:
+        extra += "; outside-scheduler holders: " + ", ".join(holder_desc(*row) for row in holders)
     if refused:
         extra += f"; render refusals_{STARVE_WINDOW_H}h={refused}"
+    route = runway_route([row[3] for row in holders])
+    if route == "tim":
+        extra += ("; the card is held by the OPERATOR's own interactive session -- no "
+                  "in-repo action can free it, so this is filed as enablement (a GPU-policy "
+                  "call on a session no agent may touch)")
     return (
         "queue-runway-short",
         "the publish queue drains inside 3 days and the render loop cannot top it up",
@@ -4148,6 +4181,7 @@ def check_queue_runway():
         "queue is simply empty), so this is the early signal: either top the queue up "
         "(needs the 4090, which may be another project's to hold) or make a deliberate "
         "cadence decision -- but make it BEFORE the last clock passes.",
+        route,
     )
 
 
@@ -4615,9 +4649,15 @@ def issue_path(key):
     return BOARD / f"{key}.json"
 
 
-def file_issue(key, title, severity, evidence, source="probe", route=ROUTE_DEFAULT):
+def file_issue(key, title, severity, evidence, source="probe", route=None):
     BOARD.mkdir(parents=True, exist_ok=True)
     p = issue_path(key)
+    # None means "the default queue" -- checks that do not reason about the route
+    # stay byte-identical to before, while a check that DOES (queue-runway-short)
+    # hands over the one it computed. Either way the route is applied at FILING
+    # only: a re-filing probe must never move an item out of the queue it already
+    # sits in (see the setdefault below).
+    route = route or ROUTE_DEFAULT
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     if p.exists():
         try:
@@ -4790,7 +4830,11 @@ def cmd_probe(_argv):
             except Exception as e:  # a broken probe must not break the probe run
                 res = (f"probe-error-{chk.__name__}", f"probe {chk.__name__} raised", "warn", str(e)[:200])
             if res:
-                rec = file_issue(*res)
+                # A check may return a 5th element: the QUEUE this condition belongs
+                # in. Only queue-runway-short does (a card held by the operator's own
+                # session is enablement, not an agent decision) -- see runway_route.
+                key, title, sev, ev = res[:4]
+                rec = file_issue(key, title, sev, ev, **({"route": res[4]} if len(res) > 4 else {}))
                 if res[2] == "critical":
                     found.append(rec)
                 else:
@@ -5798,6 +5842,26 @@ def cmd_selftest(_argv):
     for name, (pub, dry, now), want in runway_cases:
         v = queue_runway_verdict(pub, dry, now)
         expect(f"queue_runway_verdict[{name}]", v[0] if v else None, want)
+
+    # runway_route: WHO holds the card decides WHICH QUEUE the escalation lands in.
+    # The 3-day-runway item is the one that must be actionable when it fires, and a
+    # card held by the operator's own interactive session is the single holder no
+    # in-repo action can free -- so it must reach him rather than be re-derived as an
+    # agent decision every pass (the deferral this board exists to end). Every other
+    # holder stays in-repo: a supervised unit is waited out, our own cgroup is our bug.
+    route_cases = [
+        ("operator", ["operator"], "tim"),
+        ("operator-with-others", ["unit", "operator"], "tim"),
+        ("supervised-unit", ["unit"], "agent"),
+        ("our-agent-cgroup", ["agent"], "agent"),
+        ("unclassified", ["other"], "agent"),
+        ("no-holder", [], "agent"),
+        ("blank-and-none", [None, ""], "agent"),
+        ("spaced-and-cased", [" OPERATOR "], "tim"),
+    ]
+    for name, classes, want in route_cases:
+        expect(f"runway_route[{name}]", runway_route(classes), want)
+    expect("runway_route[None]", runway_route(None), "agent")
 
     # WHO holds the card decides the RESPONSE (an operator's own interactive session
     # is a person to ask; a supervised unit is a resource-policy question), so the
