@@ -1,0 +1,20 @@
+{
+  "key": "openspec-changes-strict-not-clean",
+  "title": "openspec validate --changes --strict is NOT clean (3 stale proposals), while this loop's reports have been claiming strict validation passes",
+  "severity": "info",
+  "evidence": "Measured this pass: 'openspec validate --changes --strict' -> Totals: 23 passed, 3 FAILED (26 items). The three: change/catalyst-design-system and change/merge-fluffy-train both fail with 'Change must have at least one delta. No deltas found', and change/add-pillar-photo-upload fails with 'pillar-photos/spec.md: ADDED \"Multiple Photo Upload (Optional)\" must contain SHALL or MUST'. 'openspec validate --specs --strict' is clean (2 passed, 0 failed). Nothing production depends on these -- they are migration-era proposal artifacts (the repo root still carries CATALYST_MIGRATION_SUMMARY.md and CLUSTER_REMOVAL_SUMMARY.md) -- but the per-pass report line 'openspec validate --strict valid' is FALSE for --changes: the bare 'openspec validate --strict' prints usage ('openspec validate <item-name>') and exits without validating anything, so the claim was read off a no-op command. Discovered by running the two targets explicitly.",
+  "status": "closed",
+  "first_seen": "2026-09-24T04:33:45-0400",
+  "last_seen": "2026-09-24T04:33:45-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T04:33:53-0400",
+      "note": "DECIDED and CLOSED as accepted debt, with the reporting defect fixed. (1) The three failures are migration-era proposal artifacts (catalyst-design-system, merge-fluffy-train: no deltas at all; add-pillar-photo-upload: one requirement heading without SHALL/MUST) and nothing in the live system reads them -- production gates are rspec (586 examples, 0 failures this pass) and the specs tree, which IS clean (openspec validate --specs --strict -> 2 passed, 0 failed). (2) Repairing them is not free and not obviously right: the two delta-less proposals would need deltas INVENTED for abandoned work (fabricating intent), and add-pillar-photo-upload is a pending proposal nobody has revived, so rewriting its requirement wording to satisfy a linter edits a record on a cosmetic basis. Accepted rather than repaired, and recorded here so no future pass re-derives it. (3) The real defect was in THIS loop's own reporting, and that is fixed: 'openspec validate --strict' with no target prints usage and validates NOTHING, so the standing per-pass line 'openspec validate --strict valid' was a claim read off a no-op command. The verification this loop must use is the two explicit targets: 'openspec validate --specs --strict' (clean) and 'openspec validate --changes --strict' (23 passed / 3 failed, the accepted debt above). Verification evidence: the three per-change errors quoted verbatim in the evidence field, and the two target totals re-run this pass."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-09-24T04:33:53-0400"
+}

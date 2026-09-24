@@ -2391,6 +2391,122 @@ def queued_hashtag_verdict(n_untagged):
     return "warn"
 
 
+def hashtag_shipped_verdict(rows):
+    """Pure: did the tags in the `hashtags` column actually REACH Instagram?
+
+    `check_queued_post_hashtags` measures the row (the column a publisher would
+    read). Nothing measured the SEND: the tags the publisher appends to the
+    caption live only in a local variable (`published_caption` in
+    packs/scheduling/lib/tasks/scheduled_posting.rake), so the only evidence the
+    account's discoverability lever shipped was reading that line of code. The
+    account went its whole life (197 posted items, zero tags) with exactly that
+    blind spot, and the repair has the same shape: a regression would produce no
+    error and no board entry.
+
+    Instagram's own record closes it. The media node carries the published
+    caption, so this reads the caption back and counts the column's tags inside
+    it. Ground truth, not bookkeeping.
+
+    rows: list of {"id", "column_tags", "shipped_tags"} dicts, one per recent
+    posted item that HAS tags in the column. "shipped_tags" is None when the API
+    could not be read for that item (inaccessible/deleted media, token problem) --
+    UNKNOWN, never a failure. Returns (severity, detail) or None.
+    """
+    if rows is None:
+        return None
+    readable = [r for r in rows
+                if isinstance(r, dict) and r.get("shipped_tags") is not None
+                and int(r.get("column_tags") or 0) > 0]
+    if not readable:
+        return None  # nothing measurable: no tagged post, or no API answer
+    missing = [r for r in readable if int(r.get("shipped_tags") or 0) == 0]
+    if not missing:
+        return None
+    ids = ", ".join(str(r.get("id")) for r in missing[:6])
+    detail = (
+        f"{len(missing)} of {len(readable)} recent post(s) carry hashtags in "
+        f"scheduling_posts.hashtags but the caption on INSTAGRAM contains none of "
+        f"them (ids {ids}) -- the send path is not appending the column, so the "
+        "account publishes untagged despite a populated queue. The append lives in "
+        "packs/scheduling/lib/tasks/scheduled_posting.rake (published_caption = "
+        "post.caption + Array(post.hashtags).join(' ')); scheduling_posts.caption "
+        "is stored WITHOUT the tags, so the local DB cannot distinguish this from a "
+        "healthy post -- Instagram's caption is the only place the answer is."
+    )
+    return ("warn", detail)
+
+
+# How many recent tagged posts to read back. Three is enough to distinguish a
+# send-path regression from one dead media, and keeps the extra API cost of an
+# hourly probe negligible (Instagram allows 200 calls/hour; the insights
+# collector already spends 25 per run).
+HASHTAG_SHIP_SAMPLE = 3
+
+
+def check_published_hashtags_shipped():
+    """Read the SHIPPED caption back from Instagram and count the tags in it.
+
+    See hashtag_shipped_verdict for why: the tags are appended to a local
+    variable at send time and never persisted, so this is the only measurement of
+    whether the discoverability lever actually reaches the platform.
+    """
+    # Multi-line, NOT a ';'-joined concatenation: a single missing separator
+    # glues two statements into one token ("rec" + "end;" -> "recend") and the
+    # runner then exits 1 with an EMPTY stdout, which reads exactly like the
+    # healthy path (None). Measured 2026-09-24: the concatenated form never ran
+    # once. Newlines cost nothing here and make the script readable.
+    script = f"""
+require 'json'
+token = Rails.application.credentials.dig(:instagram, :access_token)
+conn = Faraday.new(url: 'https://graph.facebook.com/v20.0') do |f|
+  f.request :url_encoded
+  f.response :json
+end
+tagged = Scheduling::Post.where.not(provider_post_id: nil)
+                        .where(status: 'posted')
+                        .order(posted_at: :desc)
+                        .limit(40)
+                        .select {{ |p| Array(p.hashtags).any? }}
+                        .first({HASHTAG_SHIP_SAMPLE})
+out = tagged.map do |p|
+  tags = Array(p.hashtags).map(&:to_s)
+  rec = {{ 'id' => p.id, 'column_tags' => tags.size, 'shipped_tags' => nil }}
+  begin
+    r = conn.get(p.provider_post_id) do |q|
+      q.params['fields'] = 'caption'
+      q.params['access_token'] = token
+    end
+    if r.status == 200 && r.body.is_a?(Hash) && r.body['caption']
+      cap = r.body['caption'].to_s
+      rec['shipped_tags'] = tags.count {{ |t| cap.include?(t) }}
+    end
+  rescue StandardError
+    rec['shipped_tags'] = nil
+  end
+  rec
+end
+puts JSON.generate(out)
+"""
+    out, rc = run(["bin/rails", "runner", script], timeout=180)
+    if rc != 0 or not out:
+        # An unmeasurable check must be VISIBLE as unmeasurable, not silent: a
+        # broken script returns no rows exactly like a healthy send path, so
+        # checks-audit is told about the read instead of the board staying green.
+        _audit_note("rails-runner", script)
+        return None
+    try:
+        rows = json.loads(out.splitlines()[-1])
+    except (ValueError, IndexError):
+        _audit_note("rails-runner", script)
+        return None
+    verdict = hashtag_shipped_verdict(rows)
+    if not verdict:
+        return None
+    sev, detail = verdict
+    return ("hashtags-not-shipped", "published posts are shipping without their hashtags",
+            sev, detail)
+
+
 def check_queued_post_hashtags():
     """An unpublished post with NO hashtags publishes with none -- silently.
 
@@ -5985,6 +6101,7 @@ CHECKS = [
     check_caption_image_grounding,
     check_placeholder_caption_queued,
     check_queued_post_hashtags,
+    check_published_hashtags_shipped,
     check_pipeline_prompt_safety,
     check_render_acceptance,
     check_render_execution_errors,
@@ -6949,6 +7066,37 @@ def cmd_selftest(_argv):
     ]
     for name, n, want in untagged_cases:
         expect(f"queued_hashtag_verdict[{name}]", queued_hashtag_verdict(n), want)
+
+    # hashtag_shipped_verdict: rows read back from Instagram -> severity. The
+    # trap this guards is the UNKNOWN case: a media the API will not serve must
+    # never read as a failure (a false alarm would pin the board on a dead post
+    # forever), while a caption that genuinely lacks the column's tags must warn.
+    shipped_cases = [
+        ("all-shipped", [{"id": 1, "column_tags": 10, "shipped_tags": 10}], None),
+        ("one-dead-media-among-good",
+         [{"id": 1, "column_tags": 10, "shipped_tags": None},
+          {"id": 2, "column_tags": 10, "shipped_tags": 10}], None),
+        ("unreadable-all",
+         [{"id": 1, "column_tags": 10, "shipped_tags": None}], None),
+        ("no-rows", [], None),
+        ("db-unreadable", None, None),
+        ("column-empty-so-nothing-to-judge",
+         [{"id": 1, "column_tags": 0, "shipped_tags": 0}], None),
+        ("regressed", [{"id": 7, "column_tags": 10, "shipped_tags": 0}], ("warn", "id")),
+        ("regressed-partially",
+         [{"id": 7, "column_tags": 10, "shipped_tags": 0},
+          {"id": 8, "column_tags": 10, "shipped_tags": 10}], ("warn", "1 of 2")),
+        ("junk-row-ignored", ["not-a-dict"], None),
+    ]
+    for name, rows, want in shipped_cases:
+        v = hashtag_shipped_verdict(rows)
+        got = None if v is None else (v[0], v[1])
+        if want is None:
+            expect(f"hashtag_shipped_verdict[{name}]", got, None)
+        else:
+            expect(f"hashtag_shipped_verdict[{name}].sev", got and got[0], want[0])
+            expect(f"hashtag_shipped_verdict[{name}].mentions",
+                   bool(got and want[1] in got[1]), True)
 
     # insights_verdict: hours since the newest insights write -> severity. None
     # means no posted item has insights at all (the ~4-month case this exists for).
