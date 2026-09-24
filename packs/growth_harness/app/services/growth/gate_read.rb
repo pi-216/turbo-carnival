@@ -90,6 +90,21 @@ module Growth
     # the publish date lags the render by the queue depth. `inputs` is
     # `review.gate_inputs` when the caller already has it (so the window relation
     # and its per-pillar stats are built once, not per caller).
+    #
+    # `insights_updated_at` is not "eventually" -- it is bounded by a HARD age gate
+    # in the collector, and that bound is what makes this cohort predictable:
+    # Scheduling::Commands::CollectPostInsights#posts_needing_insights only selects
+    # `posted_at < 24.hours.ago` (hourly, 25 rows/run, never-collected first), so a
+    # post cannot enter the cohort until it is >24h old, and measured first
+    # collection runs 31-53h after publish (the 25-row budget is saturated at the
+    # current cadence). Consequence, and why the two pre-registered reads land where
+    # they do: a read at time T can only count posts published up to ~T-24h.
+    # Measured 2026-09-24 against the queue -- the forced 09-28 13:00Z read sees
+    # cohort ~1 (only the 09-27 posts are old enough) -> :extend, and the 10-05
+    # 13:00Z read sees 9 post-intervention posts (351..360, all published 09-28
+    # 14:00Z..10-01 10:30Z, all >24h old by then) -> a VALID read, so the gate
+    # fires there rather than extending again. Size any future read off that gate,
+    # never off the queue's clock count.
     def cohort_posts(inputs = nil)
       (inputs || review.gate_inputs)[:window_posts]
         .joins(:photo)

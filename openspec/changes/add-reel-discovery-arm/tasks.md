@@ -55,6 +55,14 @@
       window, so a new format published into the window confounds the pre-registered cohort.
 - [ ] 5.2 First publish is a single reel, watched end to end (container FINISHED -> publish ->
       insights), then compare `growth_snapshots.non_follower_reach` against the standing 0.
+
+## 6. Pre-arm re-verification (re-run before arming; record the numbers)
+- [x] 6.1 `bin/reel_rail_smoke.sh` re-run 2026-09-24 by the ops pass, BEFORE the read rather
+      than on the day: PASS — 2 343 443 bytes, `h264 1080x1920 yuv420p`, duration 8.000 s,
+      IPTC mark readable from the file, served over the LIVE tunnel as `video/mp4` with
+      byte-identical length, non-reel post id 404, cleanup left `POSTS 300 REELS 0` (no
+      debris). So the rail is publishable as of that date; if this is stale when the arm is
+      armed, re-run it — that is the whole point of having one command for it.
 - [x] 5.3 Add an ops check that reads the arm's own state (built-but-unarmed -> armed ->
       measured) so the pivot cannot stall silently between passes. — `check_reel_arm_stall`
       (`bin/tc_ops.py`). Tightened 2026-09-24: the caller scan keys on the PUBLISH call
