@@ -1,0 +1,14 @@
+{
+  "key": "interrupted-cron-run-left-uncommitted-work",
+  "title": "a turbo-carnival cron run was interrupted 8.8h ago and its work is still uncommitted",
+  "severity": "warn",
+  "evidence": "1 interrupted execution(s) in the last 24h; newest: job 9c05f60f5fef started 2026-09-24T09:25:05.572549-04:00, ended 2026-09-24T09:40:35.018140-04:00 (Scheduler restarted after this execution's owner exited before a durable terminal state; whether side effects ran is unk). Uncommitted for 1.0h: 2 path(s), oldest lib/tasks/media_inventory.rake \u2014 read the tree, then commit or revert the salvaged work. An interrupted run's report was never delivered either, so what it found is only in its output file (cron/output/<job-id>/, status `unknown`).",
+  "status": "open",
+  "first_seen": "2026-09-24T18:25:26-0400",
+  "last_seen": "2026-09-24T18:30:46-0400",
+  "seen_count": 2,
+  "source": "probe",
+  "route": "agent",
+  "notes": [],
+  "route_source": "check"
+}

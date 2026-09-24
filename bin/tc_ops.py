@@ -1660,6 +1660,41 @@ def platform_engagement_corroboration(platform_max, days_measured, our_window_su
             f"zero is stated by the platform rather than produced by our collection.")
 
 
+def measured_posts_media_gone():
+    """-> count of the window's measured posts the API has called terminal.
+
+    `insights_unavailable_at` is written by Scheduling::Commands::CollectPostInsights
+    when Instagram answers HTTP 400 / code 100 for a media: the object is gone or
+    unreadable with this token. Those posts stay in the acceptance window on purpose
+    -- they WERE live, and the numbers they earned while live are real -- but a zero
+    over content the platform has since removed is not the same evidence as a zero
+    over content that is still there: one is an audience verdict, the other is
+    partly an erasure. Measured 2026-09-24: 36 of 150 published posts were absent
+    from the account, 25 of them removed in a single burst that day.
+    """
+    row = psql(
+        "select count(*)::text from scheduling_posts where status = 'posted' "
+        f"and posted_at > (now() at time zone 'UTC') - interval '{ENGAGEMENT_WINDOW_DAYS} days' "
+        "and persona_id = (select persona_id from growth_goals where status = 'active' "
+        "order by id desc limit 1) and insights_unavailable_at is not null"
+    )
+    return as_int(row) if row is not None else None
+
+
+def media_gone_clause(n_gone, measured):
+    """PURE: the removal confound, or '' when nothing is known to be gone."""
+    if not n_gone or n_gone <= 0:
+        return ""
+    return (
+        f" CONFOUND: {n_gone} of those {measured} measured post(s) have since been REMOVED "
+        "from the account (Instagram answers HTTP 400 / code 100 for their media; recorded "
+        "on insights_unavailable_at and re-measured per post by bin/rake "
+        "instagram:media_inventory) -- their numbers are what the content earned while it "
+        "was live, and a zero over content the platform has erased is not the same evidence "
+        "as a zero over content that is still there."
+    )
+
+
 def check_engagement_acceptance():
     """OUTPUT != ACCEPTED OUTPUT: full-cadence publishing that nobody accepts.
 
@@ -1715,6 +1750,7 @@ def check_engagement_acceptance():
     mean_reach = round(reach / measured, 1) if measured else 0.0
     attribution = latest_discovery_attribution()
     discovery_txt = discovery_attribution_clause(*attribution) if attribution else ""
+    gone_txt = media_gone_clause(measured_posts_media_gone(), measured)
     platform_kind, platform_txt = platform_engagement_corroboration(
         platform_max, days_measured, likes + comments + saved
     )
@@ -1730,7 +1766,7 @@ def check_engagement_acceptance():
         "target -- so every machine-level check stays green while the RESULT is "
         "zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL "
         "gate; a flat engagement read there is this condition, not a starved "
-        "pipeline." + discovery_txt + platform_txt + " Self-closes when a published "
+        "pipeline." + discovery_txt + gone_txt + platform_txt + " Self-closes when a published "
         "post is engaged with (any like/comment/save in the window) -- that "
         "predicate stays on the per-post columns the gate reads, so a platform "
         "counter that disagrees is reported here and never closes it silently."
@@ -2808,28 +2844,126 @@ def check_discovery_attribution():
 # inferred from our bookkeeping. It rides on the SAME account node call as
 # followers_count (no extra API round trip) and stays NULL when unanswered, so an
 # unmeasured inventory can never read as "nothing was removed".
-def media_inventory_verdict(peak, newest):
-    """PURE: has the platform-side media inventory SHRANK? -> 'warn' or None.
+#: How far back a media_count DECREASE is read as a live removal. Bounded on
+#: purpose: an all-time max() comparison re-fires forever on one historical
+#: removal, so the item could be filed and never closed (measured 2026-09-24).
+MEDIA_SHRINK_WINDOW_H = 26
 
-    Both inputs None/unreadable returns None: an absent read is not a defect, and
-    a probe that manufactures a removal out of a missing number is worse than no
-    probe. Equal is not a shrink -- only a strict decrease is evidence of a
-    removal.
+
+def media_inventory_verdict(drop, newest):
+    """PURE: has the platform-side media inventory SHRUNK? -> 'warn' or None.
+
+    `drop` is the largest decrease between two ADJACENT snapshots inside
+    MEDIA_SHRINK_WINDOW_H; `newest` is the latest reading. Either being
+    None/unreadable returns None: an absent read is not a defect, and a probe that
+    manufactures a removal out of a missing number is worse than no probe. A drop
+    of 0 is not a shrink -- only a strict decrease is evidence of a removal.
     """
-    if peak is None or newest is None:
+    if drop is None or newest is None:
         return None
-    return "warn" if newest < peak else None
+    return "warn" if drop > 0 else None
+
+
+def own_posts_missing_verdict(newly_missing):
+    """PURE: did posts of OURS disappear from the account since the last read?
+
+    None (unreadable/never measured) returns None: an absent measurement is not a
+    removal. Only a POSITIVE count fires. The stock check above owns "the
+    account's inventory shrank"; this owns "which of OUR posts are gone", and the
+    two must be able to disagree -- media_count is a stock that publishing
+    (+~3/day) can lift in the same hour a single post is removed.
+    """
+    if newly_missing is None:
+        return None
+    return "warn" if newly_missing > 0 else None
+
+
+#: The per-post half of the same question, measured by `bin/rake
+#: instagram:media_inventory` (read-only: lists the account's media ids and diffs
+#: them against every `scheduling_posts.provider_post_id`). Committed, so the next
+#: agent finds the last measurement instead of re-deriving it.
+MEDIA_INVENTORY_PATH = APP / "ops" / "media_inventory.json"
+
+
+def media_inventory_report():
+    """The last per-post inventory measurement, or None when unreadable."""
+    try:
+        with open(MEDIA_INVENTORY_PATH) as fh:
+            rep = json.load(fh)
+    except Exception:
+        return None
+    return rep if isinstance(rep, dict) else None
+
+
+def parse_media_inventory_line(out):
+    """PURE: the task's machine-readable line -> stats dict, or None.
+
+    A missing or malformed line is UNMEASURED (None), never "nothing is missing":
+    a probe that manufactures a clean inventory out of a failed read is worse than
+    no probe.
+    """
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line.startswith("MEDIA_INVENTORY"):
+            continue
+        stats = {}
+        for tok in line.split()[1:]:
+            if "=" in tok:
+                k, v = tok.split("=", 1)
+                stats[k] = v
+        try:
+            stats["listed"] = int(stats["listed"])
+            stats["ours"] = int(stats["ours"])
+            stats["missing"] = int(stats["missing"])
+        except (KeyError, ValueError):
+            return None
+        stats["missing_posts"] = [p for p in stats.get("missing_posts", "").split(",") if p]
+        return stats
+    return None
+
+
+def own_posts_missing_clause(stats, newly):
+    """PURE: the per-post evidence clause, or '' when unmeasured."""
+    if not stats:
+        return ""
+    txt = (f" Per-post re-read (`bin/rake instagram:media_inventory`, "
+           f"{stats['listed']} media listed): {stats['missing']} of our "
+           f"{stats['ours']} published post(s) are ABSENT from the account")
+    if newly:
+        txt += f", {newly} of them new since the last measurement"
+    if stats.get("missing_posts"):
+        txt += f"; gone post ids: {','.join(stats['missing_posts'][:12])}"
+    return txt + "."
 
 
 def check_platform_media_removed():
     """OUTPUT != ACCEPTED OUTPUT, platform side: did media the account held disappear?
 
-    Read-only. Fires only on a strict decrease of the account's media_count below
-    its own recorded peak, which our publishing cannot cause.
+    Read-only. Fires on a strict DECREASE of the account's media_count between two
+    CONSECUTIVE snapshots inside a bounded recent window (which our publishing
+    cannot cause), or on a post of OURS that the account's media listing no longer
+    contains. The stock condition is the cheap corroboration (the same account-node
+    call that fetches followers); the per-post diff is the sharp one, because
+    publishing can lift the stock in the same hour a single post is removed.
+
+    The WINDOW is what makes this item closable. An all-time max(media_count)
+    comparison re-fires on every tick forever after one historical removal --
+    measured 2026-09-24, where it kept `platform-media-removed` open for the 25
+    media Instagram had removed that day, an item that could be filed and never
+    closed. A decrease between adjacent snapshots is the removal the docstring
+    always claimed to measure, and it stops reproducing as soon as the readings
+    stop falling; a NEW removal opens it again.
     """
     row = psql(
-        "select coalesce((select max(media_count)::text from growth_snapshots "
-        "where media_count is not null), 'na') || '|' || "
+        "select coalesce((select max(d)::text from ("
+        "  select (prev_media - media_count) as d from ("
+        "    select media_count,"
+        "           lag(media_count) over (order by taken_at) as prev_media,"
+        "           taken_at"
+        "    from growth_snapshots where media_count is not null"
+        "  ) s where taken_at > (now() at time zone 'UTC')"
+        "    - interval '" + str(MEDIA_SHRINK_WINDOW_H) + " hours'"
+        "  ) u where d > 0), 'na') || '|' || "
         "coalesce((select media_count::text from growth_snapshots "
         "where media_count is not null order by taken_at desc limit 1), 'na') || '|' || "
         "coalesce((select round(extract(epoch from ((now() at time zone 'UTC') - taken_at)) / 3600.0, 1)::text "
@@ -2842,38 +2976,73 @@ def check_platform_media_removed():
     parts = row.split("|")
     if len(parts) != 4:
         return None
-    peak_s, newest_s, age_s, ours_s = parts
-    peak = None if peak_s == "na" else as_int(peak_s)
+    drop_s, newest_s, age_s, ours_s = parts
+    drop = None if drop_s == "na" else as_int(drop_s)
     newest = None if newest_s == "na" else as_int(newest_s)
-    sev = media_inventory_verdict(peak, newest)
+    # Per-post half: measure the account's media listing against our own published
+    # ids. Bounded and best-effort -- a failed run leaves `stats` None and the stock
+    # condition alone governs; nothing is fabricated from a broken read.
+    out, rc = run(["bin/rake", "instagram:media_inventory"], timeout=240)
+    stats = parse_media_inventory_line(out) if rc == 0 else None
+    prev = media_inventory_report()
+    newly = None
+    if stats is not None:
+        prev_missing = {str(x) for x in ((prev or {}).get("missing_posts") or [])}
+        cur_missing = set(stats["missing_posts"])
+        # No previous measurement at all -> every absent post is NEW TO US: that is
+        # the discovery, and it has to fire once. With one, only the delta fires,
+        # so the item re-opens on the next removal and not on every tick.
+        newly = len(cur_missing - prev_missing) if prev else len(cur_missing)
+        try:
+            MEDIA_INVENTORY_PATH.write_text(json.dumps({
+                "measured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "platform_listed": stats["listed"],
+                "ours_published": stats["ours"],
+                "missing_count": stats["missing"],
+                "missing_posts": sorted(cur_missing, key=int),
+                "newly_missing": newly,
+            }, indent=2) + "\n")
+        except Exception:
+            pass
+    sev = media_inventory_verdict(drop, newest) or own_posts_missing_verdict(newly)
     if not sev:
-        return None
-    # media_inventory_verdict returns a severity only when both are measured; the
-    # guard keeps that a POST-CONDITION rather than an assumption (a future edit
-    # to the verdict must not turn into a TypeError inside a probe).
-    if peak is None or newest is None:
         return None
     try:
         age_h = f"{float(age_s):.1f}h ago"
     except (TypeError, ValueError):
         age_h = "at an unknown age"
     ours = as_int(ours_s)
+    per_post = own_posts_missing_clause(stats, newly)
+    if drop:
+        headline = (f"the account's media inventory SHRANK: media_count fell by "
+                    f"{drop} inside the last {MEDIA_SHRINK_WINDOW_H}h (now {newest})")
+        stock = (
+            f"platform media_count={newest} ({age_h}) -- down {drop} between two "
+            f"consecutive snapshots inside the last {MEDIA_SHRINK_WINDOW_H}h. Publishing "
+            "can only INCREASE media_count, so this many media were removed (or archived) "
+            f"on the platform side. This app believes it has published {ours} post(s) with a provider id, "
+        )
+    else:
+        # The stock condition did NOT fire: the removals were masked by the same
+        # window's publishing (media_count is a stock, +~3/day), which is exactly
+        # the blind spot the per-post diff exists for.
+        headline = ("posts of ours are no longer on the account"
+                    if not stats else
+                    f"{stats['missing']} post(s) of ours are no longer on the account")
+        stock = (f"This app believes it has published {ours} post(s) with a provider id, ")
     return (
         "platform-media-removed",
-        f"the account's media inventory SHRANK: {newest} now vs a recorded peak of {peak}",
+        headline,
         sev,
-        f"platform media_count={newest} ({age_h}) against its own recorded peak of "
-        f"{peak} -- a decrease of {peak - newest}. Publishing can only INCREASE "
-        f"media_count, so this many media were removed (or archived) on the platform "
-        f"side. This app believes it has published {ours} post(s) with a provider id, "
+        stock +
         "and nothing local is re-checked after publish: a removed post still counts as "
         "posted in the queue runway, the 14-day acceptance counter and the per-pillar "
-        "engagement read. CHECK whether any removed media belong to that set (fetch the "
-        "post ids in `scheduling_posts` and re-read them: a 404 on "
-        "GET /{media-id}?fields=id is a removed post, while `error.subcode` 33 / code "
-        "100 means the object no longer exists). Producer: "
-        "Growth::MetricsCollector#fetch_media_count, hourly via growth:snapshot_followers, "
-        "best effort by design (a failed call stores NULL, never 0).",
+        "engagement read." + per_post +
+        " A gone media answers GET /{media-id}?fields=id with HTTP 400, code 100, "
+        "subcode 33, while a live one answers 200 -- that is how the set above was "
+        "established. Producer: Growth::MetricsCollector#fetch_media_count, hourly via "
+        "growth:snapshot_followers, best effort by design (a failed call stores NULL, "
+        "never 0); per-post via bin/rake instagram:media_inventory (read-only).",
     )
 
 
@@ -8090,21 +8259,78 @@ def cmd_selftest(_argv):
     # media_inventory_verdict: only a MEASURED, STRICT decrease is a removal. An
     # unmeasured inventory (None) is not a defect, and an unchanged count is not a
     # shrink -- otherwise the probe would invent a platform takedown out of a
-    # missing number or a quiet day.
+    # missing number or a quiet day. The compare is against the PREVIOUS snapshot
+    # inside the window, never an all-time peak: a peak re-fires on every tick
+    # forever after one historical removal, so the item can never be closed
+    # (measured 2026-09-24 on the 25 media Instagram removed that day).
     expect("media_inventory_verdict[both-unmeasured]",
            media_inventory_verdict(None, None), None)
     expect("media_inventory_verdict[newest-unmeasured]",
-           media_inventory_verdict(224, None), None)
-    expect("media_inventory_verdict[peak-unmeasured]",
+           media_inventory_verdict(25, None), None)
+    expect("media_inventory_verdict[drop-unmeasured]",
            media_inventory_verdict(None, 224), None)
     expect("media_inventory_verdict[grew]",
-           media_inventory_verdict(221, 224), None)
+           media_inventory_verdict(0, 226), None)
     expect("media_inventory_verdict[equal]",
-           media_inventory_verdict(224, 224), None)
+           media_inventory_verdict(0, 224), None)
     expect("media_inventory_verdict[shrank]",
-           media_inventory_verdict(224, 223), "warn")
+           media_inventory_verdict(1, 223), "warn")
     expect("media_inventory_verdict[shrank-many]",
-           media_inventory_verdict(224, 10), "warn")
+           media_inventory_verdict(25, 200), "warn")
+    expect("media_inventory_verdict[window]",
+           MEDIA_SHRINK_WINDOW_H > 1, True)
+
+    # own_posts_missing_verdict: the SET half of the same question. An unreadable
+    # measurement must stay silent (an absent read is not a removal), zero must not
+    # fire (that is the steady state), and the moment the two halves MUST be able to
+    # disagree -- a removal masked by the same hour's publishing -- is exercised by
+    # asserting the stock verdict is None while this one fires.
+    expect("own_posts_missing_verdict[unmeasured]", own_posts_missing_verdict(None), None)
+    expect("own_posts_missing_verdict[steady]", own_posts_missing_verdict(0), None)
+    expect("own_posts_missing_verdict[one-new]",
+           own_posts_missing_verdict(1), "warn")
+    expect("own_posts_missing_verdict[many-new]",
+           own_posts_missing_verdict(36), "warn")
+    expect("media_inventory_verdict[grew-while-a-post-was-removed]",
+           media_inventory_verdict(0, 226), None)
+    expect("own_posts_missing_verdict[grew-while-a-post-was-removed]",
+           own_posts_missing_verdict(1), "warn")
+
+    # parse_media_inventory_line: an unparsable or absent line is UNMEASURED, never
+    # "nothing is missing". A malformed count in particular must not read as 0.
+    expect("parse_media_inventory_line[absent]",
+           parse_media_inventory_line("no such line here"), None)
+    expect("parse_media_inventory_line[empty]", parse_media_inventory_line(""), None)
+    expect("parse_media_inventory_line[unreadable]",
+           parse_media_inventory_line("MEDIA_INVENTORY unreadable=http_500"), None)
+    expect("parse_media_inventory_line[no-counts]",
+           parse_media_inventory_line("MEDIA_INVENTORY missing_posts=1,2"), None)
+    expect("parse_media_inventory_line[junk-count]",
+           parse_media_inventory_line("MEDIA_INVENTORY listed=x ours=1 missing=0"), None)
+    _pmi = parse_media_inventory_line(
+        "MEDIA_INVENTORY listed=200 ours=150 missing=2 missing_posts=7,9 missing_media=11,22")
+    expect("parse_media_inventory_line[listed]", _pmi and _pmi["listed"], 200)
+    expect("parse_media_inventory_line[missing]", _pmi and _pmi["missing"], 2)
+    expect("parse_media_inventory_line[posts]", _pmi and _pmi["missing_posts"], ["7", "9"])
+    _pmi_line = parse_media_inventory_line(
+        "boot noise\nMEDIA_INVENTORY listed=3 ours=2 missing=0 missing_posts= missing_media= ")
+    expect("parse_media_inventory_line[to_line]",
+           _pmi_line is not None and _pmi_line["missing"], 0)
+    # own_posts_missing_clause: empty when unmeasured (no phantom claim), and it
+    # must NAME the posts rather than only counting them.
+    expect("own_posts_missing_clause[unmeasured]", own_posts_missing_clause(None, 3), "")
+    expect("own_posts_missing_clause[names-posts]",
+           "7,9" in own_posts_missing_clause(_pmi, 2), True)
+    expect("own_posts_missing_clause[new-count]",
+           "2 of them new" in own_posts_missing_clause(_pmi, 2), True)
+
+    # media_gone_clause: the removal confound on the acceptance counter. Silence
+    # when nothing is known gone or the read failed (None), and it must name the
+    # count AND the denominator when it does speak.
+    expect("media_gone_clause[none]", media_gone_clause(0, 23), "")
+    expect("media_gone_clause[unmeasured]", media_gone_clause(None, 23), "")
+    expect("media_gone_clause[negative]", media_gone_clause(-1, 23), "")
+    expect("media_gone_clause[names-count]", "7 of those 23" in media_gone_clause(7, 23), True)
 
     # platform_engagement_corroboration: the acceptance counter may only CLAIM a
     # platform witness when the platform actually answered. An unmeasured counter
