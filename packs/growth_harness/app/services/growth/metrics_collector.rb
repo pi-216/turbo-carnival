@@ -31,7 +31,8 @@ module Growth
       raise e
     end
 
-    # -> { follower_reach:, non_follower_reach:, reach_total:, profile_views: }
+    # -> { follower_reach:, non_follower_reach:, reach_total:, profile_views:,
+    #      accounts_engaged: }
     # with any unanswered key omitted, so the column stays NULL (UNMEASURED) --
     # never 0, which would read as a measured "no discovery".
     #

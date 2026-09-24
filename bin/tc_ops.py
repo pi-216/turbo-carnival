@@ -1530,6 +1530,50 @@ def latest_discovery_attribution():
     return (as_int(nf), as_int(fl), as_int(tot), when_txt or None)
 
 
+def platform_engagement_corroboration(platform_max, days_measured, our_window_sum):
+    """PURE: does the platform's OWN day-counter agree that nobody engaged?
+
+    The acceptance counter is built entirely from `scheduling_posts` columns THIS
+    APP collected, so every failure mode of our own insights collection -- a media
+    the endpoint refuses, a post whose insights never land, an interaction type
+    our metric set omits -- presents as the same flat zero with nothing to
+    contradict it. Instagram answers the question directly at the account level
+    (`accounts_engaged`, period=day: accounts that liked/saved/commented/shared/
+    replied), collected hourly into `growth_snapshots.accounts_engaged`, so the
+    zero can have an independent witness instead of being a claim about our own
+    bookkeeping.
+
+    Returns (kind, clause) with kind one of:
+      "unmeasured"   -- never collected: SAY SO, never imply corroboration
+      "contradicts"  -- the platform saw engagement while our window still reads 0
+      "corroborates" -- the platform's own counter is 0 across the measured days
+      "ours_only"    -- our window saw engagement the day-counter did not (the
+                        window is 14 days against its 1, so this is expected)
+    """
+    if platform_max is None:
+        return ("unmeasured",
+                " The platform's own engagement counter (accounts_engaged) has never been "
+                "collected for this account, so this zero is this repo's bookkeeping alone.")
+    # Ours first: if the 14-day per-post window already shows engagement, the day
+    # counter cannot contradict it whatever it says -- the two cover different
+    # periods (14 days against its 1), and this check is only about the zero.
+    if our_window_sum > 0:
+        return ("ours_only",
+                " Instagram's daily counter reads 0 while our longer window does not -- the two "
+                "cover different periods (1 day vs 14), so this is not a disagreement.")
+    if platform_max > 0:
+        return ("contradicts",
+                f" INDEPENDENT WITNESS CONTRADICTS IT: Instagram's own account-level counter "
+                f"reports {platform_max} account(s) engaged with this content in the last day "
+                f"while every measured post in the window reads 0 -- our insights collection is "
+                f"blind to real engagement, so this counter is not measuring what it claims.")
+    days = f"{days_measured} measured day(s)" if days_measured is not None else "the measured days"
+    return ("corroborates",
+            f" Independent witness: Instagram's own account-level counter "
+            f"(accounts_engaged, period=day) read 0 across {days} in this window, so the "
+            f"zero is stated by the platform rather than produced by our collection.")
+
+
 def check_engagement_acceptance():
     """OUTPUT != ACCEPTED OUTPUT: full-cadence publishing that nobody accepts.
 
@@ -1540,10 +1584,14 @@ def check_engagement_acceptance():
     Nothing else on this board reports that, because every other check measures
     the MACHINE (renders, captions, queue, VRAM) and none measures the RESULT.
 
-    Read it as the 2026-09-28 gate's evidence, not as an in-repo fault: no code
-    change makes an audience engage. It is filed so the GO/PIVOT/KILL decision
-    is made against a number that was tracked continuously rather than
-    reconstructed after the fact.
+    The 14-day zero is read from OUR per-post columns; the evidence carries the
+    platform's own daily counter beside it (see
+    platform_engagement_corroboration) so the number cannot be a private claim.
+
+    Read it as the gate's evidence, not as an in-repo fault: no code change makes
+    an audience engage. It is filed so the GO/PIVOT/KILL decision is made against
+    a number that was tracked continuously rather than reconstructed after the
+    fact.
     """
     win = ENGAGEMENT_WINDOW_DAYS
     row = psql(
@@ -1556,20 +1604,34 @@ def check_engagement_acceptance():
         "coalesce((select sum(likes_count) from w where insights_updated_at is not null), 0) || '|' || "
         "coalesce((select sum(comments_count) from w where insights_updated_at is not null), 0) || '|' || "
         "coalesce((select sum(saved_count) from w where insights_updated_at is not null), 0) || '|' || "
-        "coalesce((select sum(reach) from w where insights_updated_at is not null), 0)"
+        "coalesce((select sum(reach) from w where insights_updated_at is not null), 0) || '|' || "
+        "coalesce((select max(accounts_engaged)::text from growth_snapshots "
+        "where accounts_engaged is not null and taken_at > (now() at time zone 'UTC') "
+        f"- interval '{win} days'), 'na') || '|' || "
+        "coalesce((select count(*)::text from growth_snapshots where accounts_engaged is not null "
+        "and taken_at > (now() at time zone 'UTC') "
+        f"- interval '{win} days'), '0')"
     )
     if row is None:
         return None
+    parts = row.split("|")
+    if len(parts) != 8:
+        return None
     try:
-        posts, measured, likes, comments, saved, reach = (int(x) for x in row.split("|"))
+        posts, measured, likes, comments, saved, reach = (int(x) for x in parts[:6])
     except ValueError:
         return None
+    platform_max = None if parts[6] == "na" else as_int(parts[6])
+    days_measured = as_int(parts[7])
     sev = engagement_acceptance_verdict(measured, likes, comments, saved)
     if not sev:
         return None
     mean_reach = round(reach / measured, 1) if measured else 0.0
     attribution = latest_discovery_attribution()
     discovery_txt = discovery_attribution_clause(*attribution) if attribution else ""
+    platform_kind, platform_txt = platform_engagement_corroboration(
+        platform_max, days_measured, likes + comments + saved
+    )
     return (
         "zero-engagement-at-production-rate",
         f"nothing published in {win}d was accepted: {measured} measured post(s), "
@@ -1582,8 +1644,10 @@ def check_engagement_acceptance():
         "target -- so every machine-level check stays green while the RESULT is "
         "zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL "
         "gate; a flat engagement read there is this condition, not a starved "
-        "pipeline." + discovery_txt + " Self-closes when a published post is engaged "
-        "with (any like/comment/save in the window).",
+        "pipeline." + discovery_txt + platform_txt + " Self-closes when a published "
+        "post is engaged with (any like/comment/save in the window) -- that "
+        "predicate stays on the per-post columns the gate reads, so a platform "
+        "counter that disagrees is reported here and never closes it silently."
     )
 
 
@@ -7426,6 +7490,26 @@ def cmd_selftest(_argv):
            media_inventory_verdict(224, 223), "warn")
     expect("media_inventory_verdict[shrank-many]",
            media_inventory_verdict(224, 10), "warn")
+
+    # platform_engagement_corroboration: the acceptance counter may only CLAIM a
+    # platform witness when the platform actually answered. An unmeasured counter
+    # (None) must say so rather than imply corroboration, and the one direction
+    # that means our own read is blind -- platform saw engagement, our window is
+    # still zero -- must be named as a contradiction.
+    expect("platform_engagement_corroboration[unmeasured]",
+           platform_engagement_corroboration(None, 0, 0)[0], "unmeasured")
+    expect("platform_engagement_corroboration[unmeasured-says-so]",
+           "never" in platform_engagement_corroboration(None, 12, 0)[1], True)
+    expect("platform_engagement_corroboration[both-zero]",
+           platform_engagement_corroboration(0, 336, 0)[0], "corroborates")
+    expect("platform_engagement_corroboration[both-zero-names-days]",
+           "336 measured day(s)" in platform_engagement_corroboration(0, 336, 0)[1], True)
+    expect("platform_engagement_corroboration[platform-sees-engagement]",
+           platform_engagement_corroboration(3, 336, 0)[0], "contradicts")
+    expect("platform_engagement_corroboration[beyond-window]",
+           platform_engagement_corroboration(0, 12, 2)[0], "ours_only")
+    expect("platform_engagement_corroboration[both-engaged]",
+           platform_engagement_corroboration(3, 12, 5)[0], "ours_only")
 
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [

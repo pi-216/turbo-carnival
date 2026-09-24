@@ -213,32 +213,40 @@ RSpec.describe Instagram::Client do
                          'total_value' => { 'value' => value } } ] })
     end
 
+    def accounts_engaged_body(value)
+      ok({ 'data' => [ { 'name' => 'accounts_engaged', 'period' => 'day',
+                         'total_value' => { 'value' => value } } ] })
+    end
+
     before { allow(client).to receive(:sleep) }
 
     it 'reads a follow_type breakdown, treating an OMITTED dimension as a measured zero' do
       stub_flow([ reach_body([ { 'dimension_values' => [ 'FOLLOWER' ], 'value' => 6 } ]),
-                  profile_views_body(0) ])
+                  profile_views_body(0), accounts_engaged_body(0) ])
 
       att = client.reach_attribution
       expect(att[:follower_reach]).to eq(6)
       expect(att[:non_follower_reach]).to eq(0)
       expect(att[:reach_total]).to eq(6)
       expect(att[:profile_views]).to eq(0)
+      expect(att[:accounts_engaged]).to eq(0)
     end
 
     it 'reports a non-zero non-follower reach as discovery' do
       stub_flow([ reach_body([ { 'dimension_values' => [ 'FOLLOWER' ], 'value' => 3 },
                                { 'dimension_values' => [ 'NON_FOLLOWER' ], 'value' => 9 } ], total: 12),
-                  profile_views_body(4) ])
+                  profile_views_body(4), accounts_engaged_body(3) ])
 
       att = client.reach_attribution
       expect(att[:follower_reach]).to eq(3)
       expect(att[:non_follower_reach]).to eq(9)
       expect(att[:profile_views]).to eq(4)
+      expect(att[:accounts_engaged]).to eq(3)
     end
 
     it 'leaves the parts UNKNOWN (nil) when the response carries no breakdown block' do
-      stub_flow([ reach_body([], with_breakdown: false), profile_views_body(0) ])
+      stub_flow([ reach_body([], with_breakdown: false), profile_views_body(0),
+                  accounts_engaged_body(0) ])
 
       att = client.reach_attribution
       expect(att[:non_follower_reach]).to be_nil
@@ -246,12 +254,29 @@ RSpec.describe Instagram::Client do
       expect(att[:reach_total]).to eq(6)
     end
 
-    it 'returns nils instead of raising when the insights call fails' do
-      stub_flow([ response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }),
+    # The platform's own engagement counter is the ONE independent read of the
+    # zero the ops board tracks: an unanswered call must leave NULL (unmeasured),
+    # never 0, or a failed call would be published as "the platform agrees nobody
+    # engaged". Its failure must also not cost the other parts of the snapshot.
+    it 'leaves accounts_engaged nil -- not 0 -- when only its own call fails' do
+      stub_flow([ reach_body([ { 'dimension_values' => [ 'FOLLOWER' ], 'value' => 6 } ]),
+                  profile_views_body(2),
                   response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }) ])
 
       att = client.reach_attribution
-      expect(att).to eq(follower_reach: nil, non_follower_reach: nil, reach_total: nil, profile_views: nil)
+      expect(att[:accounts_engaged]).to be_nil
+      expect(att[:follower_reach]).to eq(6)
+      expect(att[:profile_views]).to eq(2)
+    end
+
+    it 'returns nils instead of raising when the insights call fails' do
+      stub_flow([ response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }),
+                  response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }),
+                  response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }) ])
+
+      att = client.reach_attribution
+      expect(att).to eq(follower_reach: nil, non_follower_reach: nil, reach_total: nil,
+                        profile_views: nil, accounts_engaged: nil)
     end
   end
 end

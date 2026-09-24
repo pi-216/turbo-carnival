@@ -15,7 +15,8 @@ RSpec.describe Growth::MetricsCollector do
   let(:goal) { create(:growth_goal, persona: persona) }
 
   def stub_client(followers: 157, attribution: { follower_reach: 6, non_follower_reach: 0,
-                                                 reach_total: 6, profile_views: 0 },
+                                                 reach_total: 6, profile_views: 0,
+                                                 accounts_engaged: 0 },
                   media_count: 224, raise_attribution: false, raise_media_count: false)
     instance = instance_double(Instagram::Client)
     allow(instance).to receive(:followers_count).and_return(followers)
@@ -43,6 +44,7 @@ RSpec.describe Growth::MetricsCollector do
     expect(snap.non_follower_reach).to eq(0)
     expect(snap.reach_total).to eq(6)
     expect(snap.profile_views).to eq(0)
+    expect(snap.accounts_engaged).to eq(0)
     expect(snap.discovery?).to be(false)
   end
 
@@ -61,7 +63,21 @@ RSpec.describe Growth::MetricsCollector do
     expect(snap.non_follower_reach).to be_nil
     expect(snap.follower_reach).to be_nil
     expect(snap.profile_views).to be_nil
+    expect(snap.accounts_engaged).to be_nil
     expect(snap.discovery?).to be(false)
+  end
+
+  # The platform's own daily engagement counter is the ONE independent read of
+  # the zero the ops board tracks, so an unanswered call must land as NULL and
+  # never as 0 -- a 0 would be published as "the platform agrees nobody engaged".
+  it 'leaves the platform engagement counter UNKNOWN (nil) when the API did not answer it' do
+    stub_client(attribution: { reach_total: 6, accounts_engaged: nil })
+
+    snap = collector.collect
+
+    expect(snap.followers).to eq(157)
+    expect(snap.reach_total).to eq(6)
+    expect(snap.accounts_engaged).to be_nil
   end
 
   it 'does not turn a dimension the API omitted into a zero' do

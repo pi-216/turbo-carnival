@@ -125,7 +125,7 @@ module Instagram
     # how a silently broken breakdown would show itself.
     def reach_attribution
       reach = account_reach_breakdown
-      reach.merge(profile_views: account_profile_views)
+      reach.merge(profile_views: account_profile_views, accounts_engaged: account_accounts_engaged)
     end
 
     # Fetch the current follower count for the connected business account.
@@ -217,6 +217,37 @@ module Instagram
       node && metric_total(node)
     rescue Faraday::Error, Error => e
       Rails.logger.warn("Instagram::Client#reach_attribution: profile_views unavailable (#{e.message})")
+      nil
+    end
+
+    # -> Integer count of accounts that engaged with the content for the period,
+    # or nil when unanswered.
+    #
+    # The platform's OWN engagement counter, and the one independent read of the
+    # condition this repo tracks as `zero-engagement-at-production-rate`: that
+    # item is a claim built from `scheduling_posts` columns WE collected, so every
+    # failure mode of our own collection (a media whose insights endpoint refuses,
+    # a post whose insights never land, an interaction type our metric set omits)
+    # presents as the same flat zero with nothing to contradict it. Instagram
+    # answers it directly -- "the number of accounts that have interacted with
+    # your content [...] actions such as likes, saves, comments, shares or
+    # replies". Measured live 2026-09-24: 0, corroborating the per-post zero.
+    #
+    # The period is ONE DAY, so this is a cross-check of a 14-day per-post window,
+    # never a replacement for it.
+    #
+    # Its OWN call, deliberately, even though `metric=accounts_engaged,
+    # profile_views` answers both nodes in one request (verified live 2026-09-24):
+    # folding them together would put a new metric's compatibility on the critical
+    # path of an existing measurement, so an API change that rejects the combined
+    # metric list would silently NULL `profile_views` too. Separate calls mean a
+    # new metric can only ever cost itself.
+    def account_accounts_engaged
+      body = insights_metric('accounts_engaged', breakdown: nil)
+      node = Array(body['data'] || body[:data]).find { |d| d['name'] == 'accounts_engaged' }
+      node && metric_total(node)
+    rescue Faraday::Error, Error => e
+      Rails.logger.warn("Instagram::Client#reach_attribution: accounts_engaged unavailable (#{e.message})")
       nil
     end
 
