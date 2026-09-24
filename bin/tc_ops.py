@@ -5706,19 +5706,57 @@ def is_probe_generated(path):
     return p in PROBE_GENERATED_SURFACES
 
 
+def probe_epoch():
+    """When the last board pass FINISHED, in epoch seconds (None when unreadable).
+
+    `write_human_digest()` runs at the end of every probe, so the digest's mtime
+    dates the moment that pass stopped writing. It is the reference the lingering
+    test needs and the only one available without new state.
+    """
+    try:
+        return NEEDS_HUMAN.stat().st_mtime
+    except OSError:
+        return None
+
+
+def is_probe_written(path, mtime, last_probe):
+    """PURE: is this path the last board pass's own output, or salvage?
+
+    A record the probe REWRITES every run (the live board items, the digest, the
+    inventory) carries the previous pass's mtime -- never older -- so it can never
+    be salvage: there is nothing to pick up, and the next pass rewrites it anyway.
+    A path written AFTER the last pass stopped (mtime > its epoch) is the opposite:
+    it is work in progress by a run that has not finished, which is exactly what
+    `lingering` must not count either (it outlives nothing yet).
+
+    Measured 2026-09-24: with only the digest exempted, aging every probe-written
+    path 60 min made this check fire on a run whose work was already committed --
+    the three live board items, so the item could never stay closed while any
+    interrupted execution sat in the 24h window. `last_probe` None (unreadable
+    digest) falls back to the static list only: an unreadable reference must fail
+    toward firing, never toward silence.
+    """
+    if is_probe_generated(path):
+        return True
+    if mtime is None or last_probe is None:
+        return False
+    return mtime >= last_probe - 1
+
+
 def lingering_worktree_changes(now, min_age_s=LINGERING_CHANGE_MIN * 60):
     """[(path, age_seconds)] for uncommitted paths older than min_age_s.
 
     None when git cannot be read. A path that no longer exists (a staged deletion)
     is skipped: the deletion itself is the change, and it has no mtime to date it.
     Paths the probe REGENERATES on every run are skipped too (see
-    is_probe_generated): they are always dirty and always old by the next tick, so
+    is_probe_written): they are always dirty and always old by the next tick, so
     they satisfy the lingering half on their own and re-file an item whose work was
     already committed.
     """
     out, rc = run(["git", "status", "--porcelain"], timeout=25, cwd=str(APP))
     if rc != 0:
         return None
+    last_probe = probe_epoch()
     rows = []
     for line in out.splitlines():
         if len(line) < 4:
@@ -5726,11 +5764,12 @@ def lingering_worktree_changes(now, min_age_s=LINGERING_CHANGE_MIN * 60):
         path = line[3:].strip().strip('"')
         if " -> " in path:  # rename: the NEW path is the one on disk
             path = path.split(" -> ", 1)[1].strip().strip('"')
-        if is_probe_generated(path):
-            continue
         age = _newest_mtime_age(APP / path, now)
-        if age is not None and age >= min_age_s:
-            rows.append((path, age))
+        if age is None or age < min_age_s:
+            continue
+        if is_probe_written(path, now - age, last_probe):
+            continue
+        rows.append((path, age))
     return rows
 
 
@@ -10334,6 +10373,22 @@ def cmd_selftest(_argv):
     expect("probe_generated[source-file]", is_probe_generated("lib/tasks/media_inventory.rake"), False)
     expect("probe_generated[the-rake-that-did-fire]",
            is_probe_generated("bin/tc_ops_media_removed_test.py"), False)
+
+    # is_probe_written: the mtime test that makes the exemption complete. A live
+    # board item carries the LAST pass's mtime (>= its epoch) -> never salvage; a
+    # file written after that pass stopped is work in progress -> also not salvage
+    # yet; a file older than the pass that rewrote the board IS salvage -> fires.
+    _pe = 1_000_000.0
+    expect("probe_written[live-board-item-at-epoch]",
+           is_probe_written("ops/board/x.json", _pe, _pe), True)
+    expect("probe_written[live-board-item-newer]",
+           is_probe_written("ops/board/x.json", _pe + 60, _pe), True)
+    expect("probe_written[stranded-before-the-last-pass]",
+           is_probe_written("lib/tasks/media_inventory.rake", _pe - 3600, _pe), False)
+    expect("probe_written[digest-with-no-reference]",
+           is_probe_written("ops/NEEDS_HUMAN.md", None, None), True)
+    expect("probe_written[unreadable-reference-still-fires]",
+           is_probe_written("ops/board/x.json", _pe - 3600, None), False)
 
     # ...and the CAUSE of such an interruption lives only in the kernel: our worker
     # scope is capped at 4 GiB and a heavy verification command run inline blows
