@@ -13,6 +13,10 @@
     {
       "ts": "2026-09-24T15:55:54-0400",
       "note": "ops-triage 2026-09-24: ROOT CAUSE FOUND AND FIXED. The 09:25 tick's 'unknown' execution was NOT a gateway restart (gateway up since 09-23 10:15 EDT, NRestarts=1): journalctl -k shows the kernel cgroup OOM killer took the worker scope at 13:40:34Z, 4.13GB anon vs its 4096MB cap, killing ruby+node-MainThread, while the tick ran a full-repo bin/rubocop whose 1.81 default --parallel forks ~38 procs (peak measured 2113-3518MB in an isolated scope). 18 such kills in 7d (14 = growth-brain, hourly 09-18). FIX: bin/ops_heavy.sh (own accounted scope + cgroup assertion; verified peak_mb=2114 isolated=yes oom_kill=0 while our worker scope stayed at 398MB/4096) + 'tc_ops.py heavy' passthrough + this check. Self-closes 24h after the last kill."
+    },
+    {
+      "ts": "2026-09-24T16:40:52-0400",
+      "note": "2026-09-24 20:5xZ ops-triage: cause fixed AND the point of use now carries the guard, so it no longer depends on an agent remembering. bin/rubocop degrades itself to serial when its own cgroup cap is below the measured parallel footprint: cap 4096 MB (the worker cap that killed the 09-24 tick) -> warning printed, serial, peak 576 MB, oom_kill=0; cap 8192 MB -> no warning, parallel, peak 2081 MB (guard inert, verified in two isolated systemd scopes). The exact command that killed the tick now completes inline in a 4 GiB worker scope. Wider look-back measured this pass (journalctl -k, 30d, 29 kills): 23 of them were job 43b0d5c4446d (the hourly growth brain) between 09-10 and 09-19, 14 of those consecutive hourly ticks on 09-18/09-19 -- a five-day silent production stall that nothing on this board reported; none since. Item stays open on its own 24h window and self-closes tomorrow."
     }
   ],
   "route_source": "check"
