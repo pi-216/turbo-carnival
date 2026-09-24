@@ -67,6 +67,7 @@ import calendar
 import datetime
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -273,6 +274,32 @@ COMFYUI_LIVE_WINDOW_S = 1800
 CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
                  or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
                  / "cron" / "jobs.json")
+
+# The one failure the rest of this board structurally cannot see: a run of one of
+# THIS profile's jobs is interrupted because the gateway restarts under it. The
+# execution row then ends `unknown` ("whether side effects ran is unknown"), the
+# cron JOB record is never touched at all -- so it keeps reporting the PREVIOUS
+# run's last_status/last_run_at and check_cron_delivery stays silent -- no report
+# is delivered, and every file the run wrote sits in the working tree uncommitted.
+# Measured 2026-09-24: the 09:25Z ops-triage tick was killed at 09:40Z with a
+# production-boot fix, a pack rename, a regression spec and 75 lines of probe code
+# already written and verified but never committed; nothing in jobs.json, in the
+# repo's checks or on the board showed it, and it surfaced only because the next
+# tick happened to read `git status` (genome: 'Completion Status != Completion
+# Evidence'). Override with TC_CRON_EXEC_DB; both reads are read-only, and an
+# unreadable one returns no signal rather than a warn.
+CRON_EXEC_DB = Path(os.environ.get("TC_CRON_EXEC_DB")
+                    or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
+                    / "cron" / "executions.db")
+# How long an interrupted run stays board-worthy: a day spans several ticks of
+# every job in the profile, and past that the row is history, not a live signal.
+INTERRUPTED_RUN_WINDOW_H = 24
+# ...and how long uncommitted work must have LINGERED before it counts as debris.
+# The probe itself rewrites ops/board/*.json and ops/NEEDS_HUMAN.md every tick, so
+# a merely dirty tree proves nothing. Work still uncommitted 45 minutes later is
+# work whose writer stopped: every job here commits before it exits (the tree is
+# clean at each of the last day's hourly commits).
+LINGERING_CHANGE_MIN = 45
 
 # PROMPT SAFETY: a stored workflow is executable instruction text, and the stored
 # text drifted. Measured live 2026-09-20: pipeline_steps 39/40 (pipeline 20
@@ -542,6 +569,46 @@ def check_launch_deps_importable():
             " | ".join(tail) or "import comfy.storage failed",
         )
     return None
+
+
+def check_production_boot():
+    """Can this app BOOT as production? `zeitwerk:check` is exactly that question.
+
+    One file whose constant does not match its path ABORTS eager loading, so
+    `RAILS_ENV=production` can neither boot nor run a task -- and the live
+    service hides it completely: bin/run_server.sh pins RAILS_ENV=development,
+    which loads lazily and never touches the file until a request does.
+    Measured 2026-09-24: `lib/ai/gemini_client.rb` defines `AI::` while its path
+    implies `Ai::`, so eager loading had been aborting for as long as the file
+    existed; behind it sat a second, older defect -- the gap_analysis pack
+    declared `module GapAnalysis` against the `GapAnalysis` ActiveRecord model
+    (a CLASS), so the pillar `#suggest` action returned "GapAnalysis is not a
+    module" instead of suggestions. rspec never eager-loads and the running
+    server is development, so neither saw either one; both are fixed, and this
+    check is what keeps the class visible.
+    """
+    rails = APP / "bin" / "rails"
+    if not rails.exists():
+        return None
+    try:
+        p = subprocess.run(
+            [str(rails), "zeitwerk:check"],
+            cwd=str(APP), capture_output=True, text=True, timeout=180,
+            env={**os.environ, "RAILS_ENV": "production"},
+        )
+    except Exception:
+        return None  # no ruby/rails here: nothing to conclude about the app
+    if p.returncode == 0:
+        return None
+    lines = [l.strip() for l in (p.stderr or "").strip().splitlines() if l.strip()
+             and not l.startswith("Hold on")]
+    evidence = " | ".join(lines[:4]) or f"zeitwerk:check exited {p.returncode}"
+    return (
+        "app-boot-production-broken",
+        "the app cannot boot with RAILS_ENV=production (eager load aborts)",
+        "critical",
+        evidence[:400],
+    )
 
 
 def foreign_hold_hours():
@@ -5065,6 +5132,154 @@ def check_cron_delivery():
     )
 
 
+def interrupted_run_verdict(rows, lingering, now):
+    """Pure: an interrupted run whose debris is STILL uncommitted -> board item.
+
+    `rows` are cron execution records (job_id, status, started_at, finished_at,
+    error); `lingering` is [(path, age_seconds)] for uncommitted work older than
+    LINGERING_CHANGE_MIN; `now` is epoch seconds.
+
+    Fires only when BOTH halves of the incident shape hold:
+
+      * an execution that never reached a terminal state inside the window --
+        `unknown` (the scheduler restarted under it), or a `running` row the
+        scheduler closed without a verdict. A `running` row with no finished_at is
+        the execution in progress RIGHT NOW (this probe's own row) and is never a
+        hit: a probe must not match itself.
+      * uncommitted work that has LINGERED long enough to have outlived its writer.
+
+    Either half alone is normal: a dirty tree is mid-tick work by another job, and
+    a killed run that left nothing behind has nothing to salvage. The conjunction
+    self-closes -- commit or revert the orphaned work and the item disappears on
+    the next probe -- which a `last_status`-keyed check could never do (it carries
+    an already-resolved item until the job next runs, up to a week).
+    """
+    if not lingering:
+        return None
+    cutoff = now - INTERRUPTED_RUN_WINDOW_H * 3600
+    hits = []
+    for r in rows:
+        status = str(r.get("status") or "").lower()
+        if status in ("completed", "failed"):
+            continue
+        dt = _utc_dt(r.get("finished_at"))
+        if dt is None:
+            continue  # in progress, or undated: neither can be placed in the window
+        end = dt.timestamp()
+        if end < cutoff:
+            continue
+        hits.append((end, r))
+    if not hits:
+        return None
+    hits.sort(key=lambda t: t[0])
+    end, row = hits[-1]
+    oldest_path, oldest_age = max(lingering, key=lambda p: p[1])
+    return (
+        "interrupted-cron-run-left-uncommitted-work",
+        f"a turbo-carnival cron run was interrupted "
+        f"{(now - end) / 3600:.1f}h ago and its work is still uncommitted",
+        "warn",
+        f"{len(hits)} interrupted execution(s) in the last "
+        f"{INTERRUPTED_RUN_WINDOW_H}h; newest: job {row.get('job_id')} started "
+        f"{row.get('started_at')}, ended {row.get('finished_at')} "
+        f"({str(row.get('error') or '')[:120]}). Uncommitted for "
+        f"{oldest_age / 3600:.1f}h: {len(lingering)} path(s), oldest "
+        f"{oldest_path} — read the tree, then commit or revert the salvaged work. "
+        f"An interrupted run's report was never delivered either, so what it found "
+        f"is only in its output file (cron/output/<job-id>/, status `unknown`).",
+    )
+
+
+def _cron_execution_rows(limit=60):
+    """This profile's recent cron executions, newest first; None when unreadable."""
+    try:
+        con = sqlite3.connect(f"file:{CRON_EXEC_DB}?mode=ro", uri=True, timeout=10)
+    except Exception:
+        return None
+    try:
+        cols = ("job_id", "status", "started_at", "finished_at", "error")
+        cur = con.execute(
+            "select job_id, status, started_at, finished_at, error from executions "
+            "order by coalesce(finished_at, started_at) desc limit ?", (limit,))
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    except Exception:
+        return None
+    finally:
+        con.close()
+
+
+def _newest_mtime_age(path, now, file_budget=2000):
+    """Age of the NEWEST file at/under `path`; None when unreadable.
+
+    A status entry for an untracked DIRECTORY carries the directory's own mtime,
+    which is not when its work was written -- measured 2026-09-24: the interrupted
+    run's `packs/gap_analysis/app/` reported an age of 7,070h while the file inside
+    it was minutes old, and the evidence then named that bogus path as the oldest.
+    The newest file beneath the directory is the writer's last touch, which is the
+    question being asked. The walk is bounded: this only ever runs on paths git
+    reports as dirty, and an unbounded walk of a large tree would cost more than
+    the signal is worth.
+    """
+    try:
+        if not path.is_dir():
+            return now - path.stat().st_mtime
+    except OSError:
+        return None
+    newest = None
+    seen = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            seen += 1
+            try:
+                m = (Path(root) / f).stat().st_mtime
+            except OSError:
+                continue
+            if newest is None or m > newest:
+                newest = m
+        if seen >= file_budget:
+            break
+    return None if newest is None else now - newest
+
+
+def lingering_worktree_changes(now, min_age_s=LINGERING_CHANGE_MIN * 60):
+    """[(path, age_seconds)] for uncommitted paths older than min_age_s.
+
+    None when git cannot be read. A path that no longer exists (a staged deletion)
+    is skipped: the deletion itself is the change, and it has no mtime to date it.
+    """
+    out, rc = run(["git", "status", "--porcelain"], timeout=25, cwd=str(APP))
+    if rc != 0:
+        return None
+    rows = []
+    for line in out.splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip().strip('"')
+        if " -> " in path:  # rename: the NEW path is the one on disk
+            path = path.split(" -> ", 1)[1].strip().strip('"')
+        age = _newest_mtime_age(APP / path, now)
+        if age is not None and age >= min_age_s:
+            rows.append((path, age))
+    return rows
+
+
+def check_interrupted_run_debris():
+    """A killed run of one of OUR jobs: the board's own blind spot (see CRON_EXEC_DB).
+
+    Read this as the repo-side counterpart of check_cron_delivery: that one asks
+    whether a finished run's result reached its reader, this one asks whether a run
+    that never finished left work behind that nobody has picked up.
+    """
+    rows = _cron_execution_rows()
+    if rows is None:
+        return None
+    now = time.time()
+    lingering = lingering_worktree_changes(now)
+    if lingering is None:
+        return None
+    return interrupted_run_verdict(rows, lingering, now)
+
+
 # A cron prompt is CONFIG, and config rots silently: a probe written as a raw-IP
 # curl is blocked by the tool scanner on private-network/plain-HTTP grounds, so
 # every run improvises its own workaround (an SSH hop, or a string-concatenated
@@ -6419,6 +6634,7 @@ CHECKS = [
     check_zombie_jobs,
     check_venv_drift,
     check_launch_deps_importable,
+    check_production_boot,
     check_slot,
     check_own_queue_leak,
     check_stuck_comfyui_jobs,
@@ -6464,6 +6680,7 @@ CHECKS = [
     check_queue_growth,
     check_scheduler_dispatcher,
     check_cron_delivery,
+    check_interrupted_run_debris,
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
     check_cron_prompt_log_paths,
@@ -9285,6 +9502,93 @@ def cmd_selftest(_argv):
         (globals()["BOARD"], globals()["NEEDS_HUMAN"],
          globals()["run"], globals()["CHECKS"]) = _ob, _onh, _orun, _ochk
         _tmpdir.cleanup()
+    # The production-boot check must FIRE, not merely be able to describe the
+    # condition. `RAILS_ENV=production` could not boot this app for as long as
+    # lib/ai/gemini_client.rb existed (it defines `AI::` while its path implies
+    # `Ai::`), and a second, older collision sat behind it -- the gap_analysis
+    # pack's `module GapAnalysis` against the `GapAnalysis` ActiveRecord CLASS.
+    # Nothing in rspec or the running (development, lazy-loading) server could
+    # see either one, so drive the real check against a stubbed subprocess.
+    _osub = globals()["subprocess"]
+
+    class _BootStub:
+        returncode = 1
+        stdout = ""
+        stderr = ("bin/rails aborted!\n"
+                  "TypeError: GapAnalysis is not a module (TypeError)\n"
+                  "Hold on, I am eager loading the application.\n")
+
+    class _BootOK:
+        returncode = 0
+        stdout = "All is good!\n"
+        stderr = ""
+
+    try:
+        globals()["subprocess"] = type("S", (), {"run": staticmethod(lambda *a, **k: _BootStub())})
+        _broken = check_production_boot()
+        expect("check_production_boot[fires-when-eager-load-aborts]",
+               (_broken or (None,))[0], "app-boot-production-broken")
+        expect("check_production_boot[evidence-names-the-collision]",
+               "not a module" in ((_broken or ("", "", "", ""))[3] or ""), True)
+        globals()["subprocess"] = type("S", (), {"run": staticmethod(lambda *a, **k: _BootOK())})
+        expect("check_production_boot[silent-when-boot-is-clean]",
+               check_production_boot(), None)
+    finally:
+        globals()["subprocess"] = _osub
+
+    # An interrupted run of our own job is the one signal only the STORE carries,
+    # and it must not fire on either half of the incident shape alone. Drive the
+    # pure verdict directly (no sqlite, no git): (a) `unknown` execution + lingering
+    # work -> fires, naming both; (b) the same execution with nothing uncommitted ->
+    # silent, there is nothing to salvage; (c) the row of the tick running NOW (no
+    # finished_at) must never count as interrupted, or the probe matches itself;
+    # (d) a row outside the window, and a terminal row, are history.
+    _now = time.time()
+    _unk = {"job_id": "9c05f60f5fef", "status": "unknown",
+            "started_at": "2026-09-24T09:25:05-04:00",
+            "finished_at": "2026-09-24T09:40:35-04:00",
+            "error": "Scheduler restarted after this execution's owner exited"}
+    _live = dict(_unk, status="running", finished_at=None)
+    _ling = [("bin/tc_ops.py", 3600), ("ops/board/x.json", 300)]
+    _iv = interrupted_run_verdict([_unk, _live], _ling, _now)
+    expect("interrupted_run[fires-on-unknown-plus-lingering-work]",
+           (_iv or (None,))[0], "interrupted-cron-run-left-uncommitted-work")
+    expect("interrupted_run[evidence-names-the-oldest-path]",
+           "bin/tc_ops.py" in ((_iv or ("", "", "", ""))[3] or ""), True)
+    expect("interrupted_run[silent-when-nothing-is-uncommitted]",
+           interrupted_run_verdict([_unk], [], _now), None)
+    expect("interrupted_run[never-matches-the-running-tick]",
+           interrupted_run_verdict([_live], _ling, _now), None)
+    expect("interrupted_run[silent-when-the-row-is-outside-the-window]",
+           interrupted_run_verdict([dict(_unk, finished_at="2026-09-17T11:01:28-04:00")],
+                                   _ling, _now), None)
+    expect("interrupted_run[silent-on-a-terminal-row]",
+           interrupted_run_verdict([dict(_unk, status="completed")], _ling, _now), None)
+
+    # ...and the AGE of an untracked directory must come from the work inside it.
+    # Git reports an untracked dir by the directory's own mtime, which measured
+    # 7,070h for a directory the interrupted run had created minutes earlier -- and
+    # that bogus value was then named in the evidence as the oldest lingering path.
+    _agedir = tempfile.TemporaryDirectory()
+    try:
+        _base = Path(_agedir.name)
+        (_base / "app").mkdir()
+        (_base / "app" / "old.rb").write_text("x")
+        _stale = time.time() - 9000
+        os.utime(_base / "app", (_stale, _stale))
+        os.utime(_base / "app" / "old.rb", (_stale, _stale))
+        (_base / "app" / "new.rb").write_text("y")
+        _dir_age = _newest_mtime_age(_base / "app", time.time())
+        expect("lingering[dir-age-is-the-newest-file-inside-it]",
+               _dir_age is not None and _dir_age < 60, True)
+        _file_age = _newest_mtime_age(_base / "app" / "old.rb", time.time())
+        expect("lingering[file-age-is-its-own-mtime]",
+               _file_age is not None and abs(_file_age - 9000) < 60, True)
+        expect("lingering[missing-path-has-no-age]",
+               _newest_mtime_age(_base / "gone.rb", time.time()), None)
+    finally:
+        _agedir.cleanup()
+
     audit_cases = list(range(11))
 
     for f in fails:
