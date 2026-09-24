@@ -17,5 +17,6 @@
       "note": "Closed by the ContentGenerator fix: growth runs no longer stay 'pending' after their render (terminal status written on every exit path) and the 10 orphaned pending runs were reconciled. pending now = 0."
     }
   ],
-  "source": "probe"
+  "source": "probe",
+  "closed_at": "2026-09-19T11:53:08-0400"
 }

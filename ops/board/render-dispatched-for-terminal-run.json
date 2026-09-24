@@ -17,5 +17,6 @@
       "ts": "2026-09-19T12:50:47-0400",
       "note": "New guard filed this during the fix and is now quiet: the 32 matches were rework dispatched by the OLD selector before the fix (e.g. job 7552 for run87, already 'failed', created 16:36:44Z - proof the bug was live). The window is 'job created after the run's last write while the run is terminal', which excludes runs mass-marked failed on 15:40:18Z. Verified the guard still fires: a synthetic terminal-run job inserted in a rolled-back transaction returns count=1; live data returns 0."
     }
-  ]
+  ],
+  "closed_at": "2026-09-19T12:49:22-0400"
 }

@@ -34,5 +34,6 @@
       "note": "NOT filed, and the card is still held: the :8188 instance (pid 553489) is the OPERATOR's own interactive session -- no agent may touch it, its launch line is not ours to change, and the harness ownership rule says yield. This item has no agent remedy, so it is not filed as an agent decision; the harm it causes (render starvation) is escalated on render-starved (route=tim) with the lever, and was last seen idle-holding 17.8 GB on the 4090."
     }
   ],
-  "route": "agent"
+  "route": "agent",
+  "closed_at": "2026-09-23T04:37:28-0400"
 }

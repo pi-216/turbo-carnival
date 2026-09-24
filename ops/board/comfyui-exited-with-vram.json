@@ -22,5 +22,6 @@
       "ts": "2026-09-22T00:51:43-0400",
       "note": "2026-09-22 04:5xZ ops-triage: CORRECTION -- the fix's CODE is in commit 1fe8404 (16ae76d carried only the file rename; its message was written as if the code were included). Same content, same verification: selftest 292 assertions / 0 failures, check_telemetry_oom() returns None on the live telemetry file, item auto-closed."
     }
-  ]
+  ],
+  "closed_at": "2026-09-22T00:31:34-0400"
 }

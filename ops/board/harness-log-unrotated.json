@@ -17,5 +17,6 @@
       "note": "FIXED: bin/comfyui_harness.sh log() now calls rotate_harness_log(), keeping HARNESS_LOG_KEEP_LINES=600 once the file passes 1200 lines, and writes a 'harness log rotated' line so the truncation is self-documenting. Applied to the live log (2001 -> 601 lines) using the real function; verified it rotates once and is a no-op under threshold."
     }
   ],
-  "source": "probe"
+  "source": "probe",
+  "closed_at": "2026-09-19T12:41:52-0400"
 }
