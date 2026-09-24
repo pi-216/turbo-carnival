@@ -175,6 +175,15 @@ GATE_INTERVENTION_AT = "2026-09-21 23:35:00"   # Growth::GateRead::INTERVENTION_
 GATE_MIN_COHORT_RE = re.compile(r"MIN_COHORT_POSTS\s*=\s*(\d+)")
 GATE_INTERVENTION_RE = re.compile(
     r"INTERVENTION_AT\s*=\s*Time\.utc\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)")
+# The cohort rule must be enforced on the SET the engagement leg READS, not only
+# on the count it reports: the leg's pillars used to come from the unfiltered
+# window, so a pillar whose every post predated the levers could be the gate's
+# "top pillar" and pass the 3.0% leg on content the intervention never touched
+# (measured 2026-09-24: 9.0% from three pre-intervention posts beside a valid
+# cohort at 0.0%). Growth::GateRead now reads the leg off its cohort relation;
+# this marker asserts the two cannot drift back apart, because a revert leaves
+# every board signal green while the read judges the wrong set.
+GATE_COHORT_LEG_RE = re.compile(r"pillar_stats\(\s*cohort_scope\s*\)")
 # Placeholder-caption rate: a single fallback is a cold-load blip, a sustained
 # rate means the caption path is dead and every post ships 'Fresh look'.
 CAPTION_MIN_POSTS = 3
@@ -2007,17 +2016,33 @@ def weekly_gate_wired_verdict(rake_src, gate_src):
             return ("warn",
                     f"pre-registered pillar engagement floor is now {floor.group(1)}% "
                     f"(registered at {GATE_PILLAR_FLOOR}%) -- same as above")
+        # The leg must READ the cohort, not only COUNT it: a leg averaging the
+        # unfiltered window lets content that predates the levers decide it.
+        if not GATE_COHORT_LEG_RE.search(gate_src):
+            return ("warn",
+                    "the engagement leg no longer reads the COHORT: Growth::GateRead's "
+                    "window-wide pillars are what the leg averages again, so a pillar "
+                    "whose every post predates INTERVENTION_AT can pass it on content "
+                    "the intervention never touched (the cohort rule is still enforced "
+                    "on cohort_size, which is exactly how this reads green)")
     return None
 
 
 def check_weekly_review_gate_wired():
-    """Assert the pre-registered gate is emitted by the review it names.
+    """Assert the pre-registered gate is emitted by the review it names, and that
+    the read still judges the SET it claims to judge.
 
     The gate was registered on the ops board as PROSE, then implemented as code
     (Growth::GateRead) -- but a read nobody schedules is still prose in practice.
     Measured 2026-09-22: `growth:gate` existed and was run only by hand on an ops
     pass, while the weekly review the criterion references printed no gate line
     at all.
+
+    Since 2026-09-24 it also asserts the cohort rule is enforced on the SET the
+    engagement leg reads: the leg averaged the unfiltered window while only
+    `cohort_size` was filtered, so a pillar whose every post predated the levers
+    could be the gate's "top pillar" (measured: 9.0% pass on a valid cohort at
+    0.0%). A revert of that would keep every other signal green.
     """
     def read(p):
         try:
@@ -7793,19 +7818,24 @@ def cmd_selftest(_argv):
     # weekly_gate_wired_verdict: (rake source, gate_read source) -> (severity, evidence)
     # or None. The guard exists because the pre-registered criterion names "that
     # review" as when it is read, and until 2026-09-22 nothing scheduled emitted it.
+    # It also asserts the two locked thresholds AND that the engagement leg reads
+    # the cohort (a revert of the cohort-scoped leg leaves the count rule intact,
+    # so the gate would read green while judging content that cannot vote).
     gate_ok = "  FOLLOWER_CEILING        = 170\n  PILLAR_ENGAGEMENT_FLOOR = 3.0\n"
+    gate_ok_leg = gate_ok + "  pillars = review.pillar_stats(cohort_scope)\n"
     review_wired = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n")
     review_dark = ("  task :weekly_review do\n    puts review.verdict\n  end\n")
     gate_cases = [
-        ("wired", review_wired, gate_ok, None),
+        ("wired", review_wired, gate_ok_leg, None),
         ("wired-inline", "  task :weekly_review do\n    Growth::GateRead.new(goal: goal).call\n  end\n",
-         gate_ok, None),
-        ("review-dropped-the-gate", review_dark, gate_ok, "warn"),
+         gate_ok_leg, None),
+        ("review-dropped-the-gate", review_dark, gate_ok_leg, "warn"),
         ("task-renamed", "  task :weekly_something_else do\n    print_gate_read.call(goal)\n  end\n",
-         gate_ok, "warn"),
+         gate_ok_leg, "warn"),
         ("ceiling-moved", review_wired, "  FOLLOWER_CEILING        = 250\n", "warn"),
         ("floor-moved", review_wired, "  PILLAR_ENGAGEMENT_FLOOR = 1.0\n", "warn"),
-        ("rake-unreadable", "", gate_ok, "warn"),
+        ("leg-back-on-the-window", review_wired, gate_ok, "warn"),
+        ("rake-unreadable", "", gate_ok_leg, "warn"),
         ("gate-src-unreadable", review_wired, "", None),
     ]
     for name, rake_src, gate_src, want in gate_cases:
