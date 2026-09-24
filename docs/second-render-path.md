@@ -159,3 +159,30 @@ lifecycle, not a parameter.
 4. **Co-existence.** The failure mode to guard is *our* render starving the caption endpoint or
    the other projects' services on the same unified-memory box. Size from live free RAM, and
    check the resident set at claim time, not from a constant.
+
+## DATED DECISION (2026-09-24) — when the lever stops being optional
+
+The trigger above ("if max395 becomes the only path") was open-ended, so every tick could
+re-derive it and none had to decide. The containment depth is now MEASURED — `bin/library_depth.py`
+writes `ops/library_depth.json`, `bin/tc_ops.py queue` prints `silence=`, and the board's
+`publish-silence-forecast` check escalates on the date — so the trigger has a clock:
+
+| fact | value (measured 2026-09-24 00:3xZ) |
+|---|---|
+| publish queue dry_out | 2026-09-29T10:30Z |
+| GPU-free library depth | **8 spendable photos** = 2.67d at 3/day (of 51 candidates) |
+| SILENCE if no render lands | **2026-10-02T02:30Z** — and the library is EMPTY after it |
+| the library lever starts firing | when runway < 72h, i.e. ~2026-09-26T10:30Z |
+
+**DECISION: if the 4090 is still blocked at the 72h trigger (~2026-09-26T10:30Z), max395 IS the
+only path, and the fp8 lever is taken TOGETHER with the remote wiring** — not the lever alone,
+because the lever without the wiring renders nothing; and not later than that date, because after
+2026-10-02 there is nothing left to publish at all. The known cost is recorded rather than hidden:
+an fp8 UNet is a product change that cannot be A/B-validated while the only capable card is held,
+so it would ship on the argument that a slightly heterogeneous corpus beats an empty account (the
+09-28 gate cohort is already unmeasurable — 1 post-intervention post of the 5 needed).
+
+Until that date nothing changes: the lever stays untaken, the 4090 path stays preferred, and the
+wiring (the long pole — step 2 above is a build, not a flag) starts at the trigger, which leaves
+~6 days of margin before silence.
+
