@@ -48,7 +48,7 @@ class ContentPillarsController < ApplicationController
   def suggest
     existing_photos = @pillar.photos
     
-    @suggestions = GapAnalysis::AiSuggester.suggest(
+    @suggestions = GapAnalysisAi::Suggester.suggest(
       pillar: @pillar,
       persona: @persona,
       existing_photos: existing_photos

@@ -1,7 +1,15 @@
 # frozen_string_literal: true
 
-module GapAnalysis
-  class AiSuggester
+# NOTE: this class deliberately does NOT live under a `GapAnalysis` namespace.
+# `GapAnalysis` is an ActiveRecord model (`app/models/gap_analysis.rb`) -- a
+# CLASS -- so `module GapAnalysis` here raised
+# `TypeError: GapAnalysis is not a module` the moment both were loaded, which
+# killed eager loading (`RAILS_ENV=production bin/rails zeitwerk:check` aborted,
+# i.e. the app could not boot in production at all) and made the pillar
+# `#suggest` action return "Error generating suggestions: GapAnalysis is not a
+# module" instead of suggestions. Keep the namespace distinct from the model.
+module GapAnalysisAi
+  class Suggester
     def self.suggest(pillar:, persona:, existing_clusters: [], existing_photos: [])
       new(pillar: pillar, persona: persona, existing_clusters: existing_clusters, existing_photos: existing_photos).suggest
     end
@@ -33,8 +41,8 @@ module GapAnalysis
     end
 
     def generate_suggestions_with_ai(pillar, context)
-      require_relative '../../../../../lib/ai/gemini_client'
-      
+      require Rails.root.join('lib', 'ai', 'gemini_client') unless defined?(AI::GeminiClient)
+
       client = AI::GeminiClient.new
       
       prompt = build_prompt(pillar, context)
