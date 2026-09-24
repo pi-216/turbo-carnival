@@ -7,11 +7,15 @@ module Growth
   # - ratio < 0            → BREAK: followers are leaving (negative measured
   #                          growth). Escalating output is contraindicated —
   #                          retract cadence, flag that the strategy is broken.
-  # - ratio < 0.75          → escalate: raise posts_per_day (up to max), then hashtags
+  # - ratio < 0.75          → escalate: raise posts_per_day (up to max); at max,
+  #                          persist `strategy_exhausted` (the ladder has no live
+  #                          knob left -- see escalate)
   # - ratio > 1.5           → cut back cadence to conserve photo inventory
   # - < 2 snapshots         → defer, noting we need data
-  # - interval not elapsed  → skip, report next due date (EXCEPT when declining:
-  #                          follower loss is an anomaly and never waits out the interval)
+  # - interval not elapsed  → skip, reporting next_strategy_review_at (the BRAIN's
+  #                          own next adjustment, which is NOT the weekly review's
+  #                          cadence -- see skip_report; EXCEPT when declining:
+  #                          follower loss is an anomaly and never waits it out)
   class StrategyBrain
     ESCALATE_THRESHOLD = 0.75
     CUTBACK_THRESHOLD  = 1.5
@@ -72,17 +76,24 @@ module Growth
       )
     end
 
+    # ESCALATION LADDER — live knobs only. `goal.hashtag_count` used to be the
+    # second rung and NOTHING in the production path reads it: the tags that
+    # reach a post come from ContentStrategy::HashtagEngine over the pillar +
+    # persona strategy (config/content_strategy.yml hashtag_count_min/max) and
+    # from Personas::HashtagStrategy#max_tags, which PersonaEvolution#enforce_tag_baseline
+    # pins to TAG_BASELINE because the 10 -> 30 "broaden tags" ramp was DISPROVEN
+    # (reviews 2-5, engagement flat under it). Ramping an unread field made the
+    # ladder's top rung a SILENT NO-OP -- exactly what the escalation-exhaustion
+    # requirement ("escalation reaching its ceiling SHALL NOT be a silent no-op")
+    # exists to prevent -- and it POSTPONED the `strategy_exhausted` conclusion
+    # past the point where the last live knob had been spent. Measured
+    # 2026-09-24: posts_per_day 3/3, hashtag_count 20 with zero consumers,
+    # 5 escalate_cadence decisions recorded, strategy_exhausted never once.
     def escalate(ratio)
       from = { posts_per_day: goal.posts_per_day, hashtag_count: goal.hashtag_count }
+      return exhaust(ratio) unless goal.posts_per_day < goal.max_posts_per_day
 
-      if goal.posts_per_day < goal.max_posts_per_day
-        goal.update!(posts_per_day: goal.posts_per_day + 1, last_reviewed_at: Time.current)
-      elsif goal.hashtag_count < 30
-        goal.update!(hashtag_count: goal.hashtag_count + 5, last_reviewed_at: Time.current)
-      else
-        return exhaust(ratio)
-      end
-
+      goal.update!(posts_per_day: goal.posts_per_day + 1, last_reviewed_at: Time.current)
       log_decision(:escalate_cadence, from, reason_text(ratio, ahead: false))
     end
 
@@ -104,11 +115,16 @@ module Growth
       { view: 'hold', ratio: ratio.round(2), note: note }
     end
 
-    # ESCALATION EXHAUSTED — all volume knobs are at max yet the trajectory is
-    # still behind. Persist this as a Decision (the old code returned a transient
-    # hash and wrote nothing — silence masquerading as "hold"). This is the
-    # authority's signal that volume cannot fix the gap; the weekly review's
+    # ESCALATION EXHAUSTED — every LIVE volume knob is at max yet the trajectory
+    # is still behind. Persist this as a Decision (the old code returned a
+    # transient hash and wrote nothing — silence masquerading as "hold"). This is
+    # the authority's signal that volume cannot fix the gap; the weekly review's
     # resource_blocked / goal_unattainable verdicts take it from here.
+    #
+    # The reason names `posts_per_day` ONLY: it is the ladder's last live knob
+    # (see escalate), so naming `hashtag_count` here would report a ceiling on a
+    # field no consumer reads — the same unbound signal, moved into the audit
+    # trail.
     def exhaust(ratio)
       from = { posts_per_day: goal.posts_per_day, hashtag_count: goal.hashtag_count }
       goal.touch(:last_reviewed_at)
@@ -116,9 +132,9 @@ module Growth
         goal: goal,
         snapshot: goal.latest_snapshot,
         action: 'strategy_exhausted',
-        reason: "at max effort (posts_per_day=#{goal.posts_per_day}/#{goal.max_posts_per_day}, " \
-                "hashtag_count=#{goal.hashtag_count}/30) yet ratio #{ratio.round(3)} — " \
-                'no volume knob left; fix the render resource or re-target the goal',
+        reason: "at max effort (posts_per_day=#{goal.posts_per_day}/#{goal.max_posts_per_day}) " \
+                "yet ratio #{ratio.round(3)} — no volume knob left; fix the render resource " \
+                'or re-target the goal',
         from_values: from,
         to_values: from,
         decided_at: Time.current
@@ -170,8 +186,23 @@ module Growth
       latest.nil? || latest.decided_at < goal.review_interval_days.days.ago
     end
 
+    # The BRAIN's OWN throttle -- NOT the weekly review's cadence. Two different
+    # clocks both read as "the next review", and this key is the one a reader
+    # would mistake for the pre-registered one:
+    #   * here       -- `goal.last_reviewed_at` (touched on every DUE evaluation,
+    #                   including a no-op hold) + review_interval_days = when the
+    #                   strategy brain may adjust again. Lands on whatever weekday
+    #                   the last adjustment happened to fall on.
+    #   * the gate's -- `growth_reviews.reviewed_at` + review_interval_days = when
+    #                   the weekly review -- the pre-registered GO/PIVOT/KILL read
+    #                   -- runs (Mondays 13:00Z here).
+    # Measured 2026-09-24 they disagreed by 2 days (this clock said 09-30 while
+    # the registered read was 09-28), and the hourly brain report carried the
+    # wrong one. Named for what it is so no reader sizes a read off it; the ops
+    # board's `check_weekly_review_due` watches the gate's own clock.
     def skip_report
-      { view: 'skip', next_review_at: (goal.last_reviewed_at || Time.current) + goal.review_interval_days.days }
+      { view: 'skip',
+        next_strategy_review_at: (goal.last_reviewed_at || Time.current) + goal.review_interval_days.days }
     end
   end
 end

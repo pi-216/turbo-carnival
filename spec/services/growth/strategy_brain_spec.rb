@@ -86,5 +86,55 @@ RSpec.describe Growth::StrategyBrain do
 
       expect(result[:view]).to eq('skip')
     end
+
+    # Two different clocks both read as "the next review": this one is the BRAIN's
+    # own throttle (goal.last_reviewed_at, touched on every due evaluation) and the
+    # other is the weekly review's cadence (growth_reviews.reviewed_at). Measured
+    # 2026-09-24 they disagreed by 2 days, and the hourly report's key invited a
+    # reader to take the brain's for the pre-registered read's date.
+    it 'reports its own throttle under a name that cannot be read as the weekly review' do
+      goal.update!(last_reviewed_at: Time.current)
+
+      result = brain.review
+
+      expect(result).to have_key(:next_strategy_review_at)
+      expect(result).not_to have_key(:next_review_at)
+      expect(result[:next_strategy_review_at])
+        .to be_within(1.minute).of(goal.reload.last_reviewed_at + goal.review_interval_days.days)
+    end
+  end
+
+  describe 'escalation exhaustion (live knobs only)' do
+    # At max cadence with the ratio still below ESCALATE_THRESHOLD the ladder has
+    # nothing live left to pull, so the exhaustion conclusion must be PERSISTED
+    # (the change's "escalation reaching its ceiling SHALL NOT be a silent
+    # no-op"). `hashtag_count` is deliberately NOT a rung: nothing in the
+    # production path reads it -- post tags come from ContentStrategy::HashtagEngine
+    # and Personas::HashtagStrategy#max_tags, which enforce_tag_baseline pins to
+    # TAG_BASELINE because the 10 -> 30 broaden ramp was disproven -- so ramping it
+    # recorded an adjustment that changed nothing and delayed this conclusion.
+    let(:goal) do
+      create(:growth_goal, persona: persona, start_followers: 151, target_followers: 1000,
+                           posts_per_day: 3, max_posts_per_day: 3, hashtag_count: 20,
+                           review_interval_days: 7, last_reviewed_at: 10.days.ago)
+    end
+
+    before do
+      goal.snapshots.create!(followers: 151, taken_at: 5.days.ago)
+      goal.snapshots.create!(followers: 153, taken_at: 1.day.ago)
+    end
+
+    it 'persists strategy_exhausted naming the live knob and leaves the inert field alone' do
+      result = brain.review
+
+      expect(result[:view]).to eq('strategy_exhausted')
+      expect(goal.reload.posts_per_day).to eq(3)  # at max, never raised past it
+      expect(goal.hashtag_count).to eq(20)        # inert knob untouched
+
+      decision = Growth::Decision.order(decided_at: :desc).first
+      expect(decision.action).to eq('strategy_exhausted')
+      expect(decision.reason).to include('posts_per_day=3/3')
+      expect(decision.reason).to include('no volume knob left')
+    end
   end
 end

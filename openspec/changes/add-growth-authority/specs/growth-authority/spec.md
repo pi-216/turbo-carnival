@@ -30,15 +30,25 @@ Thresholds (named constants):
   the recommendation to the operator.
 
 ### Requirement: Escalation-exhaustion is persisted
-The system SHALL persist a `strategy_exhausted` Decision whenever the volume knobs
-(`posts_per_day`, `hashtag_count`) are all at their maximum and the trajectory is still
-`behind`. Escalation reaching its ceiling SHALL NOT be a silent no-op.
+The system SHALL persist a `strategy_exhausted` Decision whenever every escalation knob
+that has a production consumer is at its maximum and the trajectory is still `behind`.
+Escalation reaching its ceiling SHALL NOT be a silent no-op, and a knob that no
+production path reads SHALL NOT be an escalation rung.
 
 #### Scenario: At max effort, still behind
-- **WHEN** an `escalate` review finds `posts_per_day == max_posts_per_day` AND
-  `hashtag_count >= MAX_HASHTAGS` while `traj_ratio < 0.75`
+- **WHEN** an `escalate` review finds `posts_per_day == max_posts_per_day` while
+  `traj_ratio < 0.75`
 - **THEN** the system SHALL write a `strategy_exhausted` Decision with reason text naming
-  the exhausted knobs and the ratio.
+  the exhausted knob (`posts_per_day`) and the ratio.
+
+#### Scenario: An inert knob is not a rung
+- **WHEN** a goal field is written by the strategy loop but read by no production path
+  (`hashtag_count`: the tags that reach a post come from `ContentStrategy::HashtagEngine`
+  over the pillar/persona strategy, and from `Personas::HashtagStrategy#max_tags`, which
+  `PersonaEvolution#enforce_tag_baseline` pins to `TAG_BASELINE`)
+- **THEN** the field SHALL NOT appear in the escalation ladder, because ramping it records
+  an adjustment that changes nothing while postponing the exhaustion conclusion past the
+  point where the last live knob was spent.
 
 ### Requirement: Resource-blocked attribution
 The system SHALL attribute a `behind`/`pivot` trajectory to resource starvation when the

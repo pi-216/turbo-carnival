@@ -2256,6 +2256,58 @@ def cohort_feasible_count(slots_csv, lag_h):
     return None if seen == 0 else ok
 
 
+# The instant the pre-registered GO/PIVOT/KILL read is DUE, from the app's OWN
+# cadence: the newest weekly review plus the goal's review_interval_days -- never
+# a hardcoded weekday. Deliberately the same derivation check_gate_cohort_starved
+# forecasts the cohort from, so the two can never disagree about when the read is.
+#
+# The anchor falls back to the goal's CREATION, not to `now`, when no review row
+# exists: a goal whose review engine never produced a row is OVERDUE, and an
+# anchor of now would make this check's OK satisfiable by the very absence it
+# exists to report (a probe that cannot fail is worse than no probe). The reviews
+# are scoped to the goal, so a second goal cannot date the first one's read.
+#
+# All growth_* datetimes are `timestamp without time zone` holding UTC while this
+# psql session is America/New_York, so the arithmetic is done explicitly in UTC --
+# `to_char` on a naive column prints the stored UTC value, and the comparison uses
+# `now() at time zone 'UTC'`, giving a naive-minus-naive interval.
+WEEKLY_REVIEW_DUE_SQL = (
+    "with g as (select review_interval_days as iv,"
+    " coalesce((select max(r.reviewed_at) from growth_reviews r"
+    "            where r.goal_id = growth_goals.id), created_at) as anchor"
+    " from growth_goals where status = 'active' order by id limit 1)"
+    " select to_char(g.anchor, 'MM-DD HH24:MI') || '|'"
+    " || to_char(g.anchor + g.iv * interval '1 day', 'MM-DD HH24:MI') || '|'"
+    " || round(extract(epoch from ((now() at time zone 'UTC')"
+    "    - (g.anchor + g.iv * interval '1 day'))) / 3600.0)::int::text"
+    " from g"
+)
+
+# How long past the due instant the review may still be RUNNING before its absence
+# is a finding. The weekly job fires on the hour and the task takes ~1 minute, so
+# an hour of grace cannot mask a missed tick -- while the ops loop re-reads
+# hourly, so the recovery still lands the same day.
+WEEKLY_REVIEW_GRACE_H = 1
+# Past this the registered read has slipped more than a day: the window it reads
+# is anchored at the review INSTANT, so a late read is no longer the registered
+# one -- and the next scheduled opportunity is a full week away.
+WEEKLY_REVIEW_CRITICAL_H = 48
+
+
+def weekly_review_due_verdict(overdue_h):
+    """PURE: hours past the pre-registered read's due instant -> (severity, hours).
+
+    None means "not overdue" (or an unreadable number, which is never a failure --
+    the caller has already proved it parsed a row). Severity escalates once the
+    read has slipped a day, because from then on the window the review reads is
+    anchored somewhere the pre-registration never named.
+    """
+    hours = as_int(overdue_h)
+    if hours is None or hours <= WEEKLY_REVIEW_GRACE_H:
+        return None
+    return ("critical" if hours >= WEEKLY_REVIEW_CRITICAL_H else "warn", hours)
+
+
 def check_gate_cohort_starved():
     """No read of the pre-registered gate can be a MEASUREMENT while renders are refused.
 
@@ -2364,6 +2416,60 @@ def check_gate_cohort_starved():
         + ". Nothing here is ours to repair -- the refusal itself is correct (an instance "
           "launched without --reserve-vram cannot be submitted to) -- and this entry is not an "
           "ask on the holder: it self-closes when the loop stops being refused."
+    )
+
+
+def check_weekly_review_due():
+    """Did the pre-registered GO/PIVOT/KILL read actually RUN when it was due?
+
+    The read is a SCHEDULED EVENT, and nothing on this board watched the event
+    itself: check_weekly_review_gate_wired asserts the review CODE still emits the
+    gate (a static read of two files), check_cron_delivery reads delivery TARGETS,
+    and check_gate_cohort_starved FORECASTS the cohort. So a weekly job that
+    silently never fires -- the documented Hermes cron scheduler gap (`next_run_at`
+    stuck in the past while `force-run` works), a config-drift refusal, a provider
+    outage, or an exception raised in the task -- defers the one decision this
+    experiment is gated on by a FULL WEEK with every other signal green (genome:
+    'Expected-Event Absence Detection' / 'Quiescence Attribution').
+
+    Keyed on the app's own ground truth (`growth_reviews`), not on the job store's
+    bookkeeping: a run that fires and fails to write a review row is exactly as
+    absent as one that never fired, and the review row is what the gate read walks
+    away from. Self-closing -- the row lands and the entry clears next probe.
+    Route is agent, because the recovery is in-repo: the next ops pass can force
+    `growth:weekly_review[Sarah]` and must then record the read as LATE, since the
+    window it reads is anchored at the review instant.
+    """
+    row = psql(WEEKLY_REVIEW_DUE_SQL)
+    if not row:
+        return None
+    parts = row.split("|")
+    if len(parts) != 3:
+        return None
+    anchor, due_at, overdue_h = (p.strip() for p in parts)
+    v = weekly_review_due_verdict(overdue_h)
+    if not v:
+        return None
+    severity, hours = v
+    return (
+        "weekly-review-overdue",
+        f"the pre-registered GO/PIVOT/KILL read did not run: {hours}h past its due "
+        f"instant ({due_at}Z) with no weekly review since {anchor}Z",
+        severity,
+        f"the newest Growth::Review row is {anchor}Z; the goal's review_interval_days puts the "
+        f"next read at {due_at}Z, which passed {hours}h ago and produced no review row. This "
+        f"event is the pre-registration's own arm (the gate is read BY that review), so until it "
+        f"runs there is no verdict at all -- and the next scheduled opportunity is a full week "
+        f"away. Nothing else on this board can see it: check_weekly_review_gate_wired asserts the "
+        f"review's CODE still emits the gate, check_cron_delivery reads delivery targets, and "
+        f"check_gate_cohort_starved only forecasts the cohort. Check it in this order: the job "
+        f"store (`tc-weekly-persona-review`: enabled, next_run_at, last_status in "
+        f"cron/jobs.json) for a scheduler gap or a drift refusal; cron/executions.db for an error "
+        f"row; then the review task's own output file under cron/output/<job-id>/ for an "
+        f"exception in the task itself. Recovery is "
+        f"in-repo -- force `growth:weekly_review[Sarah]` and RECORD THAT THE READ WAS LATE, "
+        f"because the window it reads is anchored at the review instant, so a late read is not "
+        f"the registered one."
     )
 
 
@@ -6695,6 +6801,7 @@ CHECKS = [
     check_gate_cohort_starved,
     check_ai_disclosure_self_declared,
     check_reel_arm_stall,
+    check_weekly_review_due,
     check_discovery_attribution,
     check_platform_media_removed,
     check_comfyui_vram_unclaimed,
@@ -7898,6 +8005,39 @@ def cmd_selftest(_argv):
         ("mixed-tz-is-unknown", "2026-09-24 01:00:38Z", "2026-09-24 04:40:11", None),
     ]:
         expect(f"render_loop_refused_verdict[{name}]", rl(ref, pho), want)
+
+    # THE PRE-REGISTERED READ IS AN EVENT. Every other guard in this neighbourhood
+    # reads the review's CODE (does it still emit the gate?), its cohort (can the
+    # read be a measurement?) or the job's DELIVERY target -- none of them can see
+    # the review simply never running, which defers the GO/PIVOT/KILL decision by a
+    # full week with everything green. Three seams: inside the grace window a late
+    # job is not yet a finding; a read that has slipped a day is CRITICAL (its
+    # window is anchored at the review instant, so a late read is not the
+    # registered one); and an unreadable hour count is never a failure.
+    wrd = weekly_review_due_verdict
+    expect("weekly_review_due_verdict[not-yet-due]", wrd(-54), None)
+    expect("weekly_review_due_verdict[due-just-now]", wrd(0), None)
+    expect("weekly_review_due_verdict[inside-grace]", wrd(WEEKLY_REVIEW_GRACE_H), None)
+    expect("weekly_review_due_verdict[just-past-grace]",
+           wrd(WEEKLY_REVIEW_GRACE_H + 1), ("warn", WEEKLY_REVIEW_GRACE_H + 1))
+    expect("weekly_review_due_verdict[a-day-late-is-critical]",
+           (wrd(WEEKLY_REVIEW_CRITICAL_H) or (None,))[0], "critical")
+    expect("weekly_review_due_verdict[unreadable]", wrd(None), None)
+    expect("weekly_review_due_verdict[garbage]", wrd("n/a"), None)
+    # Live guard. A None from the check is only "not overdue" if its INPUT parsed:
+    # a broken SQL read would also return None, and an unbound OK is the failure
+    # this whole family of checks exists to avoid. So assert the live row parses
+    # AND that the check agrees with its own input -- without asserting the read is
+    # quiet, which past the due instant would be the finding itself.
+    _wrd_live = psql(WEEKLY_REVIEW_DUE_SQL)
+    if _wrd_live:
+        _wrd_parts = _wrd_live.split("|")
+        expect("check_weekly_review_due[live-input-parses]",
+               len(_wrd_parts) == 3 and as_int(_wrd_parts[2]) is not None, True)
+        _wrd_want = weekly_review_due_verdict(_wrd_parts[2] if len(_wrd_parts) == 3 else None)
+        expect("check_weekly_review_due[live-agrees-with-its-own-input]",
+               (check_weekly_review_due() or (None, None, None, None))[2],
+               _wrd_want[0] if _wrd_want else None)
 
     # THE AI DISCLOSURE. Meta reads three signals for its "AI info" label -- its
     # own classifier, the IPTC/C2PA metadata in the bytes, and self-disclosure at
