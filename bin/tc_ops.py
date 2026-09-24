@@ -1925,7 +1925,8 @@ def gate_cohort_params(src):
     return min_c, ia
 
 
-def gate_cohort_verdict(published, feasible, refusals, min_cohort=GATE_COHORT_MIN):
+def gate_cohort_verdict(published, feasible, refusals, min_cohort=GATE_COHORT_MIN,
+                        refused=None):
     """PURE: is the refusal FROZEN pool the thing keeping the gate unreadable?
 
     Three answers, and the middle one is the point: a short cohort with the render
@@ -1938,6 +1939,11 @@ def gate_cohort_verdict(published, feasible, refusals, min_cohort=GATE_COHORT_MI
     `feasible` is the queued count the gate can actually COUNT at the review --
     the window's slots that can still carry insights by then (see
     cohort_feasible_count) -- never the raw slot count, which overstates it.
+
+    `refused` is the CURRENT-state answer (render_loop_refused_verdict): passing
+    it makes "refused" mean the loop's last attempt was refused rather than "a
+    refusal exists somewhere in the trailing window". Omitting it keeps the old
+    count-based reading for callers that have only the count.
     """
     try:
         forecast = int(published) + int(feasible)
@@ -1947,9 +1953,52 @@ def gate_cohort_verdict(published, feasible, refusals, min_cohort=GATE_COHORT_MI
         refusals = int(refusals)
     except (TypeError, ValueError):
         refusals = 0
-    if forecast >= min_cohort or refusals <= 0:
+    if refused is None:
+        # Legacy/count-based callers: "refused at some point in the window".
+        refused = refusals > 0
+    if forecast >= min_cohort or not refused:
         return None
     return ("warn", forecast, refusals)
+
+
+def render_loop_refused_verdict(newest_refusal, newest_photo):
+    """PURE: is the render loop refused NOW, or only historically? -> bool|None
+
+    A COUNT of refusals inside a trailing window answers "was the loop refused
+    at some point in the last N hours" -- never "is it refused now", which is
+    exactly what the entry asserts ("while the render loop is refused", "no new
+    post-intervention photo can enter the pool"). Measured 2026-09-24: the last
+    refusal was 01:00:38Z and photos 362-367 landed through ~04:40Z, yet the
+    entry kept reporting the frozen pool for the whole 12h window -- so it read
+    as a live starvation through a stretch in which renders were SUCCEEDING, and
+    a reader could not tell the two apart (the count even fell 7 -> 4 as the
+    window emptied while the entry's tense stayed present).
+
+    The causal, self-closing test is whether the loop's LAST attempt was
+    refused: the newest refusal is newer than the newest photo it did produce.
+    One render landing after the last refusal clears it immediately, with no
+    hand-close and no 12h tail.
+
+    Returns None when a stamp that IS present cannot be parsed, so the caller
+    falls back to the count-based verdict; absent stamps are read as "none on
+    record" (no refusal -> False; no photo -> the pool is empty and a refusal is
+    the whole story -> True).
+    """
+    ref_raw = str(newest_refusal or "").strip()
+    pho_raw = str(newest_photo or "").strip()
+    ref, pho = _utc_dt(ref_raw), _utc_dt(pho_raw)
+    if not ref_raw:
+        return False
+    if ref is None:
+        return None
+    if not pho_raw:
+        return True
+    if pho is None:
+        return None
+    try:
+        return ref > pho
+    except TypeError:  # one naive, one tz-aware -- unreadable, not a verdict
+        return None
 
 
 # The cohort the NEXT weekly review will read, from the app's OWN cadence (the
@@ -2065,9 +2114,14 @@ def check_gate_cohort_starved():
     2026-09-22 (pool: 7 photos, published 09-27..09-29): the 09-28 window holds 4
     of them and the 10-05 window holds 3, so the expectation recorded on the board
     ("first valid read ETA 2026-10-05") is wrong for as long as the loop is
-    refused. Self-closing: when the loop stops being refused the pool grows again
-    and this goes quiet -- and that is the only in-repo fix (a foreign holder is
-    not ours to touch).
+    refused. Self-closing, and CAUSALLY so (measured 2026-09-24): the verdict keys on
+    the loop's CURRENT state -- newest refusal vs the newest photo it produced
+    (render_loop_refused_verdict) -- so the first render after the last refusal
+    clears it, instead of the entry outliving the condition by up to
+    STARVE_WINDOW_H while asserting "the loop is refused" on a GPU whose renders
+    are visibly landing (a trailing COUNT cannot tell a live refusal from a
+    finished one, and the count even falls while the entry's tense stays present).
+    A foreign holder is not ours to touch, so that is the only in-repo fix.
 
     A SECOND, independent bound, measured 2026-09-23: the cohort also requires
     `insights_updated_at`, and insights are collected a lag after publication
@@ -2100,7 +2154,24 @@ def check_gate_cohort_starved():
         "select count(*) from growth_decisions where action in "
         "('comfyui_unclaimed','cadence_blocked') and decided_at > "
         f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'")
-    v = gate_cohort_verdict(published, feasible, refusals, min_cohort)
+    # The count above says the loop WAS refused in the trailing window; the
+    # entry claims it IS refused, so read the loop's current state from its own
+    # record: its newest refusal vs the newest photo it actually produced
+    # (post-intervention). This is what makes the entry self-close on the first
+    # render after the last refusal instead of lingering a whole window.
+    state = psql(
+        "select coalesce((select max(decided_at)::text from growth_decisions "
+        "where action in ('comfyui_unclaimed','cadence_blocked') and decided_at > "
+        f"(now() at time zone 'UTC') - interval '{STARVE_WINDOW_H} hours'), '') "
+        "|| '|' || "
+        "coalesce((select max(created_at)::text from photos where created_at >= "
+        f"'{intervention}'), '')")
+    st_parts = (state or "").split("|") if state else []
+    newest_refusal = st_parts[0].strip() if len(st_parts) == 2 else None
+    newest_photo = st_parts[1].strip() if len(st_parts) == 2 else None
+    refused = render_loop_refused_verdict(newest_refusal, newest_photo)
+    v = gate_cohort_verdict(published, feasible, refusals, min_cohort,
+                            refused=refused)
     if not v:
         return None
     lag_n = as_int(lag_h)
@@ -2127,7 +2198,9 @@ def check_gate_cohort_starved():
         f"FEASIBLE cohort: {published} published + {feasible} queued = {v[1]}, against "
         f"MIN_COHORT_POSTS={min_cohort}. Below it Growth::GateRead returns :extend "
         f"(\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL "
-        f"read is deferred by arithmetic, not by waiting. Render loop: {v[2]} refusal(s) in the "
+        f"read is deferred by arithmetic, not by waiting. Render loop: its LAST attempt was "
+        f"refused (newest refusal {newest_refusal or 'unknown'}Z is newer than the newest "
+        f"post-intervention photo {newest_photo or 'none'}), {v[2]} refusal(s) in the "
         f"last {STARVE_WINDOW_H}h, so no new post-intervention photo can enter the pool -- the "
         f"cohort is fed only by renders (publication lags them by the queue depth). That is why a "
         f"GPU refusal starves the STRATEGY decision and not merely a render window"
@@ -7259,6 +7332,29 @@ def cmd_selftest(_argv):
         expect(f"gate_cohort_verdict[{name}]", v[0] if v else None, want)
     expect("gate_cohort_verdict[reports-forecast-and-refusals]",
            gate_cohort_verdict("0", "4", "4"), ("warn", 4, 4))
+    # The CURRENT-state gate: a count in the trailing window says the loop WAS
+    # refused, never that it is refused now. Both directions matter -- a stale
+    # count must NOT keep the entry alive (rows 1-2), and a live refusal must not
+    # be suppressed merely because a photo predates it (row 3).
+    expect("gate_cohort_verdict[stale-count-does-not-fire]",
+           gate_cohort_verdict("0", "1", "4", refused=False), None)
+    expect("gate_cohort_verdict[current-refusal-fires]",
+           gate_cohort_verdict("0", "1", "0", refused=True), ("warn", 1, 0))
+    expect("gate_cohort_verdict[refused-overrides-count]",
+           gate_cohort_verdict("1", "3", "9", refused=False), None)
+    rl = render_loop_refused_verdict
+    for name, ref, pho, want in [
+        ("refusal-newer-than-photo", "2026-09-24 01:00:38", "2026-09-23 18:00:42", True),
+        ("photo-landed-after-last-refusal", "2026-09-24 01:00:38",
+         "2026-09-24 04:40:11", False),
+        ("no-refusal-on-record", "", "2026-09-24 04:40:11", False),
+        ("empty-pool-with-refusal", "2026-09-24 01:00:38", "", True),
+        ("empty-both", "", "", False),
+        ("unparsable-refusal-is-unknown", "not-a-date", "2026-09-24 04:40:11", None),
+        ("unparsable-photo-is-unknown", "2026-09-24 01:00:38", "not-a-date", None),
+        ("mixed-tz-is-unknown", "2026-09-24 01:00:38Z", "2026-09-24 04:40:11", None),
+    ]:
+        expect(f"render_loop_refused_verdict[{name}]", rl(ref, pho), want)
 
     # THE AI DISCLOSURE. Meta reads three signals for its "AI info" label -- its
     # own classifier, the IPTC/C2PA metadata in the bytes, and self-disclosure at
