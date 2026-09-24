@@ -5,15 +5,11 @@
   "evidence": "23 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-23T22:25:22-0400",
-  "seen_count": 89,
+  "last_seen": "2026-09-23T22:40:17-0400",
+  "seen_count": 90,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-22T18:00:52-0400",
-      "note": "2026-09-22 21:5xZ ops-triage: the recorded expectation is CORRECTED and the reason it is wrong is now machinery. The board said the first valid read of the pre-registered gate was 2026-10-05; that is false for as long as the render loop is refused. The engagement leg is a measurement only if the review window holds MIN_COHORT_POSTS=5 posts whose PHOTO was rendered at/after the content-mix intervention (2026-09-21T23:35Z, Growth::GateRead.cohort_size), and that pool is fed only by renders. Measured: pool = 7 photos, queued as posts 347-353 with clocks 09-27T09:00 .. 09-29T10:30Z; the 09-28 window holds 4 of them and the 10-05 window holds 3 -- both under 5, so both reads return :extend whatever their date. Waiting cannot raise the number while the loop is refused (4 refusals in 12h; holder pid 3662070 live). NEW MACHINERY (commit follows): check_gate_cohort_starved files gate-cohort-starved, forecasting the next review window from the app's own cadence (max growth_reviews.reviewed_at + review_interval_days) and the queue, with a pure verdict and selftest coverage; it self-closes when the render loop stops being refused. No Tim ask: the holder is another project's live job. The 09-28 :extend stays the pre-committed handling, now distinguishable from a blockade rather than re-derived each pass."
-    },
     {
       "ts": "2026-09-22T18:53:49-0400",
       "note": "2026-09-22 22:5xZ ops-triage: no change to the conclusion -- the recorded reach ceiling is now INDEPENDENTLY RE-MEASURED from the DB and the live gate read is recorded.\n\nRe-measurement (my own read, not a copy of the closed daily-reach-ceiling item): scheduling_posts grouped by DATE(posted_at) with insights, real posts only -- total DAILY reach stays flat while volume moves: 2026-09-06 1 post -> 11; 09-07 1 -> 12; 09-09 1 -> 13; 09-18 4 -> 12; 09-19 4 -> 14; 09-20 5 -> 12; 09-21 4 -> 13. Per-post mean falls 4x across the bands (11.0-13.0 at 1/day vs 2.4-3.5 at 4-5/day). Matches the item's own numbers (1/day 11.2; 3-4/day 22.8; 5-9/day 22.3; r=-0.775), so the distribution-ceiling conclusion stands and cadence is NOT the defect. Note for any future reader: 65 rows from 2026-08-18..21 carry canned insights (reach pinned at 1000, likes in {4,52}, provider_post_id NULL) -- already excluded at the Growth::WeeklyReview chokepoint, and outside every 7/14-day window, so they do not touch this measurement; also confirmed this pass that NOTHING live can regenerate them (CollectPostInsights requires provider_post_id and sets insights_updated_at, and every one of the 65 has both NULL).\n\nLive gate read (bundle exec rails \"growth:gate[Sarah]\", read-only): gate=extend followers=157/170 FAIL max_pillar_eng=0.0% FAIL (floor 3.0%, top=Travel & Adventure) window=7d posts=20 cohort=0/5 INVALID. All eight pillars in the window read reach 1-11, likes 0. Reason: the engagement leg is not a measurement yet -- 0 post-intervention posts have published inside the window (the post-intervention cohort publishes 09-27..09-29). Verdict and pre-registered handling unchanged: EXTEND, do not act; this is the same read the board already carries, now with the numbers on it."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T03:33:59-0400",
       "note": "2026-09-23 07:3xZ ops-triage: unchanged (22 posts/14d, 18 measured, 0 like/comment/save, reach 57, followers flat 157). Verdict remains the pre-registered 09-28 gate read; no new decision."
+    },
+    {
+      "ts": "2026-09-23T22:40:38-0400",
+      "note": "2026-09-24 02:4xZ ops-triage: condition unchanged (23 posts/14d, 20 measured, 0 like / 0 comment / 0 save, reach 64, mean 3.2/post) and the VERDICT stays the pre-registered GO/PIVOT/KILL gate \u2014 but the gate's cohort has just changed the date on which that verdict is actually readable. The 09-28 13:00Z read is still arithmetically :extend (0 of 5 feasible post-intervention posts \u2014 all four in-window slots fall inside the final 31h insights lag), so it will NOT produce an engagement verdict; the 10-05 13:00Z window is now at 5 of 5 feasible (post 355/photo 362 and post 356/photo 363 both landed there from the resumed render loop and the salvage loop), so 10-05 is the read that can return a real number. Nothing in-repo moves reach: re-measured this pass, daily reach stays flat (~11-14/day at 1 post/day vs ~12-14 at 4-5/day) while per-post mean falls ~4x as volume rises, so cadence is not the defect and raising it cannot move this number \u2014 the pivot direction recorded earlier (DISTRIBUTION/REACH) stands. No new lever, no Tim ask; the item self-closes on the first engaged published post."
     }
   ]
 }
