@@ -58,7 +58,18 @@
       caption.
 
 ## 4. Surface disclosure
-- [ ] 4.1 Caption generation carries the disclosure, or documents reliance on the platform label once metadata is readable
+- [x] 4.1 Caption generation carries the disclosure, or documents reliance on the platform label once metadata is readable
+      — resolved on the SECOND branch, and strengthened: reliance on the platform label is now
+      documented AND the label is ASKED FOR. `Instagram::Client#create_media_container` sets
+      `is_ai_generated=true` on the container create (Meta's documented self-disclosure, the one
+      path to the "AI info" label that does not depend on the platform parsing our file). Set
+      unconditionally, which is an invariant and not an assumption: `GeneratePublicPhotoUrl`
+      (3.1) refuses to hand an unmarked asset to `SendPostToInstagram` on either rail, so every
+      asset reaching the client is a render. A parameter the account's API version rejects falls
+      back to the unflagged container (pre-disclosure behaviour) rather than costing a render a
+      slot. Guarded by probe check `ai-disclosure-not-self-declared`, which keys on the
+      ASSIGNMENT onto a container-create request — a name living only in a comment or a constant
+      never reaches the wire. No caption change, so no post text is altered.
 - [ ] 4.2 Post preview shows the synthetic marker
 
 ## 5. Verify and close

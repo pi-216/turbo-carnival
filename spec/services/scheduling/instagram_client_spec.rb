@@ -86,4 +86,60 @@ RSpec.describe Instagram::Client do
     expect(publish['id']).to eq('ig-post-2')
     expect(client).not_to have_received(:sleep)
   end
+
+  # Records the params of every POST the client makes, in order. The shared
+  # request object used by stub_flow only ever holds the LAST one, and the
+  # container-create request is not the last.
+  def stub_recording(post_responses)
+    recorded = []
+    queue = post_responses.dup
+    connection = double('faraday')
+    allow(connection).to receive(:post) do |_path, &blk|
+      req = Struct.new(:params).new({})
+      blk&.call(req)
+      recorded << req.params
+      queue.shift
+    end
+    allow(connection).to receive(:get) do |_path, &blk|
+      blk&.call(Struct.new(:params).new({}))
+      ok({ 'status_code' => 'FINISHED' })
+    end
+    allow(Faraday).to receive(:new).and_return(connection)
+    recorded
+  end
+
+  # AI Self-Disclosure: the container create must ASK for the platform's AI
+  # label, not rely on the platform inferring it from the IPTC marker in the
+  # bytes. `add-synthetic-provenance` requires viewer-facing disclosure "via the
+  # platform's own label where the platform applies one" and left task 4.1 (the
+  # surface half) open; this is that half.
+  describe 'AI self-disclosure on the media container' do
+    it 'sets the disclosure on the container create and still publishes' do
+      recorded = stub_recording([ ok({ 'id' => 'container-1' }), ok({ 'id' => 'ig-post-1' }) ])
+
+      expect(publish['id']).to eq('ig-post-1')
+      container = recorded.first
+      expect(container[described_class::AI_DISCLOSURE_PARAM]).to eq('true')
+      expect(container['image_url']).to eq('https://example.test/p.png')
+      expect(container['caption']).to eq('hi')
+    end
+
+    it 'falls back to an unflagged container when the API rejects the parameter' do
+      recorded = stub_recording([ response(400, { 'error' => { 'code' => 100,
+                                                              'message' => 'Invalid parameter' } }),
+                                  ok({ 'id' => 'container-1' }), ok({ 'id' => 'ig-post-1' }) ])
+
+      expect(publish['id']).to eq('ig-post-1')
+      expect(recorded.first).to have_key(described_class::AI_DISCLOSURE_PARAM)
+      expect(recorded[1]).not_to have_key(described_class::AI_DISCLOSURE_PARAM)
+      expect(recorded[1]['image_url']).to eq('https://example.test/p.png')
+    end
+
+    it 'still raises when the fallback container create also fails' do
+      stub_recording([ response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }),
+                       response(500, { 'error' => { 'message' => 'boom' } }) ])
+
+      expect { publish }.to raise_error(Instagram::Client::Error, /boom/)
+    end
+  end
 end

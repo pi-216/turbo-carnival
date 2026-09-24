@@ -25,6 +25,25 @@ module Instagram
 
     BASE_URL = 'https://graph.facebook.com/v20.0'
 
+    # Instagram's Content Publishing API takes a SELF-DISCLOSURE of AI usage on
+    # the media container (`is_ai_generated`), which is one of the three paths
+    # Meta documents for its "AI info" label (the others being their own
+    # classifier and the IPTC/C2PA metadata in the bytes).
+    #
+    # `add-synthetic-provenance` requires viewer-facing disclosure "via the
+    # platform's own label where the platform applies one" and carries it today
+    # by embedding IPTC digitalSourceType=trainedAlgorithmicMedia in the served
+    # bytes. That is an inference the platform has to make from our metadata;
+    # this flag is the same disclosure stated outright in Meta's own record for
+    # the post, and it is the half task 4.1 of that change left open.
+    #
+    # SET UNCONDITIONALLY, and that is an invariant rather than an assumption:
+    # Scheduling::Commands::GeneratePublicPhotoUrl is the last step before
+    # SendPostToInstagram on BOTH publishing rails and refuses to hand over an
+    # asset whose synthetic marker is missing, so every asset that reaches this
+    # client is a render of the persona.
+    AI_DISCLOSURE_PARAM = 'is_ai_generated'
+
     def initialize
       @app_id = Rails.application.credentials.dig(:instagram, :app_id)
       @app_secret = Rails.application.credentials.dig(:instagram, :app_secret)
@@ -132,10 +151,26 @@ module Instagram
       MEDIA_NOT_READY_CODES.include?(code.to_i) || MEDIA_NOT_READY_SUBCODES.include?(subcode.to_i)
     end
 
+    # A parameter this account's API version does not know must never cost a
+    # render a slot, so a failed attempt with the disclosure falls back to the
+    # unflagged container -- byte-for-byte the pre-disclosure behaviour. The
+    # second attempt raises the real error if there was one, so nothing is
+    # masked; the cost of the fallback is at most one extra container request.
     def create_media_container(image_url, caption)
+      create_container(image_url, caption, ai_disclosure: true)
+    rescue Error => e
+      Rails.logger.warn(
+        "Instagram container create with #{AI_DISCLOSURE_PARAM}=true failed " \
+        "(#{e.message}); retrying without the AI self-disclosure"
+      )
+      create_container(image_url, caption, ai_disclosure: false)
+    end
+
+    def create_container(image_url, caption, ai_disclosure:)
       response = connection.post("#{@account_id}/media") do |req|
         req.params['image_url'] = image_url
         req.params['caption'] = caption
+        req.params[AI_DISCLOSURE_PARAM] = 'true' if ai_disclosure
         req.params['access_token'] = @access_token
       end
       handle_response(response)['id']

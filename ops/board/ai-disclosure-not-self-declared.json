@@ -1,0 +1,20 @@
+{
+  "key": "ai-disclosure-not-self-declared",
+  "title": "the publish path never asked Instagram for its AI label",
+  "severity": "warn",
+  "evidence": "The closed item ai-content-disclosure-absent was closed 2026-09-21 as FIXED, and its bytes half is real: ContentPillars::PhotoAssetMarker embeds IPTC digitalSourceType=trainedAlgorithmicMedia into every published PNG/JPEG and Scheduling::Commands::GeneratePublicPhotoUrl refuses to hand an unmarked asset to SendPostToInstagram on BOTH rails. But that is an INFERENCE the platform has to make from our metadata. Meta documents three paths to its 'AI info' label -- its own classifier, the IPTC/C2PA metadata in the bytes, and SELF-DISCLOSURE at publish time -- and Instagram::Client#create_media_container (packs/scheduling/app/clients/instagram/client.rb) sent only image_url, caption and access_token. The change's own spec (openspec/changes/add-synthetic-provenance/specs/content-provenance/spec.md) requires viewer-facing disclosure 'via the platform's own label where the platform applies one', and its task 4.1 was still open. So the spec's stated carrier was never requested: a silent gap, because every post still publishes and the board stays green.",
+  "status": "closed",
+  "first_seen": "2026-09-23T23:35:59-0400",
+  "last_seen": "2026-09-23T23:35:59-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-23T23:36:06-0400",
+      "note": "FIXED (operating agent, 2026-09-24 03:4xZ). ROOT CAUSE: the change's viewer-facing disclosure requirement named 'the platform's own label' as one of its two carriers, and the repo only ever supplied the INFERRED path (IPTC digitalSourceType in the served bytes). The API path -- Meta's own self-disclosure on the container create -- was never implemented, so the label depended entirely on Instagram choosing to parse our metadata. FIX: Instagram::Client#create_media_container now sets is_ai_generated=true on POST /<ig-user-id>/media, in the same request that already carries image_url and caption. Set UNCONDITIONALLY and that is an invariant, not an assumption: GeneratePublicPhotoUrl (the change's own fail-closed gate, task 3.1) refuses to hand an unmarked asset to SendPostToInstagram on either rail, so every asset reaching the client is a render. SAFETY: a failure of the flagged container create falls back to the unflagged one (byte-for-byte the pre-disclosure behaviour) so an API version that rejects the parameter can never cost a render its slot; the fallback re-raises the real error rather than masking it. VERIFYING EVIDENCE: rspec spec/services/scheduling/instagram_client_spec.rb 7 examples 0 failures (3 new: the disclosure is on the container-create params and the post still publishes; a 400 'Invalid parameter' falls back to an unflagged container and still publishes; both attempts failing still raises); full suite 549 examples 0 failures 8 pending; tc_ops selftest 595/0 (6 new assertions); probe checks-audit 54 checks 0 raised 0 unreadable, the new check quiet on the live file and proven to FIRE by mutation (param removed -> ai-disclosure-not-self-declared; name kept in a comment only -> same, because the check keys on the ASSIGNMENT onto a container-create request, not on the name appearing anywhere). REGRESSION GUARD: new probe check check_ai_disclosure_self_declared + new pure verdict ai_disclosure_verdict with selftest coverage including a live-file assertion. openspec task 4.1 marked done on its second branch (no caption text changed). No other project's GPU work touched; no render attempted; no claim requested."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-09-23T23:36:06-0400"
+}

@@ -2097,6 +2097,70 @@ def check_gate_cohort_starved():
     )
 
 
+# The publish path must ASK for Instagram's own AI label, not wait for the
+# platform to infer it. `add-synthetic-provenance` requires viewer-facing
+# disclosure "via the platform's own label where the platform applies one" and
+# carries it at present only as an IPTC digitalSourceType marker inside the
+# served bytes -- an inference the platform has to make from our metadata. The
+# API's self-disclosure (`is_ai_generated` on the container create) is the same
+# statement written into Meta's own record for the post, and it is the half of
+# that change's task 4.1 that was never done. Asserted here rather than assumed,
+# because the failure is silent in both directions: drop the parameter and every
+# post still publishes, the board stays green, and the only thing lost is the
+# disclosure the change exists to provide.
+INSTAGRAM_CLIENT_SRC = (APP / "packs" / "scheduling" / "app" / "clients"
+                        / "instagram" / "client.rb")
+AI_DISCLOSURE_PARAM = "is_ai_generated"
+# The parameter must be ASSIGNED onto a container-create request -- the name
+# appearing in a comment or a constant alone would not put it on the wire.
+AI_DISCLOSURE_ASSIGN_RE = re.compile(
+    r"req\.params\[\s*(?:AI_DISCLOSURE_PARAM|['\"]is_ai_generated['\"])\s*\]\s*=")
+
+
+def ai_disclosure_verdict(src):
+    """PURE: client source -> (severity, evidence) or None when the container
+    create self-declares AI usage."""
+    if not src:
+        return None
+    if AI_DISCLOSURE_ASSIGN_RE.search(src):
+        return None
+    if AI_DISCLOSURE_PARAM not in src:
+        return ("warn", "the Instagram container create carries no "
+                        f"{AI_DISCLOSURE_PARAM} parameter, so no post self-declares "
+                        "its synthetic origin to the platform")
+    return ("warn", f"{AI_DISCLOSURE_PARAM} is named in the client but never assigned "
+                    "onto a container-create request, so the disclosure never reaches "
+                    "the wire")
+
+
+def check_ai_disclosure_self_declared():
+    """Is the platform's AI label asked for, or only hoped for?
+
+    Meta documents three paths to its "AI info" label: its own classifier, the
+    IPTC/C2PA metadata in the uploaded bytes, and SELF-DISCLOSURE at publish time.
+    This repo deliberately embeds the metadata (PhotoAssetMarker, asserted by the
+    fail-closed publish gate) and relies on "the platform's own label" for
+    viewer-facing disclosure -- which leaves the one path that does not depend on
+    the platform parsing our file unused. Read-only, code-shape, no DB.
+    """
+    try:
+        src = INSTAGRAM_CLIENT_SRC.read_text()
+    except OSError:
+        return None
+    v = ai_disclosure_verdict(src)
+    if not v:
+        return None
+    return (
+        "ai-disclosure-not-self-declared",
+        "the publish path does not ask Instagram to label its posts as AI-generated",
+        v[0],
+        v[1] + "; Instagram's Content Publishing API takes the disclosure as "
+        f"`{AI_DISCLOSURE_PARAM}` on the container create (POST /<ig-user-id>/media), "
+        "in the same request that already carries image_url and caption -- see "
+        "packs/scheduling/app/clients/instagram/client.rb",
+    )
+
+
 def check_placeholder_caption_queued():
     """A queued post whose caption is still the failure artifact publishes as-is.
 
@@ -5763,6 +5827,7 @@ CHECKS = [
     check_release_pacing,
     check_weekly_review_gate_wired,
     check_gate_cohort_starved,
+    check_ai_disclosure_self_declared,
     check_comfyui_vram_unclaimed,
     check_reserve_gate_blocked,
     check_telemetry_oom,
@@ -6852,6 +6917,33 @@ def cmd_selftest(_argv):
         expect(f"gate_cohort_verdict[{name}]", v[0] if v else None, want)
     expect("gate_cohort_verdict[reports-forecast-and-refusals]",
            gate_cohort_verdict("0", "4", "4"), ("warn", 4, 4))
+
+    # THE AI DISCLOSURE. Meta reads three signals for its "AI info" label -- its
+    # own classifier, the IPTC/C2PA metadata in the bytes, and self-disclosure at
+    # publish time. This repo deliberately embeds the metadata and relies on "the
+    # platform's own label" for viewer-facing disclosure, so the API half must be
+    # present or the disclosure rests on an inference. The verdict keys on the
+    # ASSIGNMENT onto a container-create request, not on the name: a parameter
+    # named only in a comment or a constant never reaches the wire, and that is
+    # exactly what a silent regression looks like.
+    dl = ai_disclosure_verdict
+
+    def dl_sev(src):
+        v = dl(src)
+        return v[0] if v else None
+
+    expect("ai_disclosure_verdict[no-mention]",
+           dl_sev("def create_media_container(image_url, caption)\nend"), "warn")
+    expect("ai_disclosure_verdict[comment-only]",
+           dl_sev("# set is_ai_generated when the API supports it\n"), "warn")
+    expect("ai_disclosure_verdict[assign-literal]",
+           dl("req.params['is_ai_generated'] = 'true'"), None)
+    expect("ai_disclosure_verdict[assign-const]",
+           dl("req.params[AI_DISCLOSURE_PARAM] = 'true' if ai_disclosure"), None)
+    expect("ai_disclosure_verdict[empty]", dl(""), None)
+    # Live guard: the client in this repo must satisfy its own check.
+    expect("check_ai_disclosure_self_declared[live]",
+           check_ai_disclosure_self_declared(), None)
 
     # THE FEASIBILITY BOUND. The cohort requires insights_updated_at and insights
     # arrive a lag after publication, so a slot inside the window's last `lag_h`
