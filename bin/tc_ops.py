@@ -4826,6 +4826,137 @@ def queue_runway_verdict(publishable, dry_out_iso, now_iso, alert_h=RUNWAY_ALERT
     )
 
 
+# ------------------------------------------- the GPU-free containment's depth
+# `Growth::LibraryFallback` is the ONLY content source that needs no GPU: photos
+# already rendered, unposted, and passing BOTH spend-path gates. Its depth is what
+# stands between a render drought and publishing SILENCE -- and the raw candidate
+# count is NOT that depth. The class carries the rule itself ("do not size a hold
+# against the raw candidate count; re-measure the gates") because the two differ by
+# ~6x: measured 2026-09-24, 51 candidates of which 8 are spendable. An ops report
+# quoted the 51 as "depth", which reads as a multi-week buffer and is 2.7 days.
+#
+# The depth is MEASURED by bin/library_depth.py into ops/library_depth.json and
+# READ here. It is deliberately not re-derived in this file: the measurement costs
+# two classifier passes (~28s batched, GPU-free), which is right as a command and
+# wrong on an hourly probe's critical path.
+LIBRARY_DEPTH_PATH = APP / "ops" / "library_depth.json"
+LIBRARY_DEPTH_MAX_AGE_D = 7
+# A stamp from the artifact is interpolated into SQL, so it must be validated
+# FIRST: the file is generated, but "generated" is not "trusted" (a truncated or
+# hand-edited report would otherwise reach the database as SQL text).
+_ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# Lead time on the SILENCE forecast, deliberately longer than RUNWAY_ALERT_H: the
+# remaining buffer is a ONE-SHOT (each photo can back exactly one post per persona)
+# and clearing the usual blocker needs a human, so the alarm has to arrive while
+# there is still time to act on it -- firing at 72h leaves ~2 days to reach a person.
+SILENCE_ALERT_D = 10
+
+
+def library_depth_report():
+    """The measured containment depth (dict), or None when unmeasured/unreadable."""
+    try:
+        with open(LIBRARY_DEPTH_PATH) as fh:
+            d = json.load(fh)
+    except Exception:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def library_silence_forecast(spendable, spent_since, cadence, dry_out_iso, now_iso):
+    """PURE: the containment-adjusted silence forecast, or None when it cannot be built.
+
+    ONE source of truth for the arithmetic (remaining depth, the extension it buys,
+    the silence instant) so the board note, the queue line and the escalation's ask
+    can never disagree about the date. Returns a dict:
+        remaining / extension_days / queue_days / hours_to_silence / silence (datetime)
+    """
+    if spendable is None or cadence is None:
+        return None
+    try:
+        spendable, spent_since, cadence = int(spendable), int(spent_since or 0), float(cadence)
+    except (TypeError, ValueError):
+        return None
+    if cadence <= 0:
+        return None
+    dry, now = _utc_dt(dry_out_iso), _utc_dt(now_iso)
+    if dry is None or now is None:
+        return None
+    remaining = max(0, spendable - spent_since)
+    ext_h = remaining / cadence * 24.0
+    silence = dry + datetime.timedelta(hours=ext_h)
+    return {
+        "remaining": remaining,
+        "spendable": spendable,
+        "cadence": cadence,
+        "extension_days": ext_h / 24.0,
+        "queue_days": (dry - now).total_seconds() / 86400.0,
+        "hours_to_silence": (silence - now).total_seconds() / 3600.0,
+        "silence": silence,
+    }
+
+
+def library_silence_verdict(spendable, spent_since, cadence, dry_out_iso, now_iso,
+                            alert_d=SILENCE_ALERT_D):
+    """PURE: does publishing go SILENT inside the alert window once the library is spent?
+
+    `spendable` is the MEASURED depth (photos the spend path's own gates accept);
+    `spent_since` is how many library-backed posts have been created since that
+    measurement (exact and cheap -- `strategy_name='library-fallback'` -- so the
+    depth self-updates without re-running the gates); `cadence` is posts/day.
+
+    Returns (severity, note) or None. None for anything unreadable: this is a
+    FORECAST, and a forecast built on a missing number is worse than no forecast.
+    """
+    f = library_silence_forecast(spendable, spent_since, cadence, dry_out_iso, now_iso)
+    if not f or f["hours_to_silence"] > alert_d * 24.0:
+        return None
+    spent_clause = f", {int(spent_since or 0)} already spent" if spent_since else ""
+    return (
+        "warn",
+        f"the GPU-free library holds {f['remaining']} spendable photo(s) of "
+        f"{f['spendable']} measured{spent_clause}; at {float(cadence):g}/day that buys "
+        f"{f['extension_days']:.1f}d past the last scheduled clock {dry_out_iso} (queue alone "
+        f"drains in {f['queue_days']:.1f}d), so publishing goes SILENT "
+        f"{f['silence'].strftime('%Y-%m-%dT%H:%M:%SZ')} -- in "
+        f"{f['hours_to_silence'] / 24.0:.1f}d -- and after that date there is NO content "
+        f"source left (library spent, renders blocked)",
+    )
+
+
+def library_depth_age_days(measured_at, now_iso):
+    """PURE: age of the measurement in days, or None when unparsable."""
+    m, n = _utc_dt(measured_at), _utc_dt(now_iso)
+    if m is None or n is None:
+        return None
+    return (n - m).total_seconds() / 86400.0
+
+
+def queue_silence_note(dry_out_iso, spent_since=0, now_iso=None):
+    """The containment-aware line for `tc_ops.py queue`: when silence actually lands.
+
+    `dry_out=` alone UNDERSTATES the runway whenever the GPU-free library can cover
+    part of the gap, while the raw candidate count OVERSTATES the library by ~6x
+    (measured 2026-09-24: queue 5.4d + 8 spendable photos = 8.1d, from 51 raw
+    candidates). Both directions are wrong, so print the MEASURED depth and the date
+    it runs out.
+    """
+    now_iso = now_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rep = library_depth_report()
+    if rep is None:
+        return ("silence=UNMEASURED -- run bin/library_depth.py (GPU-free, CPU-only, ~30s; "
+                "without it the library reads as an unlimited buffer)")
+    spendable, cadence = rep.get("spendable"), rep.get("cadence_per_day")
+    f = library_silence_forecast(spendable, spent_since, cadence, dry_out_iso, now_iso)
+    if not f:
+        return "silence=UNREADABLE (depth report or last clock unparsable)"
+    return (
+        f"silence={f['silence'].strftime('%Y-%m-%dT%H:%M:%SZ')} (queue to {dry_out_iso} + "
+        f"{f['remaining']} spendable library photo(s) of {f['spendable']} measured @ "
+        f"{f['cadence']:g}/day = +{f['extension_days']:.1f}d; "
+        f"{f['hours_to_silence'] / 24.0:.1f}d from now; measured {rep.get('measured_at')})"
+    )
+
+
 def queue_runway_note(publishable, dry_out_iso, now_iso=None):
     """The human line for `tc_ops.py queue`: the forecast, or why it cannot be read."""
     now_iso = now_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -5090,6 +5221,92 @@ def check_queue_runway():
         "queue is simply empty), so this is the early signal: either top the queue up "
         "(needs the 4090, which may be another project's to hold) or make a deliberate "
         "cadence decision -- but make it BEFORE the last clock passes.",
+        route,
+        ask,
+    )
+
+
+def check_publish_silence():
+    """If the render loop stays blocked, when does the account go SILENT -- and what is left?
+
+    Distinct from `queue-runway-short`, which forecasts from the QUEUE alone and so
+    fires at the edge (inside 3 days). This folds in the only other content source
+    that exists (`Growth::LibraryFallback`, GPU-free), which is the fact that decides
+    the response: measured 2026-09-24, the queue drains 09-29T10:30Z and the library
+    adds 8 spendable photos = 2.7d at 3/day, so publishing goes SILENT ~10-02 -- and
+    the library is then EMPTY. A queue-only forecast cannot show that, and the depth
+    it would need is the MEASURED one, not the raw candidate count (51, ~6x larger).
+
+    Fires only while renders are starved: once a render lands the queue check owns
+    the runway and this self-closes on the next tick.
+    """
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rep = library_depth_report()
+    if rep is None:
+        return (
+            "publish-silence-forecast",
+            "the GPU-free containment's depth is UNMEASURED, so the silence date is unknown",
+            "info",
+            f"no readable {LIBRARY_DEPTH_PATH.relative_to(APP)} -- run `bin/library_depth.py` "
+            "(GPU-free, CPU-only, ~30s; it writes the report this check reads). Without it the "
+            "render library reads as an unlimited buffer, which is how 51 raw candidates were "
+            "reported as depth while only 8 of them pass the spend path's own gates",
+        )
+    measured_at = str(rep.get("measured_at") or "")
+    if not _ISO_UTC_RE.match(measured_at):
+        return None                 # never interpolate an unvalidated stamp into SQL
+    row = psql(QUEUE_SQL)
+    if row is None:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    spent_since = psql("select count(*) from scheduling_posts where "
+                       "strategy_name = 'library-fallback' and created_at > "
+                       f"'{measured_at}'")
+    renders_24h = psql("select count(*) from photos where created_at > "
+                       "(now() at time zone 'UTC') - interval '24 hours'")
+    new_photos = psql(f"select count(*) from photos where created_at > '{measured_at}'")
+    v = library_silence_verdict(rep.get("spendable"), spent_since,
+                                rep.get("cadence_per_day"), parts[3], now)
+    if not v:
+        return None
+    fc = library_silence_forecast(rep.get("spendable"), spent_since,
+                                  rep.get("cadence_per_day"), parts[3], now) or {}
+    if renders_24h is not None and int(renders_24h) > 0:
+        return None                 # renders are landing; the queue check owns the runway
+    extra = f"; depth measured {measured_at} by bin/library_depth.py"
+    age = library_depth_age_days(measured_at, now)
+    if age is not None and age > LIBRARY_DEPTH_MAX_AGE_D:
+        extra += (f"; that measurement is {age:.1f}d old (> {LIBRARY_DEPTH_MAX_AGE_D}d) -- "
+                  "re-run bin/library_depth.py")
+    if new_photos is not None and int(new_photos) > 0:
+        extra += (f"; {new_photos} photo(s) landed since it, so the depth is UNDERSTATED "
+                  "-- re-run bin/library_depth.py")
+    holders = gpu_vram_holders()
+    if holders:
+        extra += "; outside-scheduler holders: " + ", ".join(holder_desc(*r) for r in holders)
+    route = runway_route([r[3] for r in holders])
+    ask = ""
+    if route == "tim":
+        extra += ("; the card is held by the OPERATOR's own interactive session, so the action "
+                  "is the one `render-starved` already names -- what this item adds is the DATE "
+                  "it has to happen by")
+        _free, _ask_gb = gpu_vram_free_mib(), our_reservation_gb()
+        ask = operator_lever_ask(comfyui_reserve_ok(), holders, comfyui_serving_pid(),
+                                 _free, _ask_gb)
+        if fc.get("silence"):
+            ask += (
+                " THIS ITEM PUTS A DATE ON IT: if nothing renders, publishing goes silent "
+                f"{fc['silence'].strftime('%Y-%m-%dT%H:%M:%SZ')} "
+                f"({fc['hours_to_silence'] / 24.0:.1f}d away) and the library is then empty -- "
+                "there is no other content source, so that date is the deadline, not a warning."
+            )
+    return (
+        "publish-silence-forecast",
+        "if the render loop stays blocked, publishing goes silent and nothing is left to publish",
+        v[0],
+        v[1] + extra,
         route,
         ask,
     )
@@ -5528,6 +5745,7 @@ CHECKS = [
     check_publish_gate_readiness,
     check_render_starved,
     check_queue_runway,
+    check_publish_silence,
     check_publish_liveness,
     check_publish_gap,
     check_publish_failed_silent,
@@ -7258,6 +7476,58 @@ def cmd_selftest(_argv):
     expect("queue_runway_note[unreadable]", queue_runway_note(16, "", RUNWAY_NOW),
            "dry_out=UNREADABLE (last clock unparsable; do NOT read this as empty)")
 
+    # library_silence_verdict: the containment-adjusted SILENCE date. The queue
+    # forecast alone UNDERSTATES the runway whenever the GPU-free library can cover
+    # part of the gap, and the raw candidate count OVERSTATES the library ~6x -- so
+    # the depth that enters this math has to be the MEASURED one (8 of 51 on
+    # 2026-09-24). Each case pins one way the forecast can be wrong.
+    silence_cases = [
+        # 8 spendable @ 3/day = +64h past a dry_out 3.5d out -> silence 09-28T02:30Z (6.2d)
+        ("inside-window", (8, 0, 3, "2026-09-25T10:30:00Z"), "warn"),
+        # same depth, dry_out 18.5d out -> silence ~21d, outside the 10d lead
+        ("roomy", (8, 0, 3, "2026-10-10T10:30:00Z"), None),
+        # library already spent: silence IS the queue's dry_out, not beyond it
+        ("library-spent", (8, 8, 3, "2026-09-25T10:30:00Z"), "warn"),
+        ("spent-beyond-measured", (8, 99, 3, "2026-09-25T10:30:00Z"), "warn"),
+        ("no-cadence", (8, 0, 0, "2026-09-25T10:30:00Z"), None),
+        ("unmeasured-depth", (None, 0, 3, "2026-09-25T10:30:00Z"), None),
+        ("garbage-depth", ("x", 0, 3, "2026-09-25T10:30:00Z"), None),
+        ("unparsable-clock", (8, 0, 3, ""), None),
+    ]
+    for name, args, want in silence_cases:
+        v = library_silence_verdict(*args, now_iso=RUNWAY_NOW)
+        expect(f"library_silence_verdict[{name}]", v[0] if v else None, want)
+    def _silence_note(*args):
+        v = library_silence_verdict(*args, now_iso=RUNWAY_NOW)
+        return v[1] if v else ""
+
+    note = _silence_note(8, 0, 3, "2026-09-25T10:30:00Z")
+    expect("library_silence_verdict[names-the-date]",
+           "2026-09-28T02:30:00Z" in note, True)
+    expect("library_silence_verdict[names-what-is-left]",
+           "NO content source left" in note, True)
+    expect("library_silence_verdict[counts-only-remaining]",
+           "0 spendable photo(s)" in _silence_note(8, 8, 3, "2026-09-25T10:30:00Z"), True)
+    expect("library_depth_age_days[one-day]",
+           library_depth_age_days("2026-09-20T21:30:00Z", RUNWAY_NOW), 1.0)
+    expect("library_depth_age_days[unparsable]",
+           library_depth_age_days("", RUNWAY_NOW), None)
+    expect("library_depth_age_days[null]",
+           library_depth_age_days(None, RUNWAY_NOW), None)
+    # library_silence_forecast: the single source of truth for the arithmetic the
+    # board note, the queue line and the escalation's ask all quote.
+    fc = library_silence_forecast(8, 0, 3, "2026-09-25T10:30:00Z", RUNWAY_NOW)
+    expect("library_silence_forecast[extension-days]",
+           round(fc["extension_days"], 2) if fc else None, 2.67)
+    expect("library_silence_forecast[silence-instant]",
+           fc["silence"].strftime("%Y-%m-%dT%H:%M:%SZ") if fc else None,
+           "2026-09-28T02:30:00Z")
+    expect("library_silence_forecast[spend-clamps-at-zero]",
+           (library_silence_forecast(8, 99, 3, "2026-09-25T10:30:00Z", RUNWAY_NOW)
+            or {}).get("remaining"), 0)
+    expect("library_silence_forecast[no-cadence]",
+           library_silence_forecast(8, 0, 0, "2026-09-25T10:30:00Z", RUNWAY_NOW), None)
+
     # prompt_safety_verdict + _blob_violations: stored render text that directs a
     # minor or conditions against adult features. The 2026-09-20 live case is the
     # production negative prompt (", adult, mature_face,") and the legacy face
@@ -8006,6 +8276,18 @@ def cmd_queue(_argv):
     print(f"status_rows={status_rows} (status only; OVERSTATES by the held rows)")
     print(f"held={held} (age-gate holds: unpublished with BOTH clocks cleared, never released)")
     print(queue_runway_note(pub, parts[3]))
+    spent_since: int = 0
+    rep = library_depth_report()
+    measured_at = str((rep or {}).get("measured_at") or "")
+    if _ISO_UTC_RE.match(measured_at):
+        raw = psql("select count(*) from scheduling_posts where "
+                   "strategy_name = 'library-fallback' and created_at > "
+                   f"'{measured_at}'")
+        try:
+            spent_since = int(raw or 0)
+        except ValueError:
+            spent_since = 0
+    print(queue_silence_note(parts[3], spent_since))
     return 0
 
 

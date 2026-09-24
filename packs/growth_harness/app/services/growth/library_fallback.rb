@@ -37,6 +37,14 @@ module Growth
   # cadence**, NOT the multi-week buffer an ungated count of 51 suggests. Do not
   # size a hold against the raw candidate count; re-measure the gates.
   #
+  # The depth is a COMMAND now, not a remembered number: `bin/library_depth.py`
+  # (GPU-free, CPU-only, ~30s) runs these same gates in batch over the current
+  # candidate set and writes `ops/library_depth.json`; `bin/tc_ops.py queue` prints
+  # the resulting SILENCE date, and the board's `publish-silence-forecast` check
+  # escalates on it. Re-run the command after any render batch lands -- a stored
+  # "8" rots exactly the way the raw "51" did (it was quoted as depth in an ops
+  # report within a day of this measurement).
+  #
   # TODO(measurement gap): the May batch's RealismGate verdict was recorded here
   # on 2026-09-23 but the photos stay in the library. If a future render stack
   # legitimately produces soft images, revisit SHARPNESS_THRESHOLD rather than
