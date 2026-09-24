@@ -120,6 +120,12 @@ ASK_MAX_CHARS = 320
 #   python3 bin/tc_ops.py route <key> --route tim -n "<why it needs a human>"
 ROUTES = ("agent", "tim")
 ROUTE_DEFAULT = "agent"
+# Who set a record's route, and therefore whether a re-filing probe may move it.
+# 'check' = the check that files the item computed it (see route_source_of); it is
+# re-measured every probe and must track the ask. 'explicit' = `route` / `file
+# --route` set it deliberately and a probe must never drift it.
+ROUTE_SOURCE_CHECK = "check"
+ROUTE_SOURCE_EXPLICIT = "explicit"
 
 # A foreign project holding the 4090 is the NORMAL shared-resource state and our
 # rules forbid interfering with it, so a foreign hold is only an issue when it
@@ -5782,11 +5788,15 @@ def issue_path(key):
 def file_issue(key, title, severity, evidence, source="probe", route=None, ask=None):
     BOARD.mkdir(parents=True, exist_ok=True)
     p = issue_path(key)
-    # None means "the default queue" -- checks that do not reason about the route
-    # stay byte-identical to before, while a check that DOES (queue-runway-short)
-    # hands over the one it computed. Either way the route is applied at FILING
-    # only: a re-filing probe must never move an item out of the queue it already
-    # sits in (see the setdefault below).
+    # None means "no route was computed for this condition" -- checks that do not
+    # reason about the route stay byte-identical to before, while a check that DOES
+    # (starve_route / runway_route) hands over the one it computed. A computed route
+    # is REFRESHED on every re-filing, because the predicate behind it is re-measured
+    # every probe and the ASK is built from the SAME predicate: freezing the route
+    # while the ask moves leaves a `route=tim` item whose ask has gone empty, i.e. an
+    # escalation pushed to the operator with nothing to do (see route_source_of).
+    # A route set EXPLICITLY (`cmd_route`, `file --route`) is never moved by a probe.
+    route_given = route is not None
     route = route or ROUTE_DEFAULT
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     if p.exists():
@@ -5798,9 +5808,11 @@ def file_issue(key, title, severity, evidence, source="probe", route=None, ask=N
                    last_seen=now, status="open")
         rec["seen_count"] = rec.get("seen_count", 1) + 1
         rec.setdefault("first_seen", now)
-        # setdefault, not assignment: a re-filing probe must never silently move an
-        # item back out of the human queue it was deliberately routed into.
-        rec.setdefault("route", route)
+        if route_given and route_source_of(rec) != ROUTE_SOURCE_EXPLICIT:
+            rec["route"] = route
+            rec["route_source"] = ROUTE_SOURCE_CHECK
+        else:
+            rec.setdefault("route", route)
         # A probe must not silently claim ownership of a hand-filed issue.
         if rec.get("source", "probe") == "probe":
             rec["source"] = source
@@ -5809,6 +5821,8 @@ def file_issue(key, title, severity, evidence, source="probe", route=None, ask=N
             "key": key, "title": title, "severity": severity, "evidence": evidence,
             "status": "open", "first_seen": now, "last_seen": now,
             "seen_count": 1, "source": source, "route": route, "notes": [],
+            "route_source": (ROUTE_SOURCE_CHECK if source == "probe"
+                             else ROUTE_SOURCE_EXPLICIT),
         }
     # The ASK is the actionable line, supplied by the check that measured the condition
     # (render-starved -> operator_lever_ask) and rendered whole by both human surfaces.
@@ -5853,6 +5867,32 @@ def route_of(rec):
     """
     r = str(rec.get("route") or "").strip().lower()
     return r if r in ROUTES else ROUTE_DEFAULT
+
+
+def route_source_of(rec):
+    """PURE: may a re-filing probe move this record's route, or is it frozen?
+
+    'check' -- the route came from the check that FILES the item (starve_route /
+    runway_route). That check's predicate is re-measured on every probe and the
+    item's ASK is built from the SAME predicate, so the route must move with the
+    ask. Freezing it at filing time while the ask is re-derived leaves a
+    `route=tim` item whose ask has gone EMPTY: an escalation pushed to the
+    operator carrying no action at all -- the failure this board exists to end.
+    Measured 2026-09-24: the operator's flagless :8188 session ended, the ask
+    cleared to '' on both render-starved and publish-silence-forecast, and both
+    stayed in the human queue because their route had been frozen.
+
+    'explicit' -- a human or agent moved it deliberately (`tc_ops.py route`, or
+    `file --route`). A probe never moves it; that is the whole point of the field.
+
+    Records predating the field: a probe-filed record got its route from its
+    check, so it reads 'check'; anything hand-filed reads 'explicit'.
+    """
+    s = str(rec.get("route_source") or "").strip().lower()
+    if s in (ROUTE_SOURCE_CHECK, ROUTE_SOURCE_EXPLICIT):
+        return s
+    return (ROUTE_SOURCE_CHECK if str(rec.get("source") or "").strip() == "probe"
+            else ROUTE_SOURCE_EXPLICIT)
 
 
 def human_digest(recs, now=None):
@@ -6231,7 +6271,12 @@ def cmd_file(argv):
         except Exception:
             prior = None
     rec = file_issue(key, opts["title"], sev, opts["evidence"],
-                     source=opts.get("source", "manual"), route=route,
+                     source=opts.get("source", "manual"),
+                     # Only a DELIBERATE --route is handed over. Without it the record
+                     # keeps whatever route it already has (a check-computed one is
+                     # re-measured by its own check, not reset by an unrelated filing);
+                     # a brand-new record still lands in ROUTE_DEFAULT.
+                     route=(route if "--route" in argv else None),
                      ask=opts.get("ask"))
     # A manual filing must not STEAL a probe-owned key: file_issue adopts the
     # caller's source for any record that was probe-owned, which would silently
@@ -6239,10 +6284,12 @@ def cmd_file(argv):
     if prior and prior.get("source") == "probe":
         rec["source"] = "probe"
         p.write_text(json.dumps(rec, indent=2) + "\n")
-    # An explicit --route IS applied to an existing record (file_issue only
-    # setdefaults), so a filing can deliberately move an item into the human queue.
+    # An explicit --route IS applied to an existing record, so a filing can
+    # deliberately move an item into the human queue -- and it is stamped EXPLICIT,
+    # which is what stops the probe's own re-filing from drifting it back.
     if "--route" in argv and route_of(rec) != route:
         rec["route"] = route
+        rec["route_source"] = ROUTE_SOURCE_EXPLICIT
         p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"filed {key} [{rec['severity']}] status={rec['status']} "
           f"seen_count={rec['seen_count']} source={rec['source']} route={route_of(rec)}")
@@ -6318,6 +6365,7 @@ def cmd_route(argv):
     rec = json.loads(p.read_text())
     was = route_of(rec)
     rec["route"] = want
+    rec["route_source"] = ROUTE_SOURCE_EXPLICIT
     append_note(rec, note or f"routed {was} -> {want}")
     p.write_text(json.dumps(rec, indent=2) + "\n")
     print(f"{key}: route {was} -> {want}" + (f" ({note})" if note else ""))
@@ -7677,6 +7725,75 @@ def cmd_selftest(_argv):
     finally:
         globals()["BOARD"] = _ob_ask
         _td_ask.cleanup()
+
+    # The ROUTE must move with the ASK, because ONE predicate computes both. A check
+    # that computes a route (starve_route / runway_route) hands it over on every probe;
+    # freezing it at filing time while the ask is re-derived leaves a `route=tim` item
+    # whose ask has gone EMPTY -- an escalation pushed to the operator carrying no
+    # action at all. Measured 2026-09-24: the operator's flagless :8188 session ended,
+    # both render-starved and publish-silence-forecast cleared their ask to '' and both
+    # stayed in the human queue. The other half matters just as much: a route a human
+    # moved DELIBERATELY must never be drifted back by the next probe.
+    _ob_rt, _td_rt = globals()["BOARD"], tempfile.TemporaryDirectory()
+    try:
+        globals()["BOARD"] = Path(_td_rt.name)
+        _rec = lambda k: json.loads(issue_path(k).read_text())
+
+        file_issue("r1", "t", "warn", "ev", route="tim", ask="CLOSE IT")
+        expect("file_issue[check-route-stored]", route_of(_rec("r1")), "tim")
+        expect("file_issue[check-route-stamped]", route_source_of(_rec("r1")),
+               ROUTE_SOURCE_CHECK)
+        file_issue("r1", "t", "warn", "ev", route="agent", ask="")
+        expect("file_issue[check-route-refreshes]", route_of(_rec("r1")), "agent")
+        expect("file_issue[check-route-refresh-clears-ask]", _rec("r1").get("ask"), "")
+
+        # An EXPLICIT route survives the probe that would otherwise move it.
+        file_issue("r2", "t", "warn", "ev", route="tim", ask="ASK")
+        cmd_route(["r2", "--route", "tim", "-n", "enablement by hand"])
+        expect("cmd_route[stamps-explicit]", route_source_of(_rec("r2")),
+               ROUTE_SOURCE_EXPLICIT)
+        file_issue("r2", "t", "warn", "ev", route="agent")
+        expect("file_issue[explicit-route-frozen]", route_of(_rec("r2")), "tim")
+
+        # A check that computes NO route must not move one either.
+        file_issue("r3", "t", "warn", "ev", route="tim")
+        file_issue("r3", "t", "warn", "ev")
+        expect("file_issue[no-route-supplied-leaves-it]", route_of(_rec("r3")), "tim")
+
+        # Legacy records predate the field: probe-filed is refreshable, hand-filed frozen.
+        file_issue("r4", "t", "warn", "ev", route="tim", source="probe")
+        _r4 = _rec("r4"); _r4.pop("route_source", None)
+        issue_path("r4").write_text(json.dumps(_r4))
+        expect("route_source_of[legacy-probe-reads-check]", route_source_of(_rec("r4")),
+               ROUTE_SOURCE_CHECK)
+        file_issue("r4", "t", "warn", "ev", route="agent")
+        expect("file_issue[legacy-probe-route-refreshes]", route_of(_rec("r4")), "agent")
+
+        file_issue("r5", "t", "warn", "ev", route="tim", source="manual")
+        _r5 = _rec("r5"); _r5.pop("route_source", None)
+        issue_path("r5").write_text(json.dumps(_r5))
+        expect("route_source_of[legacy-manual-reads-explicit]", route_source_of(_rec("r5")),
+               ROUTE_SOURCE_EXPLICIT)
+        file_issue("r5", "t", "warn", "ev", route="agent")
+        expect("file_issue[legacy-manual-route-frozen]", route_of(_rec("r5")), "tim")
+
+        # A NEW manual filing lands explicit; a NEW check filing lands check.
+        file_issue("r6", "t", "warn", "ev", route="tim", source="manual")
+        expect("file_issue[new-manual-is-explicit]", route_source_of(_rec("r6")),
+               ROUTE_SOURCE_EXPLICIT)
+        file_issue("r7", "t", "warn", "ev", route="tim", source="probe")
+        expect("file_issue[new-probe-is-check]", route_source_of(_rec("r7")),
+               ROUTE_SOURCE_CHECK)
+
+        # The end-to-end consequence: an operator-routed item whose predicate clears
+        # leaves the human queue instead of being pushed with no ask.
+        _esc = escalations_text([
+            {"key": "e9", "title": "t", "severity": "warn", "route": "agent",
+             "evidence": "ev", "ask": ""}])
+        expect("escalations_text[askless-item-out-of-the-human-queue]", _esc, "")
+    finally:
+        globals()["BOARD"] = _ob_rt
+        _td_rt.cleanup()
 
     # The ORDER is the fix, not the presence: an item whose newest note is internal
     # bookkeeping must still put the measured ask in front of it. Before this,
