@@ -62,6 +62,35 @@ module Instagram
       raise Error, "Request failed: #{e.message}"
     end
 
+    # WHERE the account's reach came from -- its own followers, or accounts that
+    # do not follow it -- plus profile visits, the step between reach and a
+    # follow.
+    #
+    # Why this exists (measured 2026-09-24): the pre-registered GO/PIVOT/KILL
+    # gate names "distribution/reach" as its pivot candidate, but the only reach
+    # this repo held was PER-POST (scheduling_posts.reach). Per-post reach cannot
+    # separate "our followers see every post" from "strangers find us", and those
+    # are different businesses. Instagram's account-level insights answer the
+    # question directly: `GET /{account_id}/insights?metric=reach&period=day&
+    # metric_type=total_value&breakdown=follow_type`. Measured live 2026-09-24:
+    # reach=6 with `FOLLOWER=6` and NO `NON_FOLLOWER` result -- zero non-follower
+    # reach, stated by the platform rather than inferred from a sum.
+    #
+    # Returns a hash with nil for anything the API did not answer.
+    #
+    # ABSENCE OF A BREAKDOWN VALUE IS A MEASURED ZERO, not an unknown: the API
+    # returns only the dimension values that are non-zero, so a follow_type
+    # breakdown that carries FOLLOWER and no NON_FOLLOWER means no non-follower
+    # reach. What IS unknown is a response with no breakdown block at all -- that
+    # keeps nil, so a shape change cannot manufacture a "zero discovery" verdict.
+    # `reach_total` is recorded alongside so the two parts can always be checked
+    # against the whole; a permanent 0 that never reconciles with the total is
+    # how a silently broken breakdown would show itself.
+    def reach_attribution
+      reach = account_reach_breakdown
+      reach.merge(profile_views: account_profile_views)
+    end
+
     # Fetch the current follower count for the connected business account.
     # Graph API: GET /{account_id}?fields=followers_count
     def followers_count
@@ -80,6 +109,69 @@ module Instagram
     end
 
     private
+
+    # -> { follower_reach:, non_follower_reach:, reach_total: }, each nil when
+    # the API did not answer. Never raises: a missing measurement must not cost
+    # the caller the follower count it came for.
+    def account_reach_breakdown
+      body = insights_metric('reach', breakdown: 'follow_type')
+      node = Array(body['data'] || body[:data]).find { |d| d['name'] == 'reach' }
+      return { follower_reach: nil, non_follower_reach: nil, reach_total: nil } unless node
+
+      total = metric_total(node)
+      breakdowns = (node['total_value'] || node[:total_value] || {})['breakdowns'] ||
+                   (node['total_value'] || node[:total_value] || {})[:breakdowns]
+      # No breakdown block at all == the metric answered without attribution.
+      # UNKNOWN, not zero: see the note on #reach_attribution.
+      return { follower_reach: nil, non_follower_reach: nil, reach_total: total } if breakdowns.blank?
+
+      sums = {}
+      Array(breakdowns).each do |b|
+        Array(b['results'] || b[:results]).each do |r|
+          sums[Array(r['dimension_values'] || r[:dimension_values]).first.to_s.upcase] = r['value'].to_i
+        end
+      end
+
+      # A dimension the API omitted is a measured zero (it reports only non-zero
+      # values); see the class note.
+      {
+        follower_reach: sums.fetch('FOLLOWER', 0),
+        non_follower_reach: sums.fetch('NON_FOLLOWER', 0),
+        reach_total: total || sums.values.sum
+      }
+    rescue Faraday::Error, Error => e
+      Rails.logger.warn("Instagram::Client#reach_attribution: reach breakdown unavailable (#{e.message})")
+      { follower_reach: nil, non_follower_reach: nil, reach_total: nil }
+    end
+
+    # -> Integer profile visits for the period, or nil when unanswered.
+    def account_profile_views
+      body = insights_metric('profile_views', breakdown: nil)
+      node = Array(body['data'] || body[:data]).find { |d| d['name'] == 'profile_views' }
+      node && metric_total(node)
+    rescue Faraday::Error, Error => e
+      Rails.logger.warn("Instagram::Client#reach_attribution: profile_views unavailable (#{e.message})")
+      nil
+    end
+
+    def insights_metric(metric, breakdown:)
+      response = connection.get("#{@account_id}/insights") do |req|
+        req.params['metric'] = metric
+        req.params['period'] = 'day'
+        req.params['metric_type'] = 'total_value'
+        req.params['breakdown'] = breakdown if breakdown
+        req.params['access_token'] = @access_token
+      end
+      handle_response(response)
+    end
+
+    # total_value.value, tolerating the string/symbol key split Faraday's JSON
+    # middleware can produce and a plain `value` shape.
+    def metric_total(node)
+      tv = node['total_value'] || node[:total_value] || node
+      raw = tv.is_a?(Hash) ? (tv['value'] || tv[:value]) : tv
+      raw.nil? ? nil : raw.to_i
+    end
 
     def wait_for_media_ready(creation_id)
       max_attempts = 10

@@ -2,22 +2,14 @@
   "key": "zero-engagement-at-production-rate",
   "title": "nothing published in 14d was accepted: 20 measured post(s), 0 like(s), 0 comment(s), 0 save(s)",
   "severity": "warn",
-  "evidence": "23 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Self-closes when a published post is engaged with (any like/comment/save in the window).",
+  "evidence": "23 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Account reach attribution, newest measured snapshot (09-24 05:36): non-follower=0 follower=6 total=6. Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the platform's own split, not an inference from a per-post sum: non-follower=0 means nothing outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than a content problem, and the lever the gate's pivot candidate names. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-24T00:25:27-0400",
-  "seen_count": 93,
+  "last_seen": "2026-09-24T01:37:09-0400",
+  "seen_count": 95,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-22T22:39:28-0400",
-      "note": "DECISION (unchanged, no new lever in-repo): the verdict is the PRE-REGISTERED 2026-09-28 13:00Z GO/PIVOT/KILL gate, a dated measurement, not a deferral. Re-measured from the DB this tick: 18 of 21 measured posts carry insights, 0 like/comment/save, mean reach 3.8/post, followers flat at 157 across the last 4 hourly snapshots. Reach saturates independently of volume (~11-14/day at 1 post/day vs 12-14 at 4-5/day), so cadence is not the defect and raising it cannot move this number. Nothing to fix here until the gate reads."
-    },
-    {
-      "ts": "2026-09-23T00:36:45-0400",
-      "note": "2026-09-23 04:3xZ ops-triage: unchanged; the verdict is the pre-registered 09-28 13:00Z gate. Re-measured live this tick: 20 posts published in 14d, 17 with insights, 0 like / 0 comment / 0 save, mean reach 3.2 per post, followers flat at 157 across four hourly snapshots. Cross-reference: gate-cohort-starved now forecasts that read as :extend with a feasible cohort of 0/5 (commit fe9c638), so no engagement verdict is available at 09-28 and the bound pre-registered there is what governs."
-    },
     {
       "ts": "2026-09-23T03:33:59-0400",
       "note": "2026-09-23 07:3xZ ops-triage: unchanged (22 posts/14d, 18 measured, 0 like/comment/save, reach 57, followers flat 157). Verdict remains the pre-registered 09-28 gate read; no new decision."
@@ -33,6 +25,14 @@
     {
       "ts": "2026-09-24T00:36:24-0400",
       "note": "2026-09-24 04:4xZ ops-triage: no new lever; verdict remains the pre-registered 2026-09-28 13:00Z GO/PIVOT/KILL read (DISTRIBUTION/REACH). Render loop is producing again (3 photos in 3h) but the acceptance counter is unchanged: 20 measured posts, 0 like/comment/save. This pass's fix was machinery, not strategy -- see the salvage commit c3cc713."
+    },
+    {
+      "ts": "2026-09-24T01:37:46-0400",
+      "note": "2026-09-24 09:3xZ ops-triage: MEASURED THE MISSING NUMBER -- discovery is ZERO, and the pipeline's levers cannot change that. Instagram's account-level insights answer reach with breakdown=follow_type (probed live read-only this pass: reach=6, FOLLOWER=6, and NO NON_FOLLOWER row; media-level reach rejects the breakdown, account-level accepts it). That number is now collected with every follower snapshot: growth_snapshots 1051 (09-24 05:36Z) = followers 157, follower_reach 6, non_follower_reach 0, reach_total 6, profile_views 0. So nothing outside the follower list is being shown these posts at all -- a DISTRIBUTION ceiling stated by the platform, not inferred from per-post sums, and 0 profile visits means no funnel step from reach to a follow either. Supporting cadence measurement (DB, weekly, insights-bearing posts): total weekly reach 139-149 at 23-42 posts/week vs 36 at 3 posts, while per-post reach is 12.0 at 3 posts and 3.1-3.3 at 13-42 -- i.e. volume spreads a ~150/week ceiling across more posts without adding reach or a single follower (followers 150->157 over 08-26..09-14, then flat at 157 for 10 days). DECISION (mine, recorded here rather than deferred): (1) the growth thesis's mechanism -- publish -> discovery -> follows -- has no discovery step on this account, so no content/caption/hashtag/cadence edit can move followers; those levers are measured INERT, and cadence is left at the configured cap (raising it is the one change the data says is actively harmful to per-post visibility). (2) The pre-registered follower leg is already DETERMINISTICALLY failed (157 vs the 170 ceiling; it needs +13 in the 11 days to the 10-05 read at an achieved 0.07/day), and the 10-05 engagement leg will now read on a valid cohort (5/5 feasible, gate-cohort-starved), so the 10-05 read cannot be :go or :continue and the gate's own pivot candidate is what fires. (3) PIVOT PRE-REGISTERED (before any build, per the gate discipline): the discovery arm is REELS/MOTION cut from renders we already produce -- the one organic Instagram surface with non-follower distribution, publishable on the SAME account and API (media_type=REELS) with no credential or platform change, so it is NOT a Tim ask. Its success metric is the account-level non_follower_reach now collected on every snapshot (self-closing criterion: non_follower_reach > 0), NOT engagement -- engagement is the wrong read for an account with no discovery. This item stays OPEN as the gate's continuously-tracked acceptance counter and self-closes on the first engaged post."
+    },
+    {
+      "ts": "2026-09-24T01:37:53-0400",
+      "note": "CLOCK CORRECTION on the note above: its opening stamp reads 09:3xZ and the true time of that pass is 2026-09-24 05:3xZ (local 01:3x EDT). Nothing else in the note depends on it -- the readings it cites are all UTC DB timestamps (snapshot 09-24 05:36Z)."
     }
   ]
 }

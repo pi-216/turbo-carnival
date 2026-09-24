@@ -1491,6 +1491,45 @@ def engagement_acceptance_verdict(n_posts, likes, comments, saved):
     return None
 
 
+def discovery_attribution_clause(non_follower, follower, total, when_txt):
+    """PURE: the measured reach attribution as a sentence, or '' when unmeasured.
+
+    `non_follower` None means NEVER MEASURED (the column is NULL), which must
+    print nothing -- an unmeasured account reported as "0 non-follower reach"
+    would be the exact fabricated verdict this measurement exists to prevent.
+    """
+    if non_follower is None:
+        return ""
+    total_txt = "unknown" if total is None else str(total)
+    follower_txt = "unknown" if follower is None else str(follower)
+    return (
+        f" Account reach attribution, newest measured snapshot{f' ({when_txt})' if when_txt else ''}: "
+        f"non-follower={non_follower} follower={follower_txt} total={total_txt}. "
+        "Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the "
+        "platform's own split, not an inference from a per-post sum: non-follower=0 means nothing "
+        "outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than "
+        "a content problem, and the lever the gate's pivot candidate names."
+    )
+
+
+def latest_discovery_attribution():
+    """-> the newest MEASURED reach attribution, or None when none was measured."""
+    row = psql(
+        "select coalesce(non_follower_reach::text,'') || '|' || coalesce(follower_reach::text,'') "
+        "|| '|' || coalesce(reach_total::text,'') || '|' "
+        "|| to_char(taken_at, 'MM-DD HH24:MI') "
+        "from growth_snapshots where non_follower_reach is not null "
+        "order by taken_at desc limit 1"
+    )
+    if not row:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    nf, fl, tot, when_txt = parts
+    return (as_int(nf), as_int(fl), as_int(tot), when_txt or None)
+
+
 def check_engagement_acceptance():
     """OUTPUT != ACCEPTED OUTPUT: full-cadence publishing that nobody accepts.
 
@@ -1529,6 +1568,8 @@ def check_engagement_acceptance():
     if not sev:
         return None
     mean_reach = round(reach / measured, 1) if measured else 0.0
+    attribution = latest_discovery_attribution()
+    discovery_txt = discovery_attribution_clause(*attribution) if attribution else ""
     return (
         "zero-engagement-at-production-rate",
         f"nothing published in {win}d was accepted: {measured} measured post(s), "
@@ -1541,8 +1582,8 @@ def check_engagement_acceptance():
         "target -- so every machine-level check stays green while the RESULT is "
         "zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL "
         "gate; a flat engagement read there is this condition, not a starved "
-        "pipeline. Self-closes when a published post is engaged with (any "
-        "like/comment/save in the window).",
+        "pipeline." + discovery_txt + " Self-closes when a published post is engaged "
+        "with (any like/comment/save in the window).",
     )
 
 
@@ -6799,6 +6840,19 @@ def cmd_selftest(_argv):
     for name, n, l, c, s, want in engagement_cases:
         expect(f"engagement_acceptance_verdict[{name}]",
                engagement_acceptance_verdict(n, l, c, s), want)
+
+    # discovery_attribution_clause: only a MEASURED attribution may print. An
+    # unmeasured one (None) must say nothing, or a broken insights call would be
+    # published as "zero discovery" -- the fabricated verdict the measurement
+    # exists to prevent.
+    expect("discovery_attribution_clause[unmeasured]",
+           discovery_attribution_clause(None, None, None, None), "")
+    expect("discovery_attribution_clause[measured-zero]",
+           "non-follower=0" in discovery_attribution_clause(0, 6, 6, "09-24 05:36"), True)
+    expect("discovery_attribution_clause[discovery]",
+           "non-follower=9" in discovery_attribution_clause(9, 3, 12, None), True)
+    expect("discovery_attribution_clause[missing-parts]",
+           "follower=unknown total=unknown" in discovery_attribution_clause(0, None, None, None), True)
 
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [

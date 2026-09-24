@@ -142,4 +142,62 @@ RSpec.describe Instagram::Client do
       expect { publish }.to raise_error(Instagram::Client::Error, /boom/)
     end
   end
+
+  # Reach ATTRIBUTION (added 2026-09-24): the account's own insights say whether
+  # any reach came from accounts that do not follow it. That number is what
+  # decides "content problem" vs "no distribution at all", and it cannot be
+  # derived from per-post reach sums.
+  describe '#reach_attribution' do
+    def reach_body(results, total: 6, with_breakdown: true)
+      tv = { 'value' => total }
+      tv['breakdowns'] = [ { 'dimension_keys' => [ 'follow_type' ], 'results' => results } ] if with_breakdown
+      ok({ 'data' => [ { 'name' => 'reach', 'period' => 'day', 'total_value' => tv } ] })
+    end
+
+    def profile_views_body(value)
+      ok({ 'data' => [ { 'name' => 'profile_views', 'period' => 'day',
+                         'total_value' => { 'value' => value } } ] })
+    end
+
+    before { allow(client).to receive(:sleep) }
+
+    it 'reads a follow_type breakdown, treating an OMITTED dimension as a measured zero' do
+      stub_flow([ reach_body([ { 'dimension_values' => [ 'FOLLOWER' ], 'value' => 6 } ]),
+                  profile_views_body(0) ])
+
+      att = client.reach_attribution
+      expect(att[:follower_reach]).to eq(6)
+      expect(att[:non_follower_reach]).to eq(0)
+      expect(att[:reach_total]).to eq(6)
+      expect(att[:profile_views]).to eq(0)
+    end
+
+    it 'reports a non-zero non-follower reach as discovery' do
+      stub_flow([ reach_body([ { 'dimension_values' => [ 'FOLLOWER' ], 'value' => 3 },
+                               { 'dimension_values' => [ 'NON_FOLLOWER' ], 'value' => 9 } ], total: 12),
+                  profile_views_body(4) ])
+
+      att = client.reach_attribution
+      expect(att[:follower_reach]).to eq(3)
+      expect(att[:non_follower_reach]).to eq(9)
+      expect(att[:profile_views]).to eq(4)
+    end
+
+    it 'leaves the parts UNKNOWN (nil) when the response carries no breakdown block' do
+      stub_flow([ reach_body([], with_breakdown: false), profile_views_body(0) ])
+
+      att = client.reach_attribution
+      expect(att[:non_follower_reach]).to be_nil
+      expect(att[:follower_reach]).to be_nil
+      expect(att[:reach_total]).to eq(6)
+    end
+
+    it 'returns nils instead of raising when the insights call fails' do
+      stub_flow([ response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }),
+                  response(400, { 'error' => { 'code' => 100, 'message' => 'Invalid parameter' } }) ])
+
+      att = client.reach_attribution
+      expect(att).to eq(follower_reach: nil, non_follower_reach: nil, reach_total: nil, profile_views: nil)
+    end
+  end
 end
