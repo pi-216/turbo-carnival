@@ -1,0 +1,20 @@
+{
+  "key": "cron-job-stalled",
+  "title": "a scheduled job of this profile stopped firing (or fails on every run)",
+  "severity": "warn",
+  "evidence": "1 job(s) did NOT fire when due: tc-growth-harness-brain 360m past its slot (last ran 2026-09-24T14:09:40.031732-04:00). 1 job(s) fire and FAIL every run: tc-weekly-persona-review 3 consecutive failure(s), last_status='error', last_error=RuntimeError: Skipped to prevent unintended spend: global inference config drifted. Both are producer states the consumer side cannot tell from a healthy quiet job, so read the producer's own error channel before anything else: cron/executions.db for an error row against that job id, then its output file under cron/output/<job-id>/ for an exception raised inside the task. Recovery for a stall is in-repo -- force-run the job, then confirm the NEXT slot's run actually lands; a job that keeps missing its slot after a force-run is the documented Hermes scheduler gap, whose fallback is a systemd user timer (`systemctl --user enable --now <name>.timer`, OnCalendar=*:0/5) running the same command. A whole-fleet stall is invisible here by construction -- no run means no probe.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-24T14:29:44-0400",
+  "last_seen": "2026-09-24T14:29:44-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T14:29:55-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "closed_at": "2026-09-24T14:29:55-0400"
+}

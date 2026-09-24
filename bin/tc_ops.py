@@ -5263,6 +5263,134 @@ def check_cron_delivery():
     )
 
 
+# THE PRODUCER SIDE, which every other guard in this neighbourhood reads around.
+# check_cron_delivery reads a job's DELIVERY target, check_cron_prompt_* read its
+# PROMPT TEXT, check_interrupted_run_debris reads executions.db for a run that died
+# mid-flight, and check_weekly_review_due reads the APP's own ground truth for the
+# one weekly review. Nothing read whether a job still FIRES. That absence is the
+# documented Hermes cron scheduler failure -- a job whose `next_run_at` sticks in
+# the past while `force-run` still works (verified 2026-08-04: four consecutive
+# ticks missed by one job while its siblings ran on time) -- plus its twin, a job
+# that fires and ERRORS on every run (genome: 'Producer-Side Crash Forensics' --
+# never-scheduled, crash-looping and silently-skipping are indistinguishable from
+# the consumer side, and all three look like a healthy quiet job).
+#
+# What the gap costs here, measured: the hourly producer is what renders and tops
+# the publish queue up, and its absence has no signal of its own. The queue simply
+# drains, publishing goes silent when the last clock passes, and the first alarm is
+# check_queue_runway at the 3-day edge -- ~4 days after the stall began (genome:
+# 'Expected-Event Absence Detection'). The nightly corpus backup already carries
+# exactly this guard, via its snapshot mtime; this is the same guard for the jobs.
+#
+# HONEST SCOPE: a FULL scheduler outage (every job stopped) is invisible here by
+# construction -- no run means no probe, so nothing reports it. This covers the
+# PARTIAL gap, which is the observed failure and the one that silently costs work
+# while the rest of the fleet looks healthy.
+CRON_LIVENESS_GRACE_MIN = float(os.environ.get("TC_CRON_LIVENESS_GRACE_MIN", "30"))
+CRON_FAILURE_STREAK_WARN = 2
+
+
+def cron_dt(value):
+    """ISO-8601 store stamp -> AWARE datetime, or None when it cannot be placed.
+
+    An offset-less stamp is deliberately unplaceable: the store writes local
+    offsets, and reading one as UTC (or as local) is the clock-domain mixing that
+    silently shifts every comparison by hours. No placeable stamp, no signal.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo is not None else None
+
+
+def cron_liveness_verdict(jobs, now_dt):
+    """PURE: job records -> (severity, evidence) when a job stopped producing, else None.
+
+    Two producer states, reported together because a reader acts on them the same
+    way (read the producer's error channel, then force it):
+
+      * did NOT fire -- `next_run_at` has passed and nothing advanced it. The store's
+        own arming is the only signal that separates this from a healthy quiet job:
+        a stalled job keeps its MISSED slot in next_run_at.
+      * fires and FAILS -- a consecutive-failure streak, which re-arms the job (so
+        next_run_at stays healthy) while every run errors.
+
+    INTENT FIRST (genome: 'Quiescence Attribution'): a job that is disabled or
+    paused is a decision, not a stall, and must never be reported as one.
+    """
+    if now_dt is None:
+        return None
+    stalled, failing = [], []
+    for j in jobs or []:
+        if not isinstance(j, dict):
+            continue
+        if j.get("enabled") is False or j.get("paused_at"):
+            continue
+        name = j.get("name") or j.get("id") or "?"
+        nxt = cron_dt(j.get("next_run_at"))
+        last = j.get("last_run_at") or "never"
+        if nxt is not None:
+            overdue = (now_dt - nxt).total_seconds() / 60.0
+            if overdue > CRON_LIVENESS_GRACE_MIN:
+                stalled.append(f"{name} {overdue:.0f}m past its slot (last ran {last})")
+        try:
+            streak = int(j.get("failure_streak") or 0)
+        except (TypeError, ValueError):
+            streak = 0
+        if streak >= CRON_FAILURE_STREAK_WARN:
+            failing.append(f"{name} {streak} consecutive failure(s), "
+                           f"last_status={j.get('last_status')!r}, "
+                           f"last_error={str(j.get('last_error') or '(none stored)')[:120]}")
+    if not stalled and not failing:
+        return None
+    parts = []
+    if stalled:
+        parts.append(f"{len(stalled)} job(s) did NOT fire when due: " + "; ".join(stalled))
+    if failing:
+        parts.append(f"{len(failing)} job(s) fire and FAIL every run: " + "; ".join(failing))
+    return (
+        "warn",
+        ". ".join(parts) + ". Both are producer states the consumer side cannot tell "
+        "from a healthy quiet job, so read the producer's own error channel before "
+        "anything else: cron/executions.db for an error row against that job id, then "
+        "its output file under cron/output/<job-id>/ for an exception raised inside the "
+        "task. Recovery for a stall is in-repo -- force-run the job, then confirm the "
+        "NEXT slot's run actually lands; a job that keeps missing its slot after a "
+        "force-run is the documented Hermes scheduler gap, whose fallback is a systemd "
+        "user timer (`systemctl --user enable --now <name>.timer`, OnCalendar=*:0/5) "
+        "running the same command. A whole-fleet stall is invisible here by "
+        "construction -- no run means no probe.",
+    )
+
+
+def check_cron_liveness():
+    """Do this profile's scheduled jobs still FIRE, and do their runs succeed?
+
+    Deliberately reads the same store, with the same parsing, as
+    check_cron_delivery: an unreadable store returns no signal (never a warn), and
+    check_probe_inputs owns the blindness report. Read-only.
+    """
+    try:
+        store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        return None
+    jobs = store if isinstance(store, list) else store.get("jobs", store)
+    if isinstance(jobs, dict):
+        jobs = list(jobs.values())
+    v = cron_liveness_verdict(jobs, datetime.datetime.now(datetime.timezone.utc))
+    if not v:
+        return None
+    return (
+        "cron-job-stalled",
+        "a scheduled job of this profile stopped firing (or fails on every run)",
+        v[0],
+        v[1],
+    )
+
+
 def interrupted_run_verdict(rows, lingering, now):
     """Pure: an interrupted run whose debris is STILL uncommitted -> board item.
 
@@ -6812,6 +6940,7 @@ CHECKS = [
     check_queue_growth,
     check_scheduler_dispatcher,
     check_cron_delivery,
+    check_cron_liveness,
     check_interrupted_run_debris,
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
@@ -8215,6 +8344,68 @@ def cmd_selftest(_argv):
     for name, rows, want in delivery_cases:
         v = cron_delivery_verdict(rows)
         expect(f"cron_delivery_verdict[{name}]", v[0] if v else None, want)
+
+    # cron_liveness_verdict: the PRODUCER side of the same store. Every other guard
+    # in this family reads a job's code, prompt or delivery target; none reads
+    # whether it FIRES, so a stalled job costs renders while the whole fleet looks
+    # healthy. Two states must be separable from a healthy quiet job (stalled slot,
+    # failure streak) and two must never be reported at all: a disabled/paused job
+    # (intent, not a stall) and a stamp that cannot be placed on a clock.
+    _cl_now = datetime.datetime(2026, 9, 24, 18, 0, tzinfo=datetime.timezone.utc)
+
+    def JC(**kw):
+        base = {"name": "j", "id": "j1", "enabled": True, "paused_at": None,
+                "failure_streak": 0, "last_status": "ok", "last_error": None,
+                "last_run_at": "2026-09-24T13:00:00-04:00",
+                "next_run_at": "2026-09-24T14:00:00-04:00"}
+        base.update(kw)
+        return base
+
+    liveness_cases = [
+        ("on-time", [JC()], None),
+        ("future-slot", [JC(next_run_at="2026-09-24T19:00:00-04:00")], None),
+        ("inside-grace", [JC(next_run_at="2026-09-24T13:45:00-04:00")], None),
+        ("stalled", [JC(next_run_at="2026-09-24T12:00:00-04:00")], "warn"),
+        ("stalled-utc-stamp", [JC(next_run_at="2026-09-24T16:00:00+00:00")], "warn"),
+        ("disabled-is-intent", [JC(enabled=False, next_run_at="2026-09-01T00:00:00-04:00")], None),
+        ("paused-is-intent", [JC(paused_at="2026-09-24T10:00:00-04:00",
+                                 next_run_at="2026-09-01T00:00:00-04:00")], None),
+        ("naive-stamp-unplaceable", [JC(next_run_at="2026-09-24T12:00:00")], None),
+        ("no-stamp", [JC(next_run_at=None)], None),
+        ("junk-stamp", [JC(next_run_at="never")], None),
+        ("failure-streak", [JC(failure_streak=2)], "warn"),
+        ("single-failure-is-transient", [JC(failure_streak=1)], None),
+        ("stalled-and-failing", [JC(next_run_at="2026-09-24T12:00:00-04:00",
+                                    failure_streak=3)], "warn"),
+        ("empty", [], None),
+        ("unreadable", None, None),
+    ]
+    for name, rows, want in liveness_cases:
+        v = cron_liveness_verdict(rows, _cl_now)
+        expect(f"cron_liveness_verdict[{name}]", v[0] if v else None, want)
+    expect("cron_liveness_verdict[no-clock]", cron_liveness_verdict([JC()], None), None)
+    # Live guard. A quiet result is only "nothing stalled" if the store's INPUT
+    # parsed -- an unreadable store also returns None, and an OK that is not
+    # causally tied to the condition is the failure this family exists to avoid.
+    try:
+        _cl_store = json.loads(CRON_JOBS.read_text())
+    except Exception:
+        _cl_store = None
+    if _cl_store is not None:
+        _cl_jobs = _cl_store if isinstance(_cl_store, list) else _cl_store.get("jobs", _cl_store)
+        if isinstance(_cl_jobs, dict):
+            _cl_jobs = list(_cl_jobs.values())
+        expect("check_cron_liveness[live-store-parses]",
+               isinstance(_cl_jobs, list) and len(_cl_jobs) > 0, True)
+        expect("cron_liveness_verdict[live-stamps-placeable]",
+               all(cron_dt(j.get("next_run_at")) is not None
+                   for j in _cl_jobs
+                   if isinstance(j, dict) and j.get("enabled") is not False), True)
+        _cl_want = cron_liveness_verdict(
+            _cl_jobs, datetime.datetime.now(datetime.timezone.utc))
+        expect("check_cron_liveness[live-agrees-with-its-own-input]",
+               (check_cron_liveness() or (None, None, None, None))[2],
+               _cl_want[0] if _cl_want else None)
 
     # cron_prompt_probe_verdict: prompt text -> severity. A blocked probe leaves
     # no in-repo trace, so the prompt text is the signal; localhost/domains are
