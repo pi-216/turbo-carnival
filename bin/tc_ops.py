@@ -6029,6 +6029,24 @@ def auto_close_note(key):
     return _QUIET_REASONS.get(str(key)) or AUTO_CLOSE_DEFAULT_NOTE
 
 
+def auto_close_stamp(rec, stamp=None):
+    """PURE: mark a record auto-closed AND stamp WHEN the condition stopped.
+
+    `closed_at` was written only by `cmd_close`, so an AUTO-closed record carried
+    either no close time at all or a stale one left behind by an earlier manual
+    close -- measured 2026-09-24, where `render-starved` read `status:
+    auto-closed` with `closed_at: 2026-09-20`, four days BEFORE the drought it
+    was closed for. The board then cannot answer the one question a closed record
+    exists to answer ("when did this condition stop reproducing?") and answers it
+    wrongly -- and that is precisely the number a reader needs to date a
+    recovery. Overwritten on every auto-close for the same reason: a record that
+    reopens and auto-closes again must not keep the first close's date.
+    """
+    rec["status"] = "auto-closed"
+    rec["closed_at"] = stamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    return rec
+
+
 def cmd_probe(_argv):
     global _AUDIT_SINK, _AUDIT_CHECK
     _QUIET_REASONS.clear()
@@ -6102,7 +6120,7 @@ def cmd_probe(_argv):
             continue
         if rec.get("status") == "open" and rec.get("key") not in live \
                 and rec.get("source", "probe") == "probe":
-            rec["status"] = "auto-closed"
+            auto_close_stamp(rec)
             append_note(rec, auto_close_note(rec.get("key")))
             p.write_text(json.dumps(rec, indent=2) + "\n")
 
@@ -7023,6 +7041,19 @@ def cmd_selftest(_argv):
         expect("close[-n] rc", rc_ok, 0)
         expect("close[-n] note", rec["notes"][-1]["note"], "resolved by selftest")
         expect("close[probe-owned] warns", "probe-owned" in buf.getvalue(), True)
+
+        # auto-close STAMP: closed_at was written only by cmd_close, so an
+        # AUTO-closed record carried no close time -- or, worse, a stale one from
+        # an earlier manual close (render-starved read closed_at 2026-09-20 while
+        # auto-closed 2026-09-24, four days BEFORE the drought it closed for).
+        expect("auto-close-stamp[status]",
+               auto_close_stamp({"key": "k"})["status"], "auto-closed")
+        expect("auto-close-stamp[stamps-when-absent]",
+               auto_close_stamp({"key": "k"}, stamp="T1")["closed_at"], "T1")
+        expect("auto-close-stamp[overwrites-stale]",
+               auto_close_stamp({"key": "k", "closed_at": "OLD"}, stamp="T2")["closed_at"], "T2")
+        expect("auto-close-stamp[never-empty]",
+               bool(auto_close_stamp({"key": "k"})["closed_at"]), True)
 
         # touch: the SAME trap as close, hit live 2026-09-20 -- `touch KEY --note
         # TEXT` persisted the literal "--note" and dropped the text. The flag form

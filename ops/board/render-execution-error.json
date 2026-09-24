@@ -3,16 +3,12 @@
   "title": "UNVERIFIED: no render was attempted in the 24h window",
   "severity": "info",
   "evidence": "0 render(s) were ATTEMPTED in the last 24h, so the absence of a fresh ComfyUI execution error is UNVERIFIED, not a repair -- an absence claim is only as strong as its interval coverage. Filed so a render drought cannot auto-close an open execution-error item (the mechanism by which the CLIPSeg empty-mask defect left the board on 2026-09-22 20:25Z). Self-closes as soon as a render runs.",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-21T07:40:00-0400",
   "last_seen": "2026-09-23T21:30:26-0400",
   "seen_count": 116,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-22T01:40:35-0400",
-      "note": "2026-09-22 05:4xZ ops-triage: CORRECTION + RETRY LIVENESS VERIFIED from primary evidence (devlog + DB) -- this closes the last unverified claim on this entry. (1) The bounded retry IS live and effective: at 00:05Z 09-22 the class-(b) OOM path logged 'Growth::ContentGenerator retrying render after ComfyUI error: Allocation on device 0 would exceed allowed memory.' and the INSERT that follows created ComfyuiJob 7565 (pipeline_run 480, status pending), which then COMPLETED at 00:09:22Z. So a death after the retry commit buys a second render instead of losing the slot. (2) Class (a) is UNEXERCISED, not broken: the CLIPSeg empty-mask death (ComfyuiJob 7563) failed at 11:16:30Z 09-21, which PREDATES the retry commits (4c70264 landed 12:41Z, 81e8c4a 12:46Z) -- that is why PipelineRun 479 reject_reason reads the generic 'render timed out or produced no image' while the ComfyuiJob row carries 'index is out of bounds for dimension with size 0'. Do NOT read that mismatch as the retry failing to fire. No class-(a) death has occurred with the retry in place. (3) CLOCK: devlog and comfyui_jobs.updated_at are UTC; 11:16Z is 07:16 EDT. (4) Class (a) repair stays blocked-on-slot: a 75-node production graph needs a render to verify an edit and we hold no claim (not a Tim ask). Probe-owned: self-closes when no execution error is inside the 24h window (newest 09-22 00:05Z)."
-    },
     {
       "ts": "2026-09-22T03:38:14-0400",
       "note": "DECISION -- the last outstanding obligation on this entry (a guarded in-place edit to the 75-node production graph for the CLIPSeg empty-mask death) is REJECTED, so nothing remains open here. Evidence gathered this pass: (1) the recovery path is now SPEC-ENFORCED, not comment-enforced -- spec/services/growth/content_generator_spec.rb:122-190 asserts exactly ONE bounded resubmit, gated on a ComfyUI error; ran it: 8 examples, 0 failures. (2) The retry provably draws a different sample: packs/comfyui/app/commands/submit_job.rb:60-63 sets the seed to pipeline_run.variables[\"seed\"] + the NEW comfyui_job.id, and that mechanism is live-verified on run 480's OOM pair (ComfyuiJob 7564 failed 00:01Z -> resubmit 7565 completed 00:09:22Z). (3) The graph edit would change production render semantics with no repeatable failure to test against and no verification short of a render, i.e. it risks the only publish path for a class that has fired once in ~10 days and is now recoverable. Residual, accepted: if the retry ALSO dies the run loses one render window. This key is probe-owned (24h window; newest execution error 09-22 00:05Z), so it self-closes ~09-23 00:05Z; a recurrence re-files it, which is the correct signal rather than a defect. No GPU work needed or run (we hold no claim; the 4090 is scheduler-idle and the derived queue is empty, so nothing was blocked on this decision)."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-23T03:33:59-0400",
       "note": "2026-09-23 07:3xZ ops-triage: unchanged and expected -- 'no render was attempted in the 24h window' is the CONSEQUENCE of the operator pin, not a separate fault (the harness refuses before requesting a claim). No new event; auto-closes when renders resume."
+    },
+    {
+      "ts": "2026-09-23T22:25:22-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "route": "agent"

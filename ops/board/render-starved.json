@@ -3,16 +3,12 @@
   "title": "no photo in 12h while the render request was refused 12x",
   "severity": "warn",
   "evidence": "photos_12h=0 refusals_12h=12 sched_job=none; free=23.0GiB vs ask 21GiB",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-20T02:25:20-0400",
   "last_seen": "2026-09-23T21:30:30-0400",
   "seen_count": 89,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-23T14:39:32-0400",
-      "note": "2026-09-23 18:4xZ ops-triage: ASK UNCHANGED (the two-outcome one above is still the whole ask and still needs you) -- this note records an AGENT-SIDE option I scoped this pass, so it is NOT part of what you are being asked to do. Question asked: is there a second render path that would make this drought non-blocking? Probed the strix/max395 box (192.168.86.137), which the scheduler reports idle with 110GB and ~104GB GTT free (rocm-smi: GTT total 118111600640 B, used 13493579776 B). Findings: the FLUX stack is already reachable from there -- /mnt/nas-ai-models/unet/flux1 (flux1-dev.sft, Flux1-DedistilledMixTuned, flux1-krea-dev, flux1-dev-F16.gguf) and /mnt/nas-ai-models/loras/flux are the SAME NAS mount the 4090 box renders from -- BUT ComfyUI is NOT installed on strix: /home/tim/ComfyUI contains only custom_nodes, with no main.py and no venv, and no ComfyUI process is running. (My first pgrep reported matches; that was the documented self-match trap -- my own probe's cmdline contains the path /home/tim/ComfyUI -- not a live instance.) So a second path is a real option but a multi-session project (install ComfyUI + ROCm torch on gfx1151, then validate flux + the persona LoRAs), not a quick win, and gfx1151/ROCm is a known-hard area. Decision: do NOT start it mid-drought and do NOT hand it to you; recorded here as a scoped option with its first concrete step so it is not re-derived. Second finding, correctness: the scheduler reports BOTH GPUs 'idle' with boot_id None -- the documented state.json fiction. The 4090 physically holds 18990 MiB used / 5090 MiB free (pid 553489, 18342 MiB), so no check may read '4090 idle' as free capacity; the prober already probes hardware and attributes the holder."
-    },
     {
       "ts": "2026-09-23T15:34:04-0400",
       "note": "2026-09-23 20:0xZ ops-triage: ASK UNCHANGED -- this still needs the operator (no agent may touch a running process's args, and closing the :8188 session is the one action that frees the card). What CHANGED is that it is no longer the only exit. Fresh read at 20:0xZ: 18,643 MiB used / 5,438 MiB free, pid 553489 still holding 18,054 MiB resident, 0% util / 24.3W -- an idle hold, not active rendering (the 16:2xZ note caught it mid-render at 100%/349W). Refusal still correct on both counts (5.4GiB free vs the 16GiB floor; flagless args). NEW this pass: the agent-owned way out of the drought is measured and recorded -- max395 (strix) already runs ComfyUI on ROCm and resolves every model pipeline 21 needs (see the zero-accepted-output-24h note and docs/second-render-path.md). So the ask is now OPTIONAL for the pipeline rather than load-bearing: keep it open as the immediate unblock, but do not treat it as the blocker. If it is still unanswered when the strix path is wired, the drought ends without it."
@@ -32,6 +28,10 @@
     {
       "ts": "2026-09-23T21:31:49-0400",
       "note": "2026-09-24 01:4xZ ops-triage: THE EXTERNAL CAUSE ENDED -- this item is no longer blocked-on-slot and no human action is outstanding. Measured this pass: the operator's flagless :8188 session is GONE (no comfyui process at all; `ss -ltn` shows 8188 NOT listening; nvidia-smi 488 MiB used / 23593 MiB free, holders only nautilus 55 MiB + xdg-desktop-portal-gnome 12 MiB). `bin/comfyui_harness.sh status` -> claim=idle job=none ours=no comfyui=down, so the launch-ARGS gate that produced all 12 refusals is no longer armed. `growth:render_need[Sarah]` -> shortfall=4 target=21 existing=17 need=yes claim=idle comfy=down. The growth-brain tick takes the acquire branch and renders (next_run 02:00Z, last_status ok, cron ticker heartbeat 19s old). This pass launched NOTHING: the growth tick is the authoritative driver and a second one would race its state. ALSO FIXED (repo): the route was FROZEN at filing while the ask was re-derived from the same predicate, so this item sat in the human queue with ask='' once his session cleared -- an escalation with no action. `file_issue` now refreshes a CHECK-computed route and never moves an EXPLICIT one (route_source); this item is now route=agent and Tim's queue is down to the one genuine ask."
+    },
+    {
+      "ts": "2026-09-23T22:25:22-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "closed_at": "2026-09-20T02:36:11-0400",

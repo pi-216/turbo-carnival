@@ -3,17 +3,13 @@
   "title": "No photo produced in 24h (pipeline running but accepting nothing)",
   "severity": "critical",
   "evidence": "photos created in last 24h = 0",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-23T03:25:25-0400",
   "last_seen": "2026-09-23T21:30:25-0400",
   "seen_count": 43,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-23T15:34:01-0400",
-      "note": "2026-09-23 20:0xZ ops-triage: ROOT CAUSE now has a concrete, measured fix path -- the render loop is single-host and that is the whole drought. DECIDED (agent-owned, no Tim dependency): arm a SECOND render host on max395 (strix). Feasibility VERIFIED this pass, not assumed: ~/activity/ComfyUI is a real install (git HEAD 99073836, main.py, .venv py3.14.7), torch 2.12.0a0+rocm7.13.0a with torch.cuda.is_available()==True, device 'Radeon 8060S Graphics', ComfyUI 0.36.0 SERVED :8188 on demand with an empty queue, and it carries the clipseg/impact-pack/IPAdapter/was-ns node family this workflow uses. Every model pipeline 21 (turbo-one-step-clean) references resolves there from the shared NAS -- verified file by file: flux1-dev.sft 23.8GB; t5xxl_fp16 9.8GB; clipLFullFP32... 0.49GB; ae.safetensors 0.34GB; and the three persona LoRAs (sarah1a3, flux_realism_lora, tg) under loras/flux/. CORRECTION to the 18:4xZ note: 'max395 has no ComfyUI' is WRONG for ~/activity/ComfyUI. REMAINING GATE, measured: the workflow's weights are ~34.4GB fp16 while max395 had only 29-32GB RAM free with co-tenants resident (Qwen3.8-27B llama-server ~70GB RSS at 100% iGPU, image_embed 5.6GB, ollama caption server) -- so fp16 does NOT fit today; the smaller NAS unet (Flux1-DedistilledMixTuned 11.9GB -> ~22.4GB) does, and a co-tenant-aware live-free check is required at claim time. Do NOT test-load 34GB on a shared box: the kernel's OOM victim would be the neighbouring project's service, not ours. Recorded in docs/second-render-path.md + a pointer in bin/comfyui_harness.sh. Wiring (remote base URL, remote harness mode, strix claim) is the next pass's work."
-    },
     {
       "ts": "2026-09-23T16:30:36-0400",
       "note": "2026-09-23 20:4xZ ops-triage: condition still true and correctly CRITICAL -- no photo since id 361 @ 09-22 07:07:41Z (~37.4h). Root cause unchanged and now fully attributed: the 4090's :8188 instance is the operator's own tmux session (holder=operator, started Tue Sep_22 18:49:19_2026), up WITHOUT --reserve-vram, so ensure refuses on the ARGS before any claim is asked; live read this pass: 17935MiB used / 6145MiB free, that pid holding 17318MiB, 1% util / 26.5W -- an idle hold. Containment is real but finite: queue publishable=17, dry_out 2026-09-29T10:30Z (~5.6d), after which posting stops silently. No agent action can change this state; it is the operator's one-line fix (relaunch with --reserve-vram, or close the session), and the escape route (second host) is measured shut -- see the render-starved note and docs/second-render-path.md."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-23T20:37:55-0400",
       "note": "2026-09-24 00:3xZ ops-triage: CONTAINMENT DEPTH CORRECTED, and it is now measured rather than remembered. DECIDED+FIXED in the repo: (1) bin/library_depth.py -- a GPU-free, CPU-only (~28s, batched) command that re-runs the SPEND PATH'S OWN gates over the live candidate set and writes ops/library_depth.json; (2) a new board check publish-silence-forecast (warn, route tim) that reads it and escalates on the containment-adjusted SILENCE date; (3) bin/tc_ops.py queue now prints silence= beside dry_out=. Independently re-measured this pass: 51 candidates, 23 pass sharpness, NSFW narrows to 8 spendable (ids 243,245,246,253,260,278,295,308) -- my previous report quoted the raw 51 as depth, which is the exact error Growth::LibraryFallback warns against ('do not size a hold against the raw candidate count'), and it overstated the buffer ~6x. TRUE SILENCE DATE if no render lands: 2026-10-02T02:30Z (queue 09-29T10:30Z + 8 photos @ 3/day = +2.7d), and the library is EMPTY after it. Verified: selftest 571/0, checks-audit 53 checks 0 raised 0 unreadable."
+    },
+    {
+      "ts": "2026-09-23T22:25:22-0400",
+      "note": "condition no longer reproduces"
     }
   ]
 }

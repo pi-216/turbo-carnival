@@ -3,7 +3,7 @@
   "title": "if the render loop stays blocked, publishing goes silent and nothing is left to publish",
   "severity": "warn",
   "evidence": "the GPU-free library holds 8 spendable photo(s) of 8 measured, 0 already spent; at 3/day that buys 2.7d past the last scheduled clock 2026-09-29T10:30:00Z (queue alone drains in 5.4d), so publishing goes SILENT 2026-10-02T02:30:00Z -- in 8.0d -- and after that date there is NO content source left (library spent, renders blocked); depth measured 2026-09-24T00:32:43Z by bin/library_depth.py",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-23T20:36:04-0400",
   "last_seen": "2026-09-23T21:30:30-0400",
   "seen_count": 4,
@@ -13,6 +13,10 @@
     {
       "ts": "2026-09-23T21:31:49-0400",
       "note": "2026-09-24 01:4xZ ops-triage: the DATE stands unchanged (silence 2026-10-02T02:30:00Z) because it is a function of the queue and the measured library, not of who holds the card -- but the HOLD that made it inevitable has ended: the operator's flagless :8188 session is gone, the 4090 is scheduler-idle with an empty queue and 23.0 GiB free, and `comfyui_harness.sh status` reports comfyui=down, so the next hourly growth tick acquires and renders. The forecast therefore recedes with the first fresh render; it is kept open until the queue actually refills. Route moved to agent by the same fix as render-starved: its ask was the operator lever, which cleared with his session, so it must not sit in Tim's queue asking for something that no longer exists."
+    },
+    {
+      "ts": "2026-09-23T22:25:22-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "ask": "",
