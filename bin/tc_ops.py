@@ -2414,6 +2414,111 @@ def check_reel_arm_stall():
     )
 
 
+# The account-level reach attribution is the ONE measurement the pre-registered
+# discovery pivot rests on ("non-follower reach is zero, so no content lever can
+# move followers"), and it is collected BEST EFFORT by design: MetricsCollector
+# swallows a failed insights call, logs one warning and stores NULLs, precisely so
+# a measurement problem cannot cost the follower count. Nothing on this board read
+# whether that path still runs. check_insights_stale does NOT cover it -- that
+# check reads posts.insights_updated_at, a DIFFERENT endpoint (per-post media
+# insights) with a different producer, so it stays green while the account call
+# rots. Two ways the "measured zero discovery" verdict goes false with no other
+# check moving:
+#   * the call stops answering -- snapshots carry NULLs, latest_discovery_
+#     attribution() keeps returning the newest NON-NULL row with NO age bound, and
+#     the board's evidence goes on asserting non-follower=0 from a row that no
+#     longer describes the present;
+#   * the call answers WITHOUT a follow_type breakdown, or with a breakdown whose
+#     parts do not sum to the total it reports -- the client's own note says a
+#     breakdown that never reconciles "is how a silently broken breakdown would
+#     show itself", but no check compared the parts to the whole.
+ATTRIBUTION_STALE_WARN_H = 6.0
+
+
+def attribution_verdict(non_follower, follower, total, age_h):
+    """PURE: is the reach attribution trustworthy? -> (severity, evidence) or None.
+
+    STALENESS IS JUDGED FIRST, on purpose: the contents of a row too old to
+    describe the present cannot establish anything about it, so the age is the
+    fact and the numbers behind it are history -- the same rule the gate-cohort
+    check learned when a trailing-window count outlived its own condition.
+
+    Never measured at all is NOT a fault, and must read as unmeasured rather than
+    as a defect: the columns are new, and a probe that turns an absent read into a
+    verdict is the failure this board exists to prevent.
+    """
+    if non_follower is None and follower is None and total is None:
+        return None
+    if age_h is not None and age_h > ATTRIBUTION_STALE_WARN_H:
+        return ("warn",
+                f"the newest account-level reach attribution is {age_h:.1f}h old "
+                f"(bound {ATTRIBUTION_STALE_WARN_H:g}h)")
+    if non_follower is None:
+        return ("warn",
+                "the account insights call answered reach WITHOUT a follow_type "
+                "breakdown, so non-follower reach is unmeasured, not zero")
+    if follower is not None and total is not None and follower + non_follower != total:
+        return ("warn",
+                f"the reach breakdown does not reconcile with the account's own "
+                f"total (follower={follower} + non-follower={non_follower} != "
+                f"total={total})")
+    return None
+
+
+def check_discovery_attribution():
+    """The pivot's OWN measurement: still being taken, and still adding up?
+
+    Read-only. Both failure shapes are in ATTRIBUTION_STALE_WARN_H above; this
+    exists because the whole discovery pivot -- and therefore the 2026-10-05 gate
+    it is sequenced after -- is justified by a number no check watched.
+    """
+    row = psql(
+        "select coalesce(non_follower_reach::text, 'na') || '|' || "
+        "coalesce(follower_reach::text, 'na') || '|' || reach_total::text || '|' || "
+        "round(extract(epoch from ((now() at time zone 'UTC') - taken_at)) / 3600.0, 1)::text "
+        "from growth_snapshots where reach_total is not null "
+        "order by taken_at desc limit 1"
+    )
+    # None means unreadable OR never measured (psql() cannot tell them apart). An
+    # absent read must not manufacture a defect, so both return silence and the
+    # read is audited by psql() itself.
+    if row is None:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    nf_s, fl_s, tot_s, age_s = parts
+    nf = None if nf_s == "na" else as_int(nf_s)
+    fl = None if fl_s == "na" else as_int(fl_s)
+    total = as_int(tot_s)
+    if nf is None and fl is None and total is None:
+        return None
+    try:
+        age_h = float(age_s)
+    except (TypeError, ValueError):
+        age_h = None
+    v = attribution_verdict(nf, fl, total, age_h)
+    if not v:
+        return None
+    when = "at an unknown age" if age_h is None else f"{age_h:.1f}h ago"
+    return (
+        "discovery-attribution-unmeasured",
+        "the measurement behind the discovery pivot is stale or no longer adds up",
+        v[0],
+        f"newest account-level reach attribution {when}: "
+        f"non-follower={'unmeasured' if nf is None else nf} "
+        f"follower={'unmeasured' if fl is None else fl} "
+        f"total={'unmeasured' if total is None else total} -- {v[1]}. "
+        "Producer: Growth::MetricsCollector#fetch_reach_attribution, hourly via "
+        "growth:snapshot_followers, BEST-EFFORT by design (a failed insights call "
+        "is logged once and stored as NULL). The pivot's justification -- that "
+        "non-follower reach is a measured zero, so no content lever can move "
+        "followers -- is only as good as this row: stale, it is a claim about the "
+        "past; a missing or non-reconciling breakdown makes it a MISSING DIMENSION "
+        "rather than a measured zero.",
+    )
+
+
 def check_placeholder_caption_queued():
     """A queued post whose caption is still the failure artifact publishes as-is.
 
@@ -6199,6 +6304,7 @@ CHECKS = [
     check_gate_cohort_starved,
     check_ai_disclosure_self_declared,
     check_reel_arm_stall,
+    check_discovery_attribution,
     check_comfyui_vram_unclaimed,
     check_reserve_gate_blocked,
     check_telemetry_oom,
@@ -7438,6 +7544,33 @@ def cmd_selftest(_argv):
     expect("_strip_ruby_comments[keeps-a-real-call]",
            bool(REEL_CALLER_RE.search(_strip_ruby_comments(
                "client.create_reel(video_url: u) # publish one"))), True)
+
+    # THE PIVOT'S OWN MEASUREMENT. Every case is a way the number that justifies
+    # the discovery pivot can stop meaning what the board says it means.
+    av = attribution_verdict
+    expect("attribution_verdict[healthy-zero]",
+           av(0, 5, 5, 0.2), None)
+    expect("attribution_verdict[healthy-nonzero]",
+           av(3, 5, 8, 1.0), None)
+    expect("attribution_verdict[never-measured-is-not-a-defect]",
+           av(None, None, None, None), None)
+    expect("attribution_verdict[stale-row-is-not-the-present]",
+           av(0, 5, 5, ATTRIBUTION_STALE_WARN_H + 0.1)[0], "warn")
+    expect("attribution_verdict[right-at-bound]",
+           av(0, 5, 5, ATTRIBUTION_STALE_WARN_H), None)
+    expect("attribution_verdict[barely-stale]",
+           av(0, 5, 5, 5.9), None)
+    expect("attribution_verdict[unreconciled-breakdown]",
+           av(0, 6, 10, 0.5)[0], "warn")
+    expect("attribution_verdict[answered-without-breakdown]",
+           av(None, None, 6, 0.5)[0], "warn")
+    # Staleness is judged FIRST: a row old enough to be history must not be
+    # reported as a live "the breakdown stopped reconciling" verdict.
+    expect("attribution_verdict[stale-beats-content]",
+           "h old" in av(0, 6, 10, 48.0)[1], True)
+    # A shape change must not manufacture a "zero discovery" verdict either way.
+    expect("attribution_verdict[follower-only-half]",
+           av(None, 5, 5, 0.5)[0], "warn")
 
     # THE FEASIBILITY BOUND. The cohort requires insights_updated_at and insights
     # arrive a lag after publication, so a slot inside the window's last `lag_h`
