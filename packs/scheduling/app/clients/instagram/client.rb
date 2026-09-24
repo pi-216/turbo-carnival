@@ -23,6 +23,20 @@ module Instagram
     PUBLISH_ATTEMPTS = 4
     PUBLISH_RETRY_DELAY_S = 10
 
+    # Reels need the strictest ready-check of any surface: a video container is
+    # TRANSCODED, not fetched, so readiness takes minutes rather than the seconds
+    # an image container needs. Bounded anyway -- 30 x 10s -- because an unbounded
+    # wait inside the publisher would hold a release slot forever.
+    REEL_READY_ATTEMPTS = 30
+    REEL_READY_DELAY_S = 10
+
+    # The two container types this account publishes. The only difference on the
+    # API surface is the media_type discriminator and the asset parameter name
+    # (`image_url` vs `video_url`); everything else -- caption, the AI
+    # self-disclosure, the single-use container, the publish retry -- is shared,
+    # which is why this is a parameter and not a second client.
+    REEL_MEDIA_TYPE = 'REELS'
+
     BASE_URL = 'https://graph.facebook.com/v20.0'
 
     # Instagram's Content Publishing API takes a SELF-DISCLOSURE of AI usage on
@@ -57,6 +71,29 @@ module Instagram
     def create_post(image_url:, caption:)
       creation_id = create_media_container(image_url, caption)
       wait_for_media_ready(creation_id)
+      publish_when_ready(creation_id)
+    rescue Faraday::Error => e
+      raise Error, "Request failed: #{e.message}"
+    end
+
+    # Publish a REEL -- the DISCOVERY surface.
+    #
+    # WHY THIS EXISTS (ops decision, 2026-09-24). The account's own insights
+    # answer `reach` with `breakdown=follow_type`, and the measured split is
+    # FOLLOWER=6 / NON_FOLLOWER (absent, i.e. zero) with profile_views=0: the
+    # platform states that nothing outside the follower list is shown these
+    # posts. The growth thesis's mechanism is publish -> discovery -> follows, so
+    # with no discovery step every content lever is inert by construction. Reels
+    # are the one organic Instagram surface that distributes to non-followers,
+    # and it publishes on the SAME account and API -- no credential, no platform
+    # change -- so the pivot is a build rather than a credential ask.
+    #
+    # The asset is produced by Growth::ReelBuilder, which also embeds the IPTC
+    # synthetic mark in the container, so the AI self-disclosure here and the
+    # bytes' marker stay the still path's pairing.
+    def create_reel(video_url:, caption:)
+      creation_id = create_reel_container(video_url, caption)
+      wait_for_media_ready(creation_id, max_attempts: REEL_READY_ATTEMPTS, delay_seconds: REEL_READY_DELAY_S)
       publish_when_ready(creation_id)
     rescue Faraday::Error => e
       raise Error, "Request failed: #{e.message}"
@@ -173,10 +210,7 @@ module Instagram
       raw.nil? ? nil : raw.to_i
     end
 
-    def wait_for_media_ready(creation_id)
-      max_attempts = 10
-      delay_seconds = 3
-
+    def wait_for_media_ready(creation_id, max_attempts: 10, delay_seconds: 3)
       max_attempts.times do |attempt|
         response = connection.get(creation_id) do |req|
           req.params['fields'] = 'status_code'
@@ -258,10 +292,28 @@ module Instagram
       create_container(image_url, caption, ai_disclosure: false)
     end
 
-    def create_container(image_url, caption, ai_disclosure:)
+    # Same disclosure fallback as the still path, on the video container. A
+    # parameter this account's API version rejects must not cost the slot, and
+    # the fallback costs at most one extra container request -- the bytes still
+    # carry the IPTC mark either way.
+    def create_reel_container(video_url, caption)
+      create_container(video_url, caption, ai_disclosure: true, media_type: REEL_MEDIA_TYPE)
+    rescue Error => e
+      Rails.logger.warn(
+        "Instagram REELS container create with #{AI_DISCLOSURE_PARAM}=true failed " \
+        "(#{e.message}); retrying without the AI self-disclosure"
+      )
+      create_container(video_url, caption, ai_disclosure: false, media_type: REEL_MEDIA_TYPE)
+    end
+
+    # `media_type` is sent only when it differs from the default (an image
+    # container is the absence of the parameter), so the still path's request is
+    # byte-for-byte what it was before Reels existed.
+    def create_container(asset_url, caption, ai_disclosure:, media_type: nil)
       response = connection.post("#{@account_id}/media") do |req|
-        req.params['image_url'] = image_url
+        req.params[media_type ? 'video_url' : 'image_url'] = asset_url
         req.params['caption'] = caption
+        req.params['media_type'] = media_type if media_type
         req.params[AI_DISCLOSURE_PARAM] = 'true' if ai_disclosure
         req.params['access_token'] = @access_token
       end

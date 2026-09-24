@@ -2202,6 +2202,137 @@ def check_ai_disclosure_self_declared():
     )
 
 
+# THE PRE-REGISTERED PIVOT (ops decision 2026-09-24), and the guard against it
+# stalling silently. The account's own insights answer `reach` with
+# `breakdown=follow_type`, and the measured split is FOLLOWER=6 with NO
+# NON_FOLLOWER row and profile_views=0 -- the platform stating that nothing
+# outside the follower list is shown these posts -- while total weekly reach
+# stays flat (~139-149) across a 3x cadence change. The growth thesis's mechanism
+# is publish -> discovery -> follows, so with no discovery step every
+# content/caption/hashtag/cadence lever is inert BY CONSTRUCTION, and the pivot
+# the pre-registered gate names (distribution/reach) is what fires.
+#
+# Reels are the pivot target: the one organic surface with non-follower
+# distribution, publishable on the SAME account and API, so it is a build rather
+# than a credential ask. The machinery was built 2026-09-24 (Growth::ReelBuilder
+# for the motion asset, Instagram::Client#create_reel for the REELS container)
+# and is deliberately NOT armed yet. The date is not a guess:
+# Growth::GateRead#cohort_size counts posts published inside the review window
+# that JOIN a `photo` and carry collected insights, so publishing a NEW FORMAT
+# into a window a pre-registered read is measuring injects an uncontrolled
+# variable into that read's own cohort. The arm therefore waits for the
+# 2026-10-05 13:00Z read it was sequenced after (recorded on the ops board before
+# any build, and in openspec/changes/add-reel-discovery-arm).
+#
+# What this check catches, and nothing else on the board can: a pivot that was
+# decided, built, and then DROPPED. The built machinery is invisible to every
+# other condition -- no job, no row, no process -- so the board stays green while
+# the thesis keeps publishing into a surface with a measured ceiling of zero
+# discovery. It self-closes twice over: a production caller silences it, and so
+# does a measured non_follower_reach > 0.
+REEL_ARM_AFTER = calendar.timegm(
+    time.strptime("2026-10-05T13:00:00", "%Y-%m-%dT%H:%M:%S"))
+REEL_BUILDER_SRC = (APP / "packs" / "growth_harness" / "app" / "services"
+                    / "growth" / "reel_builder.rb")
+# A CALL, not a mention: `def create_reel` and `class ReelBuilder` are the
+# definitions themselves and must not count as evidence that the rail uses them.
+REEL_CALLER_RE = re.compile(r"(?<!def )\bcreate_reel\b|\bReelBuilder\b")
+
+
+def reel_arm_verdict(now_ts, arm_after_ts, prod_callers, reach):
+    """PURE: is the pre-registered pivot armed? -> (severity, evidence) or None.
+
+    Silence covers four healthy states, and the warn covers exactly one:
+      * the read it was sequenced after has not happened yet  (waiting, by design)
+      * a production caller exists                            (armed and running)
+      * discovery has already been measured (reach > 0)       (done)
+      * the arm source is absent entirely                     (never built here)
+    """
+    if prod_callers:
+        return None
+    if reach is not None and reach > 0:
+        return None
+    if now_ts < arm_after_ts:
+        return None
+    return (
+        "warn",
+        "the pre-registered pivot to a discovery surface is still UNARMED after the "
+        "read it was sequenced after: Growth::ReelBuilder and "
+        "Instagram::Client#create_reel exist, but no production code calls them, so "
+        "nothing is publishing to a surface that has non-follower reach",
+    )
+
+
+def _strip_ruby_comments(src):
+    """Drop comment text before scanning for callers.
+
+    MEASURED false positive: the REELS client documents the asset step by name
+    ("produced by Growth::ReelBuilder ...") in its class comment, and a scan that
+    reads comments counted that mention as a production caller -- i.e. the guard
+    would have gone silent about an unarmed pivot because the unarmed pivot was
+    DESCRIBED somewhere. A mention in prose is not a use.
+    """
+    kept = []
+    for line in src.splitlines():
+        if "#" in line:
+            before = line.split("#", 1)[0]
+            if before.count('"') % 2 == 0 and before.count("'") % 2 == 0:
+                line = before
+        if not line.strip().startswith("#"):
+            kept.append(line)
+    return "\n".join(kept)
+
+
+def _reel_production_callers():
+    """Files outside the tests and the definitions that CALL the reel path."""
+    hits = []
+    for root in (APP / "app", APP / "packs", APP / "lib", APP / "bin"):
+        for p in sorted(root.rglob("*.rb")) + sorted(root.rglob("*.rake")):
+            if p == REEL_BUILDER_SRC or "spec" in p.parts or p.name.endswith("_spec.rb"):
+                continue
+            try:
+                src = _strip_ruby_comments(p.read_text(errors="ignore"))
+            except OSError:
+                continue
+            if REEL_CALLER_RE.search(src):
+                hits.append(str(p.relative_to(APP)))
+    return hits
+
+
+def _latest_non_follower_reach():
+    """Newest MEASURED non-follower reach, or None when never measured.
+
+    NULL is "unmeasured", deliberately distinct from a measured 0 (see
+    Growth::Snapshot), so the read filters on NOT NULL rather than being floored
+    to zero.
+    """
+    row = psql("select non_follower_reach from growth_snapshots "
+               "where non_follower_reach is not null order by taken_at desc limit 1")
+    return as_int(row)
+
+
+def check_reel_arm_stall():
+    """Has the pre-registered pivot been silently dropped? Read-only, no DB writes."""
+    callers = _reel_production_callers()
+    reach = _latest_non_follower_reach()
+    v = reel_arm_verdict(time.time(), REEL_ARM_AFTER, callers, reach)
+    if not v:
+        return None
+    built = REEL_BUILDER_SRC.exists()
+    return (
+        "reel-arm-unarmed",
+        "the pre-registered pivot to a discovery surface is decided and built but not armed",
+        v[0],
+        v[1]
+        + (f". Machinery present: {REEL_BUILDER_SRC.name}" if built else
+           f". NOT EVEN BUILT: {REEL_BUILDER_SRC.name} is missing")
+        + f"; production callers found: {callers or 'none'}"
+        + f"; newest measured non_follower_reach: {reach if reach is not None else 'unmeasured'}"
+        + f"; arm was sequenced after the {time.strftime('%Y-%m-%d %H:%M', time.gmtime(REEL_ARM_AFTER))}Z "
+          "gate read so the pre-registered cohort was not confounded",
+    )
+
+
 def check_placeholder_caption_queued():
     """A queued post whose caption is still the failure artifact publishes as-is.
 
@@ -5869,6 +6000,7 @@ CHECKS = [
     check_weekly_review_gate_wired,
     check_gate_cohort_starved,
     check_ai_disclosure_self_declared,
+    check_reel_arm_stall,
     check_comfyui_vram_unclaimed,
     check_reserve_gate_blocked,
     check_telemetry_oom,
@@ -6998,6 +7130,54 @@ def cmd_selftest(_argv):
     # Live guard: the client in this repo must satisfy its own check.
     expect("check_ai_disclosure_self_declared[live]",
            check_ai_disclosure_self_declared(), None)
+
+    # THE PRE-REGISTERED PIVOT's stall guard. Four healthy silences and one warn.
+    # The seam that matters is the DATE: before the read the arm was sequenced
+    # after, an unarmed arm is the plan working, and a guard that cannot tell
+    # "waiting by design" from "dropped" would either cry wolf for two weeks or
+    # sleep through the drop. The reach leg is the second seam -- a measured
+    # non_follower_reach of 0 is exactly the condition the pivot exists to fix,
+    # while an UNMEASURED (None) reach is not a negative.
+    rv = reel_arm_verdict
+    ARM_AT = 1_000_000.0
+    expect("reel_arm_verdict[before-the-read]",
+           rv(ARM_AT - 1, ARM_AT, [], 0), None)
+    expect("reel_arm_verdict[armed]",
+           rv(ARM_AT + 1, ARM_AT, ["packs/scheduling/lib/tasks/x.rake"], 0), None)
+    expect("reel_arm_verdict[discovery-measured]",
+           rv(ARM_AT + 1, ARM_AT, [], 9), None)
+    expect("reel_arm_verdict[unmeasured-is-not-a-negative]",
+           rv(ARM_AT - 1, ARM_AT, [], None), None)
+    expect("reel_arm_verdict[dropped]",
+           rv(ARM_AT + 1, ARM_AT, [], 0)[0], "warn")
+    expect("reel_arm_verdict[dropped-with-unmeasured-reach]",
+           rv(ARM_AT + 1, ARM_AT, [], None)[0], "warn")
+    # The caller scan must not mistake a DEFINITION for a use: `def create_reel`
+    # and `class ReelBuilder` are the machinery, not the rail.
+    expect("REEL_CALLER_RE[def-is-not-a-caller]",
+           bool(REEL_CALLER_RE.search("def create_reel(video_url:, caption:)")), False)
+    expect("REEL_CALLER_RE[call-is-a-caller]",
+           bool(REEL_CALLER_RE.search("Instagram::Client.new.create_reel(video_url: u)")), True)
+    expect("REEL_CALLER_RE[builder-call-is-a-caller]",
+           bool(REEL_CALLER_RE.search("Growth::ReelBuilder.build(photos: ps)")), True)
+    # Live guard: with the arm built and not yet armed, the ONLY reason this check
+    # may be silent is the date -- so assert that reason explicitly rather than
+    # letting a green read stand for an unexamined one.
+    if time.time() < REEL_ARM_AFTER:
+        expect("check_reel_arm_stall[live: sequenced, not yet due]",
+               check_reel_arm_stall(), None)
+    expect("check_reel_arm_stall[machinery present]",
+           REEL_BUILDER_SRC.exists(), True)
+    expect("check_reel_arm_stall[no production callers yet]",
+           _reel_production_callers(), [])
+    # ...and the scan's one measured false positive: a comment that NAMES the arm
+    # is not a use of it.
+    expect("_strip_ruby_comments[drops-prose-mention]",
+           bool(REEL_CALLER_RE.search(_strip_ruby_comments(
+               "# produced by Growth::ReelBuilder, which embeds the mark\nx = 1"))), False)
+    expect("_strip_ruby_comments[keeps-a-real-call]",
+           bool(REEL_CALLER_RE.search(_strip_ruby_comments(
+               "Growth::ReelBuilder.build(photos: ps) # build one"))), True)
 
     # THE FEASIBILITY BOUND. The cohort requires insights_updated_at and insights
     # arrive a lag after publication, so a slot inside the window's last `lag_h`

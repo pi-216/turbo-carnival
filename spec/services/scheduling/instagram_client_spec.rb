@@ -143,6 +143,60 @@ RSpec.describe Instagram::Client do
     end
   end
 
+  # REELS: the discovery surface. Same account, same API, different container.
+  # The params are asserted because the difference between "published a Reel" and
+  # "published another still" is exactly this discriminator -- and because the
+  # still path's request must stay unchanged by the generalisation.
+  describe '#create_reel' do
+    def publish_reel
+      client.create_reel(video_url: 'https://example.test/r.mp4', caption: 'hi')
+    end
+
+    it 'creates a REELS video container and publishes it' do
+      stub_flow([ ok({ 'id' => 'container-reel-1' }), ok({ 'status_code' => 'FINISHED' }),
+                  ok({ 'id' => 'ig-reel-1' }) ])
+
+      expect(publish_reel['id']).to eq('ig-reel-1')
+    end
+
+    it 'sends video_url + media_type=REELS instead of image_url, with the disclosure' do
+      recorded = stub_recording([ ok({ 'id' => 'container-reel-1' }), ok({ 'id' => 'ig-reel-1' }) ])
+
+      publish_reel
+      container = recorded.first
+      expect(container['media_type']).to eq(described_class::REEL_MEDIA_TYPE)
+      expect(container['video_url']).to eq('https://example.test/r.mp4')
+      expect(container).not_to have_key('image_url')
+      expect(container[described_class::AI_DISCLOSURE_PARAM]).to eq('true')
+    end
+
+    it 'leaves the still request untouched -- no media_type on an image container' do
+      recorded = stub_recording([ ok({ 'id' => 'container-1' }), ok({ 'id' => 'ig-post-1' }) ])
+
+      publish
+      expect(recorded.first).not_to have_key('media_type')
+      expect(recorded.first).not_to have_key('video_url')
+    end
+
+    it 'waits far longer for a video container than an image one' do
+      # A video container is TRANSCODED; the image path's 10 x 3s would give up
+      # while Instagram was still processing, losing the asset and the slot.
+      expect(described_class::REEL_READY_ATTEMPTS * described_class::REEL_READY_DELAY_S)
+        .to be > 10 * 3
+      stub_flow([ ok({ 'id' => 'container-reel-1' }), ok({ 'status_code' => 'IN_PROGRESS' }),
+                  ok({ 'status_code' => 'FINISHED' }), ok({ 'id' => 'ig-reel-1' }) ])
+
+      expect(publish_reel['id']).to eq('ig-reel-1')
+      expect(client).to have_received(:sleep).with(described_class::REEL_READY_DELAY_S)
+    end
+
+    it 'raises when the container reports ERROR rather than publishing nothing' do
+      stub_flow([ ok({ 'id' => 'container-reel-1' }), ok({ 'status_code' => 'ERROR' }) ])
+
+      expect { publish_reel }.to raise_error(Instagram::Client::Error, /status_code=ERROR/)
+    end
+  end
+
   # Reach ATTRIBUTION (added 2026-09-24): the account's own insights say whether
   # any reach came from accounts that do not follow it. That number is what
   # decides "content problem" vs "no distribution at all", and it cannot be
