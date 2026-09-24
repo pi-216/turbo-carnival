@@ -69,7 +69,7 @@ module ContentStrategy
         config_path = Rails.root.join('config', 'content_strategy.yml')
         yaml_config = YAML.load_file(config_path)
         env_config = yaml_config[Rails.env] || yaml_config['development']
-        
+
         validate_config!(env_config)
         env_config
       end

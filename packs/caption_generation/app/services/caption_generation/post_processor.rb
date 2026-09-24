@@ -41,7 +41,7 @@ module CaptionGeneration
     def compliant?(text)
       return false if text.length > MAX_LENGTH
       return false if text.empty?
-      
+
       true
     end
   end

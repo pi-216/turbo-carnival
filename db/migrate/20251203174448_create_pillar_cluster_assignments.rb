@@ -10,6 +10,6 @@ class CreateClusters < ActiveRecord::Migration[8.0]
       t.timestamps
     end
 
-    add_index :clusters, [:persona_id, :name], unique: true
+    add_index :clusters, [ :persona_id, :name ], unique: true
   end
 end

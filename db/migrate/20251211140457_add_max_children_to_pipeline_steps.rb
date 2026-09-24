@@ -1,7 +1,7 @@
 class AddMaxChildrenToPipelineSteps < ActiveRecord::Migration[8.0]
   def change
     add_column :pipeline_steps, :max_children, :integer, default: 3, null: false
-    
+
     # Backfill existing steps with default value
     reversible do |dir|
       dir.up do

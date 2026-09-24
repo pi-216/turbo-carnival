@@ -108,9 +108,9 @@ module Growth
         # image", so the real fault had to be re-derived from the ComfyUI log.
         reason = if render_error
                    "render failed in ComfyUI: #{render_error}"
-                 else
+        else
                    'render timed out or produced no image'
-                 end
+        end
         finish_run(run, 'failed', reason: reason)
         return { success: false, error: reason, run_id: run.id, comfyjob_id: comfyjob.id }
       end
@@ -243,7 +243,7 @@ module Growth
       return pillars.first if pillars.one?
       return nil if pillars.empty?
 
-      weights = pillars.map { |p| [p.weight.to_f, 1.0].max }
+      weights = pillars.map { |p| [ p.weight.to_f, 1.0 ].max }
       total   = weights.sum
       roll    = rand * total
       acc     = 0.0
@@ -332,9 +332,9 @@ module Growth
     def log_rejection(image_path, gate)
       reason = if gate.error
                  "nsfw gate error: #{gate.error}"
-               else
+      else
                  "nsfw rejected by #{gate.label} score=#{gate.nsfw_score} (threshold=#{gate.threshold})"
-               end
+      end
       Growth::Decision.create!(
         goal: goal,
         action: 'nsfw_rejected',
@@ -352,9 +352,9 @@ module Growth
     def log_realism_rejection(image_path, realism, run)
       reason = if realism.error
                  "realism gate error: #{realism.error}"
-               else
+      else
                  "realism rejected (aesthetic=#{realism.aesthetic_score} sharpness=#{realism.sharpness}): #{realism.reason}"
-               end
+      end
       run.update!(reject_reason: reason)
       Growth::Decision.create!(
         goal: goal,

@@ -180,13 +180,13 @@ RSpec.describe ImageCandidate, type: :model do
       c3 = FactoryBot.create(:image_candidate, pipeline_step: step)
 
       pairs = ImageCandidate.unvoted_pairs(step)
-      
+
       # Should generate pairs, but count depends on pairing logic
       # With 3 candidates: pairs c1+c2, then c3 unpaired = 1 pair from first pass
       # Second pass: c3 has no one to pair with (since others are used)
       # So we get 1 pair initially, but the algorithm should create all combinations for unpaired
       expect(pairs.length).to be >= 1
-      
+
       # All candidates should appear in at least one pair
       all_ids = pairs.flatten.map(&:id).uniq.sort
       expect(all_ids.length).to be >= 2
@@ -199,10 +199,10 @@ RSpec.describe ImageCandidate, type: :model do
       c3 = FactoryBot.create(:image_candidate, pipeline_step: step)
 
       pairs = ImageCandidate.unvoted_pairs(step)
-      
+
       # Should only pair active candidates (c1 and c3)
       expect(pairs.length).to eq(1)
-      expect(pairs.first).to match_array([c1, c3])
+      expect(pairs.first).to match_array([ c1, c3 ])
     end
 
     it "returns empty array when no candidates exist" do
@@ -228,7 +228,7 @@ end
 
       # All candidates should appear in pairs
       all_ids = pairs.flatten.map(&:id).uniq.sort
-      expect(all_ids).to match_array([low_vote1.id, low_vote2.id, high_vote.id])
+      expect(all_ids).to match_array([ low_vote1.id, low_vote2.id, high_vote.id ])
     end
 
     it "returns shuffled pairs for variety" do

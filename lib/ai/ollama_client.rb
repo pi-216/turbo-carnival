@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require 'faraday'
-require 'json'
+require "faraday"
+require "json"
 
 module AI
   class OllamaClient
@@ -9,8 +9,8 @@ module AI
     class TimeoutError < Error; end
     class ModelNotFoundError < Error; end
 
-    ENDPOINT = 'http://192.168.86.137:11434'
-    DEFAULT_MODEL = 'gemma3:27b'
+    ENDPOINT = "http://192.168.86.137:11434"
+    DEFAULT_MODEL = "gemma3:27b"
     DEFAULT_TIMEOUT = 180 # Vision (image) inference on 27B can take 60-120s+
 
     # `keep_alive` (seconds, or -1 to pin forever) is sent with every request.
@@ -29,10 +29,10 @@ module AI
 
     def generate(prompt:, system_prompt: nil, temperature: 0.7)
       full_prompt = build_full_prompt(prompt, system_prompt)
-      
-      response = connection.post('/api/generate') do |req|
+
+      response = connection.post("/api/generate") do |req|
         req.options.timeout = @timeout
-        req.headers['Content-Type'] = 'application/json'
+        req.headers["Content-Type"] = "application/json"
         req.body = {
           model: @model,
           prompt: full_prompt,
@@ -57,14 +57,14 @@ module AI
         temperature: temperature,
         stream: false
       }
-      
+
       # Add images if provided (for vision models)
       body[:images] = images if images
       body.merge!(keep_alive_body)
 
-      response = connection.post('/api/chat') do |req|
+      response = connection.post("/api/chat") do |req|
         req.options.timeout = @timeout
-        req.headers['Content-Type'] = 'application/json'
+        req.headers["Content-Type"] = "application/json"
         req.body = body.to_json
       end
 
@@ -78,7 +78,7 @@ module AI
     end
 
     def list_models
-      response = connection.get('/api/tags')
+      response = connection.get("/api/tags")
       JSON.parse(response.body)
     rescue Faraday::Error => e
       raise Error, "Failed to list models: #{e.message}"
@@ -86,7 +86,7 @@ module AI
 
     def model_available?
       models = list_models
-      models['models']&.any? { |m| m['name'].start_with?(@model) }
+      models["models"]&.any? { |m| m["name"].start_with?(@model) }
     rescue Error
       false
     end
@@ -102,12 +102,12 @@ module AI
     # Bounded timeouts on purpose: this runs inside the growth tick's caption
     # path, and an unresponsive Ollama must not be able to hang the tick.
     def loaded_models
-      response = connection.get('/api/ps') do |req|
+      response = connection.get("/api/ps") do |req|
         req.options.open_timeout = 5
         req.options.timeout = 10
       end
       parsed = JSON.parse(response.body)
-      Array(parsed['models']).filter_map { |m| m['name'] || m['model'] }.reject(&:empty?)
+      Array(parsed["models"]).filter_map { |m| m["name"] || m["model"] }.reject(&:empty?)
     rescue Faraday::Error => e
       raise Error, "Failed to list loaded models: #{e.message}"
     end
@@ -137,21 +137,21 @@ module AI
 
     def handle_response(response)
       unless response.success?
-        error_body = JSON.parse(response.body) rescue { 'error' => response.body }
+        error_body = JSON.parse(response.body) rescue { "error" => response.body }
         raise Error, "Ollama API error: #{error_body['error'] || response.status}"
       end
 
       parsed = JSON.parse(response.body)
-      
+
       # Extract text from response (different endpoints have different structures)
-      text = parsed['response'] || parsed.dig('message', 'content')
-      
-      raise Error, 'No response text from Ollama' if text.nil? || text.empty?
+      text = parsed["response"] || parsed.dig("message", "content")
+
+      raise Error, "No response text from Ollama" if text.nil? || text.empty?
 
       {
         text: text,
-        model: parsed['model'],
-        done: parsed['done'],
+        model: parsed["model"],
+        done: parsed["done"],
         metadata: parsed
       }
     end

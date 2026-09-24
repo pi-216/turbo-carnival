@@ -41,7 +41,7 @@ module CaptionGeneration
           {
             role: 'user',
             content: prompt,
-            images: [image_base64]
+            images: [ image_base64 ]
           }
         ],
         temperature: 0.7

@@ -8,7 +8,7 @@ class SelectComponentPreview < ViewComponent::Preview
     def default
       render Base::SelectComponent.new(
         name: "country",
-        options: [["United States", "us"], ["Canada", "ca"], ["Mexico", "mx"], ["United Kingdom", "uk"]]
+        options: [ [ "United States", "us" ], [ "Canada", "ca" ], [ "Mexico", "mx" ], [ "United Kingdom", "uk" ] ]
       )
     end
 
@@ -20,7 +20,7 @@ class SelectComponentPreview < ViewComponent::Preview
         name: "user[country]",
         label: "Country",
         prompt: "Select a country...",
-        options: [["United States", "us"], ["Canada", "ca"], ["Mexico", "mx"], ["United Kingdom", "uk"]]
+        options: [ [ "United States", "us" ], [ "Canada", "ca" ], [ "Mexico", "mx" ], [ "United Kingdom", "uk" ] ]
       )
     end
 
@@ -32,7 +32,7 @@ class SelectComponentPreview < ViewComponent::Preview
         name: "run[pipeline_id]",
         label: "Pipeline",
         prompt: "Choose a pipeline...",
-        options: [["Image Generation", "1"], ["Text Processing", "2"], ["Video Creation", "3"]],
+        options: [ [ "Image Generation", "1" ], [ "Text Processing", "2" ], [ "Video Creation", "3" ] ],
         required: true
       )
     end
@@ -45,10 +45,10 @@ class SelectComponentPreview < ViewComponent::Preview
         name: "user[timezone]",
         label: "Timezone",
         options: [
-          ["Pacific Time (PT)", "America/Los_Angeles"],
-          ["Mountain Time (MT)", "America/Denver"],
-          ["Central Time (CT)", "America/Chicago"],
-          ["Eastern Time (ET)", "America/New_York"]
+          [ "Pacific Time (PT)", "America/Los_Angeles" ],
+          [ "Mountain Time (MT)", "America/Denver" ],
+          [ "Central Time (CT)", "America/Chicago" ],
+          [ "Eastern Time (ET)", "America/New_York" ]
         ],
         selected: "America/Chicago"
       )
@@ -62,7 +62,7 @@ class SelectComponentPreview < ViewComponent::Preview
         name: "persona[pillar_id]",
         label: "Content Pillar",
         prompt: "Select a pillar...",
-        options: [["Fitness", "1"], ["Nutrition", "2"], ["Mental Health", "3"]],
+        options: [ [ "Fitness", "1" ], [ "Nutrition", "2" ], [ "Mental Health", "3" ] ],
         error: "Pillar can't be blank"
       )
     end
@@ -74,7 +74,7 @@ class SelectComponentPreview < ViewComponent::Preview
       render Base::SelectComponent.new(
         name: "post[status]",
         label: "Post Status",
-        options: [["Draft", "draft"], ["Scheduled", "scheduled"], ["Published", "published"]],
+        options: [ [ "Draft", "draft" ], [ "Scheduled", "scheduled" ], [ "Published", "published" ] ],
         hint: "Published posts are immediately visible to your audience"
       )
     end
@@ -86,7 +86,7 @@ class SelectComponentPreview < ViewComponent::Preview
       render Base::SelectComponent.new(
         name: "user[plan]",
         label: "Subscription Plan",
-        options: [["Free", "free"], ["Pro", "pro"], ["Enterprise", "enterprise"]],
+        options: [ [ "Free", "free" ], [ "Pro", "pro" ], [ "Enterprise", "enterprise" ] ],
         selected: "pro",
         disabled: true
       )
@@ -100,13 +100,13 @@ class SelectComponentPreview < ViewComponent::Preview
         name: "user[interests][]",
         label: "Interests",
         options: [
-          ["Technology", "tech"],
-          ["Design", "design"],
-          ["Marketing", "marketing"],
-          ["Sales", "sales"],
-          ["Support", "support"]
+          [ "Technology", "tech" ],
+          [ "Design", "design" ],
+          [ "Marketing", "marketing" ],
+          [ "Sales", "sales" ],
+          [ "Support", "support" ]
         ],
-        selected: ["tech", "design"],
+        selected: [ "tech", "design" ],
         multiple: true,
         hint: "Hold Cmd/Ctrl to select multiple"
       )

@@ -23,11 +23,11 @@ RSpec.describe ContentStrategy::QueuedHashtagBackfill do
 
   it 'fills an untagged queued post from the engine and leaves tagged rows alone' do
     untagged = queued_post
-    tagged = queued_post(tags: ['#kept'])
+    tagged = queued_post(tags: [ '#kept' ])
 
     results = described_class.call(dry_run: false)
 
-    expect(results.map(&:post_id)).to eq([untagged.id])
+    expect(results.map(&:post_id)).to eq([ untagged.id ])
     # Contract, not a snapshot: the column the publisher appends is filled with
     # engine tags (up to the producers' count -- the engine returns fewer when
     # the persona has no brand_tags), including the pillar's own term.
@@ -38,7 +38,7 @@ RSpec.describe ContentStrategy::QueuedHashtagBackfill do
     expect(filled).to include('#travel')
     # The publisher appends this column verbatim; a repair that touched a
     # populated row would rewrite a post nobody asked it to change.
-    expect(tagged.reload.hashtags).to eq(['#kept'])
+    expect(tagged.reload.hashtags).to eq([ '#kept' ])
   end
 
   it 'writes nothing on the default dry run' do
@@ -46,7 +46,7 @@ RSpec.describe ContentStrategy::QueuedHashtagBackfill do
 
     results = described_class.call
 
-    expect(results.map(&:outcome)).to eq([:would_fill])
+    expect(results.map(&:outcome)).to eq([ :would_fill ])
     expect(results.first.hashtags).to be_present
     expect(post.reload.hashtags).to eq([])
   end
@@ -61,7 +61,7 @@ RSpec.describe ContentStrategy::QueuedHashtagBackfill do
     expect(described_class.call(dry_run: false)).to be_empty
     expect(due.reload.hashtags).to eq([])
 
-    expect(described_class.call(dry_run: false, include_due: true).map(&:post_id)).to eq([due.id])
+    expect(described_class.call(dry_run: false, include_due: true).map(&:post_id)).to eq([ due.id ])
     expect(due.reload.hashtags).not_to be_empty
   end
 

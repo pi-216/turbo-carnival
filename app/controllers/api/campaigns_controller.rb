@@ -50,7 +50,7 @@ module Api
       {
         id: gap_analysis.id,
         persona_id: gap_analysis.persona_id,
-        name: gap_analysis.recommendations['campaign_name'],
+        name: gap_analysis.recommendations["campaign_name"],
         created_at: gap_analysis.created_at.iso8601,
         gap_analysis_id: gap_analysis.id
       }

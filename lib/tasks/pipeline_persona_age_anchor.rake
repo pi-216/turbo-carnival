@@ -14,13 +14,13 @@
 namespace :pipeline do
   desc "Report (APPLY=1 to write) the persona's missing adult age anchor in stored workflows"
   task persona_age_anchor: :environment do
-    dry_run = ENV['APPLY'] != '1'
-    stamp = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
-    backup_dir = Rails.root.join('ops', 'backups')
+    dry_run = ENV["APPLY"] != "1"
+    stamp = Time.now.utc.strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = Rails.root.join("ops", "backups")
     # The two pipelines the growth harness renders with (Growth::ContentGenerator):
     # the production path and its fallback. Any other pipeline is left alone --
     # it is not producing the account's images.
-    target_names = [ 'turbo-one-step-clean', 'turbo-one-step' ]
+    target_names = [ "turbo-one-step-clean", "turbo-one-step" ]
     dirty = []
     unparseable = []
 
@@ -61,7 +61,7 @@ namespace :pipeline do
     puts
 
     if dry_run
-      puts 'DRY RUN -- nothing written. Re-run with APPLY=1 to write the anchor.'
+      puts "DRY RUN -- nothing written. Re-run with APPLY=1 to write the anchor."
       next
     end
 

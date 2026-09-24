@@ -23,7 +23,7 @@ RSpec.describe Growth::CadenceEngine do
     # it when the fresh path left a shortfall, and never when the queue is at target.
     it 'spends the render library when the fresh path leaves a shortfall' do
       spent = Growth::LibraryFallback::Result.new(
-        created: 2, rejected: 0, skipped: 0, post_ids: [11, 12], examined: 3,
+        created: 2, rejected: 0, skipped: 0, post_ids: [ 11, 12 ], examined: 3,
         runway_hours: 70.0, budget: 2, triggered: true, reason: nil
       )
       expect(Growth::LibraryFallback).to receive(:new).with(goal: goal)
@@ -35,7 +35,7 @@ RSpec.describe Growth::CadenceEngine do
       result = engine.sync
 
       expect(result[:library][:created]).to eq(2)
-      expect(result[:library][:post_ids]).to eq([11, 12])
+      expect(result[:library][:post_ids]).to eq([ 11, 12 ])
     end
 
     it 'never touches the library while the queue is already at target' do
@@ -114,7 +114,7 @@ RSpec.describe Growth::CadenceEngine do
     it 'recovers abandoned renders without rendering and bounds the budget by the shortfall' do
       expect(engine).not_to receive(:generate_fresh)
       salvage = Growth::RenderSalvage::Result.new(
-        recovered: 1, rejected: 0, skipped: 0, post_ids: [42], examined: 1
+        recovered: 1, rejected: 0, skipped: 0, post_ids: [ 42 ], examined: 1
       )
       expect(Growth::RenderSalvage).to receive(:new).with(goal: goal)
                                                    .and_return(double(call: salvage))

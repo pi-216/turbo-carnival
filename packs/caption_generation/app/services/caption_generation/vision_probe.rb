@@ -51,7 +51,7 @@ module CaptionGeneration
           {
             role: 'user',
             content: @question,
-            images: [ImageEncoder.encode_base64(@photo)]
+            images: [ ImageEncoder.encode_base64(@photo) ]
           }
         ],
         temperature: @temperature

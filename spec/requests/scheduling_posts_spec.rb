@@ -10,23 +10,23 @@ RSpec.describe "Scheduling Posts", type: :request do
         content_pillar: pillar,
         path: "/tmp/test_photo.png"
       )
-      
+
       # Create a temporary image file for the photo
       File.write(photo.path, "fake image data")
-      
+
       # Attach an image
       photo.image.attach(
         io: StringIO.new("fake image data"),
         filename: "test.png",
         content_type: "image/png"
       )
-      
+
       photo
     end
 
     it "displays scheduled posts page" do
       get persona_scheduling_posts_path(persona)
-      
+
       expect(response).to have_http_status(:success)
       expect(response.body).to include("Scheduled Posts")
       expect(response.body).to include(persona.name.titleize)
@@ -34,7 +34,7 @@ RSpec.describe "Scheduling Posts", type: :request do
 
     it "shows empty state when no posts exist" do
       get persona_scheduling_posts_path(persona)
-      
+
       expect(response.body).to include("No posts yet!")
     end
 
@@ -49,7 +49,7 @@ RSpec.describe "Scheduling Posts", type: :request do
       )
 
       get persona_scheduling_posts_path(persona)
-      
+
       expect(response).to have_http_status(:success)
       expect(response.body).to include("Scheduled")
       expect(response.body).to include("Test post")
@@ -57,7 +57,7 @@ RSpec.describe "Scheduling Posts", type: :request do
 
     it "shows Get Next Post Suggestion button" do
       get persona_scheduling_posts_path(persona)
-      
+
       expect(response.body).to include("Get Next Post Suggestion")
     end
 
@@ -81,7 +81,7 @@ RSpec.describe "Scheduling Posts", type: :request do
 
     after do
       # Clean up test files
-      [photo, ContentPillars::Photo.where(path: "/tmp/other_photo.png").first].compact.each do |p|
+      [ photo, ContentPillars::Photo.where(path: "/tmp/other_photo.png").first ].compact.each do |p|
         File.delete(p.path) if p.path && File.exist?(p.path)
       end
     end
@@ -96,15 +96,15 @@ RSpec.describe "Scheduling Posts", type: :request do
         content_pillar: pillar,
         path: "/tmp/suggest_test_photo.png"
       )
-      
+
       File.write(photo.path, "fake image data")
-      
+
       photo.image.attach(
         io: StringIO.new("fake image data"),
         filename: "suggest_test.png",
         content_type: "image/png"
       )
-      
+
       photo
     end
 
@@ -119,13 +119,13 @@ RSpec.describe "Scheduling Posts", type: :request do
       allow_any_instance_of(CaptionGeneration::VisionGenerator).to receive(:generate).and_return(
         double(success?: true, text: "Test caption", metadata: { model: "test-model" })
       )
-      
+
       post suggest_next_persona_scheduling_posts_path(persona)
-      
+
       expect(response).to have_http_status(:redirect)
-      
+
       follow_redirect!
-      
+
       expect(response).to have_http_status(:success)
       # Check for either success or error message
       expect(response.body).to match(/Post automatically created|Failed to create post/)
@@ -139,12 +139,12 @@ RSpec.describe "Scheduling Posts", type: :request do
       ).tap { |p| p.update_column(:status, 'posted') }
 
       post suggest_next_persona_scheduling_posts_path(persona)
-      
+
       expect(response).to have_http_status(:redirect)
       expect(response).to redirect_to(persona_scheduling_posts_path(persona))
-      
+
       follow_redirect!
-      
+
       # Check for error message in flash
       expect(flash[:alert]).to be_present
     end

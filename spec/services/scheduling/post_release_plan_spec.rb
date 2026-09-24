@@ -16,15 +16,15 @@ RSpec.describe Scheduling::PostReleasePlan do
   it 'releases the single due post and defers nothing' do
     plan = described_class.call(posts(1))
 
-    expect(plan.released.map { |p| p[:id] }).to eq([1])
+    expect(plan.released.map { |p| p[:id] }).to eq([ 1 ])
     expect(plan.deferred).to be_empty
   end
 
   it 'releases only the earliest post when several are due at once' do
     plan = described_class.call(posts(4))
 
-    expect(plan.released.map { |p| p[:id] }).to eq([1])
-    expect(plan.deferred.map { |p| p[:id] }).to eq([2, 3, 4])
+    expect(plan.released.map { |p| p[:id] }).to eq([ 1 ])
+    expect(plan.deferred.map { |p| p[:id] }).to eq([ 2, 3, 4 ])
   end
 
   it 'accounts for every due post -- deferral never drops one' do
@@ -45,7 +45,7 @@ RSpec.describe Scheduling::PostReleasePlan do
   it 'takes the per-run cap from the caller' do
     plan = described_class.call(posts(4), max_per_run: 2)
 
-    expect(plan.released.map { |p| p[:id] }).to eq([1, 2])
-    expect(plan.deferred.map { |p| p[:id] }).to eq([3, 4])
+    expect(plan.released.map { |p| p[:id] }).to eq([ 1, 2 ])
+    expect(plan.deferred.map { |p| p[:id] }).to eq([ 3, 4 ])
   end
 end

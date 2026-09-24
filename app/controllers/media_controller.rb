@@ -41,9 +41,9 @@ class MediaController < ApplicationController
     end
 
     send_file file,
-              type: 'image/png',
-              disposition: 'inline',
-              cache_control: 'public, max-age=86400'
+              type: "image/png",
+              disposition: "inline",
+              cache_control: "public, max-age=86400"
   end
 
   # Serves a REELS post's MP4 -- the `video_url` Instagram fetches for the
@@ -73,8 +73,8 @@ class MediaController < ApplicationController
     end
 
     send_file file,
-              type: 'video/mp4',
-              disposition: 'inline',
-              cache_control: 'public, max-age=86400'
+              type: "video/mp4",
+              disposition: "inline",
+              cache_control: "public, max-age=86400"
   end
 end

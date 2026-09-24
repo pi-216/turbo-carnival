@@ -64,8 +64,8 @@ module Instagram
       @access_token = Rails.application.credentials.dig(:instagram, :access_token)
       @account_id = Rails.application.credentials.dig(:instagram, :account_id)
 
-      raise ArgumentError, 'Instagram credentials are required' if [@app_id, @app_secret, @access_token,
-                                                                    @account_id].any?(&:blank?)
+      raise ArgumentError, 'Instagram credentials are required' if [ @app_id, @app_secret, @access_token,
+                                                                    @account_id ].any?(&:blank?)
     end
 
     def create_post(image_url:, caption:)

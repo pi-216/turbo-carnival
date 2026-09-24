@@ -11,7 +11,7 @@
 #
 # @example Input with error
 #   <%= render Base::InputComponent.new(
-#     name: "user[email]", 
+#     name: "user[email]",
 #     label: "Email",
 #     value: @user.email,
 #     error: "Email has already been taken"
@@ -61,19 +61,19 @@ module Base
     private
 
     def input_id
-      @name.gsub(/[\[\]]/, '_').gsub(/__+/, '_').gsub(/^_|_$/, '')
+      @name.gsub(/[\[\]]/, "_").gsub(/__+/, "_").gsub(/^_|_$/, "")
     end
 
     def input_classes
       base = "w-full px-4 py-2 rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
-      
+
       state_classes = if @error
         "border-red-500 bg-gray-900 text-white focus:border-red-500 focus:ring-red-500"
       else
         "border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
       end
 
-      [base, state_classes, @custom_classes].join(" ").strip
+      [ base, state_classes, @custom_classes ].join(" ").strip
     end
 
     def label_classes

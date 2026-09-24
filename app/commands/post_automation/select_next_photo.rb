@@ -14,7 +14,7 @@ module PostAutomation
         strategy_name: strategy_name
       ).call
 
-      stop_and_fail!('No photos available for posting', no_notify: true) unless result[:success]
+      stop_and_fail!("No photos available for posting", no_notify: true) unless result[:success]
 
       context.photo = result[:photo]
       context.pillar = result[:pillar]

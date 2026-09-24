@@ -66,11 +66,11 @@ module Scheduling
       end
 
       event :schedule do
-        transition [:draft, :ready] => :scheduled
+        transition [ :draft, :ready ] => :scheduled
       end
 
       event :start_posting do
-        transition [:draft, :scheduled] => :posting
+        transition [ :draft, :scheduled ] => :posting
       end
 
       event :mark_as_posted do

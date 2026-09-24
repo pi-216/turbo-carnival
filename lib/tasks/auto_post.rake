@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 namespace :post_automation do
-  desc 'Automatically create and schedule the next post for a persona'
-  task :create_next, [:persona_name] => :environment do |_t, args|
-    persona_name = args[:persona_name] || ENV['PERSONA']
-    
+  desc "Automatically create and schedule the next post for a persona"
+  task :create_next, [ :persona_name ] => :environment do |_t, args|
+    persona_name = args[:persona_name] || ENV["PERSONA"]
+
     unless persona_name
       puts "❌ Error: Please provide a persona name"
       puts "Usage: bin/rails post_automation:create_next[persona_name]"
@@ -13,7 +13,7 @@ namespace :post_automation do
     end
 
     persona = Persona.find_by(name: persona_name)
-    
+
     unless persona
       puts "❌ Error: Persona '#{persona_name}' not found"
       exit 1
@@ -48,20 +48,20 @@ namespace :post_automation do
     puts "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   end
 
-  desc 'Automatically create and schedule posts for all personas'
+  desc "Automatically create and schedule posts for all personas"
   task create_for_all: :environment do
     Persona.find_each do |persona|
       puts "\n🤖 Processing #{persona.name}..."
-      
+
       result = PostAutomation::AutoCreateNextPost.call(persona: persona)
-      
+
       if result.success?
         puts "  ✅ Post created and scheduled for #{result.post.scheduled_at.strftime('%H:%M %Z')}"
       else
         puts "  ⚠️  Skipped: #{result.full_error_message}"
       end
     end
-    
+
     puts "\n✅ Done!"
   end
 end

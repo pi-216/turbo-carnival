@@ -38,7 +38,7 @@ RSpec.describe CaptionGeneration::CaptionMetadata do
 
     it 'marks a placeholder caption and keeps the failure reason' do
       meta = described_class.for_result(
-        result(success: false, messages: ['Caption generation failed: timed out']),
+        result(success: false, messages: [ 'Caption generation failed: timed out' ]),
         placeholder: true
       )
 

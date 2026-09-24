@@ -15,9 +15,9 @@ class CreateContentPillars < ActiveRecord::Migration[8.0]
       t.timestamps
     end
 
-    add_index :content_pillars, [:persona_id, :name], unique: true
+    add_index :content_pillars, [ :persona_id, :name ], unique: true
     add_index :content_pillars, :active
-    
+
     add_check_constraint :content_pillars, "weight >= 0 AND weight <= 100", name: "weight_range_check"
     add_check_constraint :content_pillars, "end_date IS NULL OR start_date IS NULL OR end_date > start_date", name: "date_range_check"
     add_check_constraint :content_pillars, "priority >= 1 AND priority <= 5", name: "priority_range_check"

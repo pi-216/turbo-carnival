@@ -25,7 +25,7 @@ module ContentStrategy
 
     def load_pillars
       base_scope = @persona.content_pillars.active.current
-      
+
       # Filter to specific pillar if provided
       base_scope = base_scope.where(id: @pillar.id) if @pillar
 

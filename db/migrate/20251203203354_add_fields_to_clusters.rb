@@ -4,7 +4,7 @@ class AddFieldsToClusters < ActiveRecord::Migration[8.0]
     add_column :clusters, :name, :string, null: false
     add_column :clusters, :ai_prompt, :text
     add_column :clusters, :status, :string, null: false, default: 'active'
-    
-    add_index :clusters, [:persona_id, :name], unique: true
+
+    add_index :clusters, [ :persona_id, :name ], unique: true
   end
 end

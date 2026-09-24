@@ -12,7 +12,7 @@ RSpec.describe 'Personas', type: :request do
     it 'shows all personas' do
       persona1 = FactoryBot.create(:persona, name: 'Sarah')
       persona2 = FactoryBot.create(:persona, name: 'Emma')
-      
+
       get personas_path
       expect(response.body).to include('Sarah')
       expect(response.body).to include('Emma')

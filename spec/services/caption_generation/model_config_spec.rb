@@ -13,7 +13,7 @@ RSpec.describe CaptionGeneration::ModelConfig do
                 CAPTION_FALLBACK_TIMEOUT CAPTION_KEEP_ALIVE].freeze
 
   around do |example|
-    saved = ENV_KEYS.to_h { |k| [k, ENV[k]] }
+    saved = ENV_KEYS.to_h { |k| [ k, ENV[k] ] }
     example.run
   ensure
     saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
@@ -41,7 +41,7 @@ RSpec.describe CaptionGeneration::ModelConfig do
 
   describe '.resolve' do
     it 'uses the preferred model when Ollama reports it resident' do
-      stub_ollama_client(models: ['gemma3:27b'])
+      stub_ollama_client(models: [ 'gemma3:27b' ])
 
       expect(described_class.resolve).to eq(
         model: 'gemma3:27b', timeout: 180, reason: 'preferred_resident', keep_alive: 21_600
@@ -49,13 +49,13 @@ RSpec.describe CaptionGeneration::ModelConfig do
     end
 
     it 'matches a quantised variant of the preferred tag' do
-      stub_ollama_client(models: ['gemma3:27b-q4_K_M'])
+      stub_ollama_client(models: [ 'gemma3:27b-q4_K_M' ])
 
       expect(described_class.resolve[:model]).to eq('gemma3:27b')
     end
 
     it 'falls back to a model that fits the load budget when the 27B is cold' do
-      stub_ollama_client(models: ['gemma3:4b'])
+      stub_ollama_client(models: [ 'gemma3:4b' ])
 
       expect(described_class.resolve).to eq(
         model: 'gemma3:4b', timeout: 300,
@@ -104,7 +104,7 @@ RSpec.describe CaptionGeneration::ModelConfig do
     end
 
     it 'ignores a non-positive timeout instead of never timing out' do
-      stub_ollama_client(models: ['gemma3:27b'])
+      stub_ollama_client(models: [ 'gemma3:27b' ])
       set_env('CAPTION_TIMEOUT' => '0')
 
       expect(described_class.resolve[:timeout]).to eq(180)
@@ -120,7 +120,7 @@ RSpec.describe CaptionGeneration::ModelConfig do
     end
 
     it 'is carried in the selection the callers build their client from' do
-      stub_ollama_client(models: ['gemma3:4b'])
+      stub_ollama_client(models: [ 'gemma3:4b' ])
 
       expect(described_class.resolve[:keep_alive]).to eq(21_600)
     end
@@ -166,11 +166,11 @@ RSpec.describe CaptionGeneration::ModelConfig do
 
       warm = AI::OllamaClient.new(keep_alive: 21_600)
       allow(warm).to receive(:connection).and_return(connection)
-      warm.chat(messages: [{ role: 'user', content: 'x' }])
+      warm.chat(messages: [ { role: 'user', content: 'x' } ])
 
       cold = AI::OllamaClient.new
       allow(cold).to receive(:connection).and_return(connection)
-      cold.chat(messages: [{ role: 'user', content: 'x' }])
+      cold.chat(messages: [ { role: 'user', content: 'x' } ])
 
       expect(JSON.parse(bodies[0])).to include('keep_alive' => 21_600)
       expect(JSON.parse(bodies[1])).not_to have_key('keep_alive')
@@ -182,11 +182,11 @@ RSpec.describe CaptionGeneration::ModelConfig do
       load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
       client = AI::OllamaClient.new
 
-      response = instance_double(Faraday::Response, body: { models: [{ 'name' => 'gemma3:4b' }] }.to_json)
+      response = instance_double(Faraday::Response, body: { models: [ { 'name' => 'gemma3:4b' } ] }.to_json)
       connection = instance_double(Faraday::Connection, get: response)
       allow(client).to receive(:connection).and_return(connection)
 
-      expect(client.loaded_models).to eq(['gemma3:4b'])
+      expect(client.loaded_models).to eq([ 'gemma3:4b' ])
     end
 
     it 'raises a client error (not a Faraday one) when the probe fails' do

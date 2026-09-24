@@ -5,11 +5,11 @@ class MigratePhotosAndRunsToPillars < ActiveRecord::Migration[8.0]
       UPDATE photos
       SET content_pillar_id = (
         SELECT COALESCE(
-          (SELECT pillar_id FROM pillar_cluster_assignments 
-           WHERE cluster_id = photos.cluster_id AND "primary" = true 
+          (SELECT pillar_id FROM pillar_cluster_assignments#{' '}
+           WHERE cluster_id = photos.cluster_id AND "primary" = true#{' '}
            LIMIT 1),
-          (SELECT pillar_id FROM pillar_cluster_assignments 
-           WHERE cluster_id = photos.cluster_id 
+          (SELECT pillar_id FROM pillar_cluster_assignments#{' '}
+           WHERE cluster_id = photos.cluster_id#{' '}
            LIMIT 1)
         )
       )
@@ -21,11 +21,11 @@ class MigratePhotosAndRunsToPillars < ActiveRecord::Migration[8.0]
       UPDATE pipeline_runs
       SET content_pillar_id = (
         SELECT COALESCE(
-          (SELECT pillar_id FROM pillar_cluster_assignments 
-           WHERE cluster_id = pipeline_runs.cluster_id AND "primary" = true 
+          (SELECT pillar_id FROM pillar_cluster_assignments#{' '}
+           WHERE cluster_id = pipeline_runs.cluster_id AND "primary" = true#{' '}
            LIMIT 1),
-          (SELECT pillar_id FROM pillar_cluster_assignments 
-           WHERE cluster_id = pipeline_runs.cluster_id 
+          (SELECT pillar_id FROM pillar_cluster_assignments#{' '}
+           WHERE cluster_id = pipeline_runs.cluster_id#{' '}
            LIMIT 1)
         )
       )

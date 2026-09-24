@@ -1,6 +1,6 @@
 class ContentPillarsController < ApplicationController
   before_action :set_persona
-  before_action :set_pillar, only: [:show, :edit, :update, :destroy, :suggest]
+  before_action :set_pillar, only: [ :show, :edit, :update, :destroy, :suggest ]
 
   def show
     @content_pillar = @pillar # Alias for view compatibility
@@ -14,7 +14,7 @@ class ContentPillarsController < ApplicationController
 
   def create
     @pillar = @persona.content_pillars.build(pillar_params)
-    
+
     if @pillar.save
       redirect_to persona_path(@persona), notice: "Content pillar '#{@pillar.name}' was successfully created."
     else
@@ -47,13 +47,13 @@ class ContentPillarsController < ApplicationController
 
   def suggest
     existing_photos = @pillar.photos
-    
+
     @suggestions = GapAnalysisAi::Suggester.suggest(
       pillar: @pillar,
       persona: @persona,
       existing_photos: existing_photos
     )
-    
+
     render :suggest
   rescue StandardError => e
     redirect_to persona_pillar_path(@persona, @pillar), alert: "Error generating suggestions: #{e.message}"
@@ -71,7 +71,7 @@ class ContentPillarsController < ApplicationController
 
   def pillar_params
     params.require(:content_pillar).permit(
-      :name, :description, :weight, :priority, 
+      :name, :description, :weight, :priority,
       :active, :start_date, :end_date, :target_posts_per_week
     )
   end

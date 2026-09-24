@@ -12,10 +12,10 @@ RSpec.describe 'Media', type: :request do
   let(:pillar) { create(:content_pillar, persona: persona) }
 
   def photo_with_bytes
-    file = Tempfile.new(['media_spec', '.png'])
+    file = Tempfile.new([ 'media_spec', '.png' ])
     file.write('fake image data')
     file.close
-    [photo_at(file.path), file]
+    [ photo_at(file.path), file ]
   end
 
   def photo_at(path)
@@ -76,7 +76,7 @@ RSpec.describe 'Media', type: :request do
     end
 
     it 'serves the MP4 of a reel post as video/mp4' do
-      file = Tempfile.new(['media_spec', '.mp4'])
+      file = Tempfile.new([ 'media_spec', '.mp4' ])
       file.write('fake video bytes')
       file.close
       post = reel_post_at(file.path)
@@ -91,7 +91,7 @@ RSpec.describe 'Media', type: :request do
     end
 
     it 'withholds a reel whose post is gone (the still path rule, keyed on the post)' do
-      file = Tempfile.new(['media_spec', '.mp4'])
+      file = Tempfile.new([ 'media_spec', '.mp4' ])
       file.write('fake video bytes')
       file.close
       post = reel_post_at(file.path)

@@ -68,7 +68,7 @@ module Growth
       salvage = salvage_abandoned_render(existing, target)
       existing = scheduled_posts_count if salvage[:recovered].positive?
 
-      shortfall = [target - existing, 0].max
+      shortfall = [ target - existing, 0 ].max
 
       if shortfall.zero?
         return { created: 0, target: target, existing: existing, shortfall: 0, salvage: salvage,
@@ -158,7 +158,7 @@ module Growth
     def recover_abandoned
       target = posts_target
       existing = scheduled_posts_count
-      shortfall = [target - existing, 0].max
+      shortfall = [ target - existing, 0 ].max
       result = shortfall.zero? ? nil : Growth::RenderSalvage.new(goal: goal).call(limit: shortfall)
       { target: target, existing: existing, shortfall: shortfall, result: result }
     end
@@ -205,7 +205,7 @@ module Growth
     # nothing to recover INTO, and the candidates stay on disk for a later tick.
     # Failures here must never break the sync, so the whole call is rescued.
     def salvage_abandoned_render(existing, target)
-      budget = [target - existing, 0].max
+      budget = [ target - existing, 0 ].max
       result = Growth::RenderSalvage.new(goal: goal).call(limit: budget)
       {
         recovered: result.recovered,
@@ -264,13 +264,13 @@ module Growth
       remaining = pillar_candidates.to_a
       order = []
       until remaining.empty?
-        total = remaining.sum { |p| [p.weight.to_f, 0.0].max }
+        total = remaining.sum { |p| [ p.weight.to_f, 0.0 ].max }
         if total <= 0
           picked = remaining.sample
         else
           roll = rand * total
           acc = 0.0
-          picked = remaining.find { |p| acc += [p.weight.to_f, 0.0].max; acc > roll } || remaining.last
+          picked = remaining.find { |p| acc += [ p.weight.to_f, 0.0 ].max; acc > roll } || remaining.last
         end
         order << picked
         remaining.delete(picked)

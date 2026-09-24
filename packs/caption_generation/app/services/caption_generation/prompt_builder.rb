@@ -26,14 +26,14 @@ module CaptionGeneration
     def build_system_prompt
       <<~PROMPT.strip
         You are a social media caption writer for Instagram.
-        
+
         IMPORTANT: Write engaging, authentic captions that tell a rich story or share a meaningful moment.
         Good Instagram captions draw readers in, create connection, and provide genuine value.
-        
+
         Write 4-7 sentences that feel natural and conversational. Share thoughts, feelings, observations, or context.
         Create captions that are substantial, engaging, and authentic - don't be afraid to add personality and detail.
         Paint a picture with words that complements what's in the photo.
-        
+
         You will receive detailed JSON configuration about the persona's voice, style preferences, and the photo context.
         Use this information to craft the perfect caption.
 
@@ -43,9 +43,9 @@ module CaptionGeneration
 
     def build_user_prompt
       parts = []
-      
+
       parts << "Please generate a caption for Instagram."
-      
+
       if @config
         parts << "\nPERSONA CAPTION STRATEGY:"
         parts << "```json"

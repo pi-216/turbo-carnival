@@ -71,8 +71,8 @@ module CampaignPlanning
         recommendations: {
           campaign_name: @params[:campaign_name],
           strategy_metadata: @params[:strategy_metadata] || {},
-          created_by: 'llm',
-          model: @params[:model] || 'unknown',
+          created_by: "llm",
+          model: @params[:model] || "unknown",
           created_at: Time.current.iso8601
         }
       )
@@ -109,7 +109,7 @@ module CampaignPlanning
             created_by_llm: true
           }
         },
-        status: 'pending'
+        status: "pending"
       )
     end
 
@@ -117,15 +117,15 @@ module CampaignPlanning
       Scheduling::Post.create!(
         persona: @persona,
         content_suggestion: suggestion,
-        status: 'draft',
+        status: "draft",
         scheduled_at: post_spec[:scheduled_at],
         caption: post_spec[:caption_draft],
         hashtags: post_spec[:hashtags] || [],
         caption_metadata: {
           format: post_spec[:format],
-          generated_by: 'llm'
+          generated_by: "llm"
         },
-        strategy_name: 'llm_campaign'
+        strategy_name: "llm_campaign"
       )
     end
 

@@ -42,7 +42,7 @@ class QualityAssessImage < GLCommand::Callable
   private
 
   def run_assessment(path)
-    cmd = [PYTHON_BIN, SCRIPT_PATH.to_s, path.to_s, "--threshold", DEFAULT_BLUR_THRESHOLD.to_s]
+    cmd = [ PYTHON_BIN, SCRIPT_PATH.to_s, path.to_s, "--threshold", DEFAULT_BLUR_THRESHOLD.to_s ]
     stdout, stderr, status = Open3.capture3(*cmd)
 
     unless status.success?
@@ -54,7 +54,7 @@ class QualityAssessImage < GLCommand::Callable
     result
   rescue JSON::ParserError => e
     Rails.logger.error("QA script returned invalid JSON: #{stdout&.slice(0, 200)}")
-    { passed: true, quality_score: 50, issues: ["JSON parse error"], error: e.message }
+    { passed: true, quality_score: 50, issues: [ "JSON parse error" ], error: e.message }
   end
 
   def store_results(result)

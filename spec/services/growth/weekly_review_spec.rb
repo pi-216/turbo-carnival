@@ -48,7 +48,7 @@ RSpec.describe Growth::WeeklyReview do
       goal.snapshots.create!(followers: 150, taken_at: 1.day.ago)
       goal.snapshots.create!(followers: 148, taken_at: Time.current)
       # Evidence: >= 2 snapshots and >= 5 posted posts to pass the audit gate.
-      allow(reviewer).to receive(:posted_posts).and_return([double] * 5)
+      allow(reviewer).to receive(:posted_posts).and_return([ double ] * 5)
       allow(reviewer).to receive(:gather_audit).and_return(
         followers_delta: -2, measured: -1.0, verdict: 'declining',
         pillars: [], hashtag_signal: {}, caption_signal: :none

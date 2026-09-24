@@ -74,10 +74,10 @@ RSpec.describe BuildJobPayload do
 
         expect(result).to be_success
         expect(result.job_payload[:workflow]).to eq({ "text" => "Line 1\nLine 2\nLine 3" })
-        
+
         # Verify the workflow can be serialized to valid JSON
         expect { result.job_payload[:workflow].to_json }.not_to raise_error
-        
+
         # Verify deserializing gives back the same content
         json_str = result.job_payload[:workflow].to_json
         parsed = JSON.parse(json_str)

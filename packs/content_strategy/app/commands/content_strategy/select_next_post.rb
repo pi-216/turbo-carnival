@@ -11,12 +11,12 @@ module ContentStrategy
 
     def call
       validate_strategy!
-      
+
       context = build_context
       strategy = build_strategy(context)
-      
+
       result = strategy.select_next_photo
-      
+
       if result[:error]
         { success: false, error: result[:error] }
       else

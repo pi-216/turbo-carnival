@@ -23,11 +23,11 @@ class ProcessJobResult < GLCommand::Callable
       stop_and_fail!("ComfyUI run completed but produced no image output (nodes: #{job.result_metadata.keys.join(', ')})")
       return
     end
-    
+
     # Build ComfyUI output path
     filename = image_info["filename"]
     subfolder = image_info["subfolder"]
-    
+
     # ComfyUI saves to: /path/to/ComfyUI/output/{subfolder}/{filename}
     comfyui_output_dir = "/mnt/fscache/essdee/ComfyUI/output"
     image_path = File.join(comfyui_output_dir, subfolder, filename)

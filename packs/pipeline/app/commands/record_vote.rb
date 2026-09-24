@@ -13,7 +13,7 @@ class RecordVote < GLCommand::Callable
         winner_id: context.winner.id,
         loser_id: context.loser.id
       )
-      
+
       winner_change = context.winner.calculate_elo_change(context.loser, true)
       loser_change = context.loser.calculate_elo_change(context.winner, false)
 

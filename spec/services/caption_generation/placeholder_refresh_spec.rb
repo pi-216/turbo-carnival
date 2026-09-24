@@ -38,7 +38,7 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
       post_at(caption: 'Fresh look ✨', at: now - 1.hour) # already due: the publisher's problem
       post_at(caption: 'Fresh look ✨', at: now + 3.hours, status: 'posted')
 
-      expect(described_class.new(now: now).candidates.map(&:id)).to eq([placeholder.id])
+      expect(described_class.new(now: now).candidates.map(&:id)).to eq([ placeholder.id ])
     end
 
     it 'includes an already-due placeholder when asked -- the publisher runs this ' \
@@ -60,7 +60,7 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
 
       results = described_class.call(dry_run: true, now: now)
 
-      expect(results.map(&:outcome)).to eq([:would_refresh])
+      expect(results.map(&:outcome)).to eq([ :would_refresh ])
       expect(post.reload.caption).to eq('Fresh look ✨')
     end
 
@@ -70,7 +70,7 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
 
       results = described_class.call(dry_run: false, now: now)
 
-      expect(results.map(&:outcome)).to eq([:refreshed])
+      expect(results.map(&:outcome)).to eq([ :refreshed ])
       expect(post.reload.caption).to eq('a real caption')
       expect(post.caption_metadata).to include('model' => 'stub')
     end
@@ -81,7 +81,7 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
 
       results = described_class.call(dry_run: false, now: now)
 
-      expect(results.map(&:outcome)).to eq([:failed])
+      expect(results.map(&:outcome)).to eq([ :failed ])
       expect(post.reload.caption).to eq('Fresh look ✨')
       expect(post.caption_metadata).to be_nil
     end
@@ -92,7 +92,7 @@ RSpec.describe CaptionGeneration::PlaceholderRefresh do
 
       results = nil
       expect { results = described_class.call(dry_run: false, now: now) }.not_to raise_error
-      expect(results.map(&:outcome)).to eq([:failed])
+      expect(results.map(&:outcome)).to eq([ :failed ])
       expect(post.reload.caption).to eq('Fresh look ✨')
     end
   end

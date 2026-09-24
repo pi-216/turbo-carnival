@@ -53,12 +53,12 @@ module Base
     private
 
     def checkbox_id
-      @name.gsub(/[\[\]]/, '_').gsub(/__+/, '_').gsub(/^_|_$/, '')
+      @name.gsub(/[\[\]]/, "_").gsub(/__+/, "_").gsub(/^_|_$/, "")
     end
 
     def wrapper_classes
       base = "flex items-start gap-3"
-      [@custom_classes, base].join(" ").strip
+      [ @custom_classes, base ].join(" ").strip
     end
 
     def checkbox_classes
@@ -68,7 +68,7 @@ module Base
     def label_classes
       base = "text-sm font-medium text-gray-200"
       disabled = @disabled ? "opacity-50" : ""
-      [base, disabled].join(" ").strip
+      [ base, disabled ].join(" ").strip
     end
 
     def hint_classes

@@ -1,7 +1,7 @@
 class ContentSuggestionsController < ApplicationController
-  before_action :set_persona, only: [:index]
-  before_action :set_content_suggestion, except: [:index]
-  before_action :authorize_destroy, only: [:destroy]
+  before_action :set_persona, only: [ :index ]
+  before_action :set_content_suggestion, except: [ :index ]
+  before_action :authorize_destroy, only: [ :destroy ]
 
   def index
     @content_suggestions = ContentSuggestion
@@ -9,7 +9,7 @@ class ContentSuggestionsController < ApplicationController
       .where(gap_analyses: { persona_id: @persona.id })
       .includes(:content_pillar, :gap_analysis)
       .order(created_at: :desc)
-    
+
     @pending_suggestions = @content_suggestions.pending
     @used_suggestions = @content_suggestions.used
     @rejected_suggestions = @content_suggestions.rejected
@@ -21,7 +21,7 @@ class ContentSuggestionsController < ApplicationController
 
   def update
     if @content_suggestion.update(content_suggestion_params)
-      redirect_to persona_content_suggestions_path(@content_suggestion.gap_analysis.persona), 
+      redirect_to persona_content_suggestions_path(@content_suggestion.gap_analysis.persona),
                   notice: "Prompt updated successfully"
     else
       render :edit, status: :unprocessable_entity
@@ -46,10 +46,10 @@ class ContentSuggestionsController < ApplicationController
 
   def generate_image
     # Use the existing sarah1a3 pipeline
-    pipeline = Pipeline.first || Pipeline.find_by(name: 'sarah1a3')
-    
+    pipeline = Pipeline.first || Pipeline.find_by(name: "sarah1a3")
+
     unless pipeline
-      redirect_back fallback_location: root_path, 
+      redirect_back fallback_location: root_path,
                     alert: "No pipeline configured. Please set up a pipeline first."
       return
     end
@@ -59,10 +59,10 @@ class ContentSuggestionsController < ApplicationController
       pipeline: pipeline,
       persona: @content_suggestion.gap_analysis.persona,
       content_pillar_id: @content_suggestion.content_pillar_id,
-      prompt: @content_suggestion.prompt_data['prompt'],
+      prompt: @content_suggestion.prompt_data["prompt"],
       name: "Gap Analysis: #{@content_suggestion.title}",
       target_folder: "gap_analysis/#{@content_suggestion.id}",
-      status: 'pending'
+      status: "pending"
     )
 
     # Link to draft post if exists (for LLM campaigns)
@@ -74,7 +74,7 @@ class ContentSuggestionsController < ApplicationController
 
     @content_suggestion.mark_as_used!
 
-    redirect_to run_path(run), 
+    redirect_to run_path(run),
                 notice: "Image generation started! Pipeline will generate candidates for '#{@content_suggestion.title}'"
   end
 
@@ -93,8 +93,8 @@ class ContentSuggestionsController < ApplicationController
   end
 
   def authorize_destroy
-    unless @content_suggestion.status == 'rejected'
-      redirect_back fallback_location: root_path, 
+    unless @content_suggestion.status == "rejected"
+      redirect_back fallback_location: root_path,
                     alert: "Only rejected suggestions can be deleted"
     end
   end

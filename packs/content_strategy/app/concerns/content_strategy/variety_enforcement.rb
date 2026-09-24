@@ -9,7 +9,7 @@ module ContentStrategy
       # Note: Content pillars don't have a direct relationship to history records yet
       # For now, return all pillars as eligible
       # TODO: Implement pillar-based variety tracking if needed
-      
+
       eligible
     end
 

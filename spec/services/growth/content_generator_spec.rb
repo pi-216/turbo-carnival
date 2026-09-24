@@ -64,7 +64,7 @@ RSpec.describe Growth::ContentGenerator do
     it 'ships the placeholder but records why when the caption call fails' do
       allow(PostAutomation::GenerateCaption).to receive(:call).and_return(
         double('caption result', success?: false, caption: nil, caption_metadata: nil,
-                                 errors: double(full_messages: ['Caption generation failed: timeout']))
+                                 errors: double(full_messages: [ 'Caption generation failed: timeout' ]))
       )
 
       result = generator.generate_one(offset_days: 1)

@@ -7,9 +7,9 @@ module Personas
     def index
       # Find all LLM campaigns for this persona
       @campaigns = @persona.gap_analyses
-        .where("recommendations @> ?", { created_by: 'llm' }.to_json)
+        .where("recommendations @> ?", { created_by: "llm" }.to_json)
         .order(created_at: :desc)
-        .includes(content_suggestions: [:content_pillar])
+        .includes(content_suggestions: [ :content_pillar ])
     end
 
     def show

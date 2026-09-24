@@ -91,7 +91,7 @@ module Growth
         changes += (evolution&.reweight_toward_top(audit[:pillars]) || [])
         total_posts = audit[:pillars].sum { |p| p[:posts] }
         avg_eng = average_engagement(audit[:pillars])
-        changes += [evolution.adjust_hashtags(posts: total_posts, engagement: avg_eng)] if total_posts >= 5
+        changes += [ evolution.adjust_hashtags(posts: total_posts, engagement: avg_eng) ] if total_posts >= 5
         changes.compact!
         # Only evolve captions when clearly warranted (strong signal).
         if audit.fetch(:caption_signal, :none) != :none
@@ -232,7 +232,7 @@ module Growth
         # figure for months while it was a lifetime mean.
         { name: r[:name], posts: r[:posts], engagement: avg, reach: r[:reach], likes: r[:likes],
           saved: r[:saved], window_days: REVIEW_WINDOW_DAYS }
-      end.sort_by { |p| [-p[:engagement], -p[:posts]] }
+      end.sort_by { |p| [ -p[:engagement], -p[:posts] ] }
     end
 
     # Public DELIBERATELY, and only this one (a bare `public` here would expose
@@ -253,7 +253,7 @@ module Growth
       top = pillars.first
       return :warmer if top && top[:engagement] >= 4.0
       return :bolder if top && top[:engagement] >= 6.0
-      return :none
+      :none
     end
 
     def persona_direction(audit)
@@ -313,7 +313,7 @@ module Growth
       end
       recs << 'Test different posting times / Reels vs feed' if audit[:verdict] == 'flat'
       recs << 'Escalate cadence toward daily if trajectory stays behind' if audit[:verdict] == 'behind'
-      recs.empty? ? ['Continue current strategy — all nominal'] : recs
+      recs.empty? ? [ 'Continue current strategy — all nominal' ] : recs
     end
 
     # Check whether the persona changes applied last review met their

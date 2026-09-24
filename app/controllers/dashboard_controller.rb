@@ -4,7 +4,7 @@ class DashboardController < ApplicationController
   def index
     @personas = Persona.includes(:content_pillars).all
     @recent_runs = PipelineRun.order(created_at: :desc).limit(10)
-    
+
     # Stats for dashboard
     @stats = {
       total_personas: Persona.count,

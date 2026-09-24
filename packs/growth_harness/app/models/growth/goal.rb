@@ -32,11 +32,11 @@ module Growth
     end
 
     def days_elapsed
-      [(Date.current - created_at.to_date).to_i, 0].max
+      [ (Date.current - created_at.to_date).to_i, 0 ].max
     end
 
     def days_remaining
-      [(deadline - Date.current).to_i, 0].max
+      [ (deadline - Date.current).to_i, 0 ].max
     end
 
     # Linear trajectory: required daily follower growth to hit target on time.
@@ -48,7 +48,7 @@ module Growth
     end
 
     def effective_posts_per_day
-      [posts_per_day, max_posts_per_day].min
+      [ posts_per_day, max_posts_per_day ].min
     end
 
     # Projected completion date at the current measured pace (nil if flat).

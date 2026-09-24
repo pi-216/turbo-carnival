@@ -23,7 +23,7 @@ module GapAnalysisAi
 
     def suggest
       context = build_context
-      
+
       if ai_available?
         generate_suggestions_with_ai(@pillar, context)
       else
@@ -44,16 +44,16 @@ module GapAnalysisAi
       require Rails.root.join('lib', 'ai', 'gemini_client') unless defined?(AI::GeminiClient)
 
       client = AI::GeminiClient.new
-      
+
       prompt = build_prompt(pillar, context)
-      
+
       content = client.generate(
         prompt[:user],
         system: prompt[:system],
         temperature: 0.8,
         max_tokens: 1500
       )
-      
+
       parse_suggestions(content)
     end
 
@@ -70,10 +70,10 @@ module GapAnalysisAi
     def build_prompt(pillar, context)
       system_prompt = <<~PROMPT
         You are a content strategist helping create diverse, engaging Instagram content.
-        
+
         Persona: #{context[:persona_name]}
         Core Topics: #{context[:persona_topics].join(', ')}
-        
+
         Your goal is to suggest NEW content ideas that:
         1. Align with the content pillar theme
         2. Are DIFFERENT from existing content (avoid repetition)
@@ -84,19 +84,19 @@ module GapAnalysisAi
       user_prompt = <<~PROMPT
         Content Pillar: #{pillar.name}
         Description: #{pillar.description}
-        
+
         Existing clusters in this pillar:
         #{context[:existing_cluster_keywords].any? ? context[:existing_cluster_keywords].join(', ') : 'None yet'}
-        
+
         Recent content themes:
         #{context[:recent_photo_descriptions].join("\n")}
-        
+
         Suggest 5 NEW, FRESH content cluster ideas for this pillar. Each should be:
         - Specific and actionable
         - Different from existing clusters
         - Authentic to the persona
         - Visually interesting
-        
+
         Format your response as a JSON array with this structure:
         [
           {
@@ -136,14 +136,14 @@ module GapAnalysisAi
         {
           name: "#{@pillar.name} Moments",
           description: "Everyday moments related to #{@pillar.name}",
-          keywords: [@pillar.name.downcase, 'lifestyle', 'authentic'],
+          keywords: [ @pillar.name.downcase, 'lifestyle', 'authentic' ],
           example: "Candid moment capturing #{@pillar.name}",
           source: 'template'
         },
         {
           name: "#{@pillar.name} Details",
           description: "Close-up details and textures",
-          keywords: [@pillar.name.downcase, 'detail', 'aesthetic'],
+          keywords: [ @pillar.name.downcase, 'detail', 'aesthetic' ],
           example: "Detail shot highlighting #{@pillar.name}",
           source: 'template'
         }

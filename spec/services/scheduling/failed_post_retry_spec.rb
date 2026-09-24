@@ -55,7 +55,7 @@ RSpec.describe Scheduling::FailedPostRetry do
       result = retry_service.call(limit: 3)
 
       expect(result.requeued).to eq(1)
-      expect(result.post_ids).to eq([post.id])
+      expect(result.post_ids).to eq([ post.id ])
 
       post.reload
       expect(post.status).to eq('scheduled')
@@ -149,7 +149,7 @@ RSpec.describe Scheduling::FailedPostRetry do
       result = retry_service.call(limit: 1)
 
       expect(result.requeued).to eq(1)
-      expect([first.reload.status, second.reload.status].count('scheduled')).to eq(1)
+      expect([ first.reload.status, second.reload.status ].count('scheduled')).to eq(1)
       FileUtils.rm_f(other_photo.path)
     end
 

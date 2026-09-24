@@ -29,7 +29,7 @@ class Base::TabsComponent < ViewComponent::Base
 
     def tab_classes
       base = "inline-flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors"
-      
+
       if @active
         "#{base} border-blue-600 text-blue-600"
       else

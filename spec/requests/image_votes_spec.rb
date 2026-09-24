@@ -3,7 +3,7 @@ require "rails_helper"
 RSpec.describe "ImageVotes", type: :request do
   let(:pipeline) { FactoryBot.create(:pipeline) }
   let!(:pipeline_run) { FactoryBot.create(:pipeline_run, pipeline: pipeline, status: 'running') }
-  
+
   describe "GET /vote" do
     context "when pairs exist" do
       it "renders the voting interface" do

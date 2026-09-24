@@ -34,7 +34,7 @@ module Base
 
     def alert_classes
       base = "p-4 rounded-lg border flex items-start gap-3"
-      
+
       variant_classes = case @variant
       when :success
         "bg-green-900 bg-opacity-20 border-green-700 text-green-100"
@@ -48,7 +48,7 @@ module Base
         "bg-gray-900 bg-opacity-20 border-gray-700 text-gray-100"
       end
 
-      [base, variant_classes, @custom_classes].join(" ").strip
+      [ base, variant_classes, @custom_classes ].join(" ").strip
     end
 
     def icon
@@ -68,7 +68,7 @@ module Base
 
     def icon_classes
       base = "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center font-bold text-sm"
-      
+
       case @variant
       when :success
         "#{base} bg-green-600 text-white"

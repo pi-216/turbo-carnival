@@ -48,7 +48,7 @@ module Base
 
       centered = @centered ? "justify-center min-h-[200px]" : ""
 
-      [base, centered, @custom_classes].join(" ").strip
+      [ base, centered, @custom_classes ].join(" ").strip
     end
 
     def spinner_size

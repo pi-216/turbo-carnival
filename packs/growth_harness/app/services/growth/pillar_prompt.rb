@@ -67,7 +67,7 @@ module Growth
       # tied element, so 'Fitness & Wellness' (both :fitness and :wellness match
       # at length 7) must be resolved by declaration order — :fitness first.
       bank = matches.reduce(nil) do |best, (key, _)|
-        best.nil? || key.to_s.length > best.to_s.length ? [key, SCENES[key]] : best
+        best.nil? || key.to_s.length > best.to_s.length ? [ key, SCENES[key] ] : best
       end
       pool    = bank ? bank.last : DEFAULT_SCENES
       "#{SAFE_BASE} #{pool.sample}."

@@ -18,7 +18,7 @@ RSpec.describe ContentPillars::Photo, type: :model do
   let(:pillar) { create(:content_pillar, persona: persona) }
   let(:mirror) { Dir.mktmpdir('photo-mirror') }
 
-  before { stub_const('ContentPillars::Photo::MIRROR_ROOTS', [mirror]) }
+  before { stub_const('ContentPillars::Photo::MIRROR_ROOTS', [ mirror ]) }
   after { FileUtils.remove_entry(mirror) }
 
   def photo(path)

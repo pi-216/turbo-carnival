@@ -13,7 +13,7 @@ RSpec.describe "GapAnalyses", type: :request do
   describe "GET /show" do
     it "returns http success" do
       gap_analysis = GapAnalysis.create!(
-        persona: persona, 
+        persona: persona,
         analyzed_at: Time.current,
         coverage_data: []
       )
@@ -28,5 +28,4 @@ RSpec.describe "GapAnalyses", type: :request do
       expect(response).to have_http_status(:redirect)
     end
   end
-
 end

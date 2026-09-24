@@ -10,7 +10,7 @@ module ContentStrategy
 
       # Get rotation index from state
       rotation_index = context.state.get_state(:rotation_index) || 0
-      
+
       # Select pillar at index (with wrapping)
       pillar = eligible_pillars[rotation_index % eligible_pillars.size]
 

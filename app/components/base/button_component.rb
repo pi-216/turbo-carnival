@@ -60,7 +60,7 @@ module Base
 
     def button_classes
       base = "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-      
+
       size_classes = case @size
       when :sm
         "px-3 py-1.5 text-xs"
@@ -71,7 +71,7 @@ module Base
       else
         "px-4 py-2 text-sm"
       end
-      
+
       variant_classes = case @variant
       when :primary
         "bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-blue-600 dark:bg-blue-500 dark:hover:bg-blue-600"
@@ -90,7 +90,7 @@ module Base
         "bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-blue-600 dark:bg-blue-500 dark:hover:bg-blue-600"
       end
 
-      [base, size_classes, variant_classes, @custom_classes].join(" ").strip
+      [ base, size_classes, variant_classes, @custom_classes ].join(" ").strip
     end
   end
 end

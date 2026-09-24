@@ -2,7 +2,7 @@
 
 Sidekiq.configure_server do |config|
   # Use Redis DB 1 to isolate from crawlr (DB 0), t-chat (DB 2), etc.
-  config.redis = { url: ENV.fetch('REDIS_URL', 'redis://localhost:6379/1') }
+  config.redis = { url: ENV.fetch("REDIS_URL", "redis://localhost:6379/1") }
 
   config.on(:startup) do
     Rails.logger.info "Starting ComfyUI background workers..."
@@ -16,5 +16,5 @@ Sidekiq.configure_server do |config|
 end
 
 Sidekiq.configure_client do |config|
-  config.redis = { url: ENV.fetch('REDIS_URL', 'redis://localhost:6379/1') }
+  config.redis = { url: ENV.fetch("REDIS_URL", "redis://localhost:6379/1") }
 end

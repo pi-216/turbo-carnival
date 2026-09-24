@@ -45,9 +45,9 @@ module TurboCarnival
     # ActionDispatch::HostAuthorization before it reaches the app -- which silently
     # disabled the whole request-spec suite (7 failures in
     # spec/requests/scheduling_posts_spec.rb). Production behaviour is unchanged.
-    config.hosts << '.pi216.ai' unless Rails.env.test?
-    
+    config.hosts << ".pi216.ai" unless Rails.env.test?
+
     # Configure session store
-    config.session_store :cookie_store, key: '_turbo_carnival_session'
+    config.session_store :cookie_store, key: "_turbo_carnival_session"
   end
 end

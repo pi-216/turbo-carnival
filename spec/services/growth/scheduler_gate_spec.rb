@@ -38,7 +38,7 @@ RSpec.describe Growth::SchedulerGate do
     it 'reads the harness script and parses its output' do
       allow(Open3).to receive(:capture3)
         .with(described_class::STATUS_SCRIPT.to_s, 'status')
-        .and_return(['claim=busy job=comfyui-1 ours=yes comfyui=up', '', instance_double(Process::Status, success?: true, exitstatus: 0)])
+        .and_return([ 'claim=busy job=comfyui-1 ours=yes comfyui=up', '', instance_double(Process::Status, success?: true, exitstatus: 0) ])
       r = described_class.status
       expect(r.ready?).to be(true)
       expect(r.raw).to eq('claim=busy job=comfyui-1 ours=yes comfyui=up')
@@ -47,7 +47,7 @@ RSpec.describe Growth::SchedulerGate do
     it 'fails closed when the script errors' do
       allow(Open3).to receive(:capture3)
         .with(described_class::STATUS_SCRIPT.to_s, 'status')
-        .and_return(['', 'no such file', instance_double(Process::Status, success?: false, exitstatus: 1)])
+        .and_return([ '', 'no such file', instance_double(Process::Status, success?: false, exitstatus: 1) ])
       r = described_class.status
       expect(r.ready?).to be(false)
       expect(r.raw).to match(/script error/)

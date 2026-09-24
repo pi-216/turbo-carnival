@@ -10,7 +10,7 @@ RSpec.describe SelectNextJob do
   describe "#call" do
     before do
       # Create approved PipelineRunStep for each step so parents are eligible
-      [step1, step2, step3].each do |step|
+      [ step1, step2, step3 ].each do |step|
         pipeline_run.pipeline_run_steps.create!(
           pipeline_step: step,
           approved: true,
@@ -30,12 +30,12 @@ RSpec.describe SelectNextJob do
       it "selects parents to fill out steps with < 2 candidates first (breadth-first)" do
         # Create 2 step 1 candidates that are FULL (actually have 3 children)
         2.times { create_full_parent(step1, step2, 3) }
-        
+
         # Candidate with child_count 1 (needs more children)
         candidate_step1 = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 1, elo_score: 1500)
         # Create 1 child for it
         FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step2, parent: candidate_step1)
-        
+
         # Step 2 candidate (not a parent for step 2 generation)
         candidate_step2 = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step2, child_count: 0, elo_score: 800)
 
@@ -46,17 +46,17 @@ RSpec.describe SelectNextJob do
         expect(result.parent_candidate).to eq(candidate_step1)
         expect(result.next_step).to eq(step2)
       end
-      
+
       it "returns no_work when all steps have >= 2 candidates" do
         ClimateControl.modify TARGET_LEAF_NODES: "2", MAX_CHILDREN_PER_NODE: "2" do
           # Update steps to use N=2 for this test
-          [step1, step2, step3].each { |step| step.update!(max_children: 2) }
-          
+          [ step1, step2, step3 ].each { |step| step.update!(max_children: 2) }
+
           # Create 2 candidates in each step
           # Step 1: 2 candidates, both FULL (have 2 children at step 2)
           2.times { create_full_parent(step1, step2, 2) }
-          
-          # Step 2: Candidates created above are parents. 
+
+          # Step 2: Candidates created above are parents.
           # We need to ensure step 2 candidates are also FULL (have 2 children at step 3)
           step2_candidates = ImageCandidate.where(pipeline_step: step2)
           step2_candidates.each do |parent|
@@ -75,7 +75,7 @@ RSpec.describe SelectNextJob do
       it "excludes rejected candidates" do
         # Create 2 FULL step1 candidates
         2.times { create_full_parent(step1, step2, 3) }
-        
+
         FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 0, status: "rejected")
         candidate_active = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 0, status: "active")
 
@@ -89,12 +89,12 @@ RSpec.describe SelectNextJob do
       it "excludes candidates with max children" do
         ClimateControl.modify MAX_CHILDREN_PER_NODE: "5" do
           # Update steps to use N=5 for this test
-          [step1, step2, step3].each { |step| step.update!(max_children: 5) }
-          
+          [ step1, step2, step3 ].each { |step| step.update!(max_children: 5) }
+
           # Need 5 step1 candidates (breadth-first with N=5)
           4.times { create_full_parent(step1, step2, 5) }
           create_full_parent(step1, step2, 5)
-          
+
           # Eligible candidate - ensure high ELO so it's in top K
           candidate_eligible = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 4, elo_score: 2000)
           FactoryBot.create_list(:image_candidate, 4, pipeline_run: pipeline_run, pipeline_step: step2, parent: candidate_eligible)
@@ -115,15 +115,15 @@ RSpec.describe SelectNextJob do
              FactoryBot.create_list(:image_candidate, 3, pipeline_run: pipeline_run, pipeline_step: step3, parent: s2)
           end
         end
-        
+
         # Step 2 candidate needs children (The one we want selected)
         # Note: In real app, it should have a parent, but here we can check if it works as orphan or give it a parent
         candidate_step2 = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step2, child_count: 0, elo_score: 2000)
-        
+
         # Another step 2 candidate (FULL)
         parent_step2 = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step2, child_count: 3)
         FactoryBot.create_list(:image_candidate, 3, pipeline_run: pipeline_run, pipeline_step: step3, parent: parent_step2)
-        
+
         result = described_class.call
 
         # Should select step2 parent to fill step3
@@ -136,7 +136,7 @@ RSpec.describe SelectNextJob do
       it "selects from candidates at same step" do
         # Create 2 FULL step1 candidates
         2.times { create_full_parent(step1, step2, 3) }
-        
+
         # Create 2 step1 candidates needing children with different ELO
         candidate_a = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 0, elo_score: 1200)
         candidate_b = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 0, elo_score: 800)
@@ -154,7 +154,7 @@ RSpec.describe SelectNextJob do
       it "handles single candidate" do
         # Create 2 FULL step1 candidates
         2.times { create_full_parent(step1, step2, 3) }
-        
+
         # Single eligible candidate at step1
         candidate = FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 0)
 
@@ -184,15 +184,15 @@ RSpec.describe SelectNextJob do
           ClimateControl.modify TARGET_LEAF_NODES: "10" do
             # Create 3 step 1 candidates (>= max 3)
             3.times { FactoryBot.create(:image_candidate, pipeline_run: pipeline_run, pipeline_step: step1, child_count: 5) }
-            
+
             # Step 1 candidates are parents. We need to check if they need children.
             # Logic iterates parents.
             # If we give them 3 children each (max 3), they are full.
-            
+
             ImageCandidate.where(pipeline_step: step1).each do |parent|
                FactoryBot.create_list(:image_candidate, 3, pipeline_run: pipeline_run, pipeline_step: step2, parent: parent)
             end
-            
+
             # Step 2 parents need children?
             ImageCandidate.where(pipeline_step: step2).each do |parent|
                FactoryBot.create_list(:image_candidate, 3, pipeline_run: pipeline_run, pipeline_step: step3, parent: parent)
@@ -234,7 +234,7 @@ RSpec.describe SelectNextJob do
     context "edge cases" do
       # Clear the eager-loaded steps for these edge case tests
       before do
-        PipelineRunStep.delete_all 
+        PipelineRunStep.delete_all
         PipelineRun.delete_all
         PipelineStep.delete_all
         Pipeline.delete_all

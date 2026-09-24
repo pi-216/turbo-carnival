@@ -51,7 +51,7 @@ module CaptionGeneration
     def fetch_recent_captions
       Scheduling::Post
         .where(persona_id: @persona.id)
-        .where.not(caption: [nil, ''])
+        .where.not(caption: [ nil, '' ])
         .order(created_at: :desc)
         .limit(20)
         .pluck(:caption)

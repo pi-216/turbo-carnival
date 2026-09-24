@@ -52,7 +52,7 @@ module ContentStrategy
 
       # Get last used pillar index
       last_index = context.state.get_state(:last_pillar_index) || -1
-      
+
       # Select next pillar (round-robin)
       new_index = (last_index + 1) % all_pillars.size
       pillar = all_pillars[new_index]

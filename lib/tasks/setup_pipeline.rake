@@ -33,7 +33,7 @@ namespace :pipeline do
       order: 2,
       comfy_workflow_json: {
         "workflow": "face_restoration",
-        "models": ["CodeFormer", "GFPGAN"]
+        "models": [ "CodeFormer", "GFPGAN" ]
       }.to_json,
       needs_run_prompt: false,
       needs_parent_image_path: true
@@ -88,7 +88,7 @@ namespace :pipeline do
   end
 
   desc "Create a new pipeline run"
-  task :create_run, [:pipeline_id, :name, :prompt] => :environment do |_t, args|
+  task :create_run, [ :pipeline_id, :name, :prompt ] => :environment do |_t, args|
     pipeline = Pipeline.find(args[:pipeline_id])
 
     run = pipeline.pipeline_runs.create!(

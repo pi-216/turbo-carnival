@@ -22,7 +22,7 @@ module NavigationHelper
   # @return [Array<Hash>] array of {label, path, current} hashes
   def navigation_breadcrumbs
     context = current_navigation_context
-    
+
     case context[:level]
     when :dashboard
       []
@@ -53,7 +53,7 @@ module NavigationHelper
   # @return [Array<Hash>] array of {label, path, current} hashes
   def navigation_items
     context = current_navigation_context
-    
+
     case context[:level]
     when :dashboard
       dashboard_items
@@ -71,7 +71,7 @@ module NavigationHelper
   # Returns the section heading for current context
   def navigation_section_heading
     context = current_navigation_context
-    
+
     case context[:level]
     when :dashboard
       "Personas"

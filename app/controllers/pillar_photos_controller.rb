@@ -8,7 +8,7 @@ class PillarPhotosController < ApplicationController
 
   def create
     uploaded_file = params.dig(:content_pillars_photo, :image)
-    
+
     if uploaded_file.blank?
       Rails.logger.warn("Photo upload failed: no file provided. Params: #{params.inspect}")
       flash.now[:alert] = "Please select an image to upload."

@@ -7,7 +7,7 @@ RSpec.describe "Images", type: :request do
       step = FactoryBot.create(:pipeline_step, pipeline: pipeline, order: 1)
 
       # Create a temporary test image
-      temp_file = Tempfile.new(["test_image", ".png"])
+      temp_file = Tempfile.new([ "test_image", ".png" ])
       temp_file.write("fake image data")
       temp_file.close
 

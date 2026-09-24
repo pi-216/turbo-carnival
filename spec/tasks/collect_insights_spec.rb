@@ -27,11 +27,11 @@ RSpec.describe 'scheduling:collect_insights' do
   end
 
   def stub_insights_api(status: 200, body: nil)
-    body ||= { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 7 }] },
-                          { 'name' => 'comments', 'values' => [{ 'value' => 1 }] },
-                          { 'name' => 'reach', 'values' => [{ 'value' => 100 }] },
-                          { 'name' => 'saved', 'values' => [{ 'value' => 2 }] },
-                          { 'name' => 'shares', 'values' => [{ 'value' => 1 }] }] }
+    body ||= { 'data' => [ { 'name' => 'likes', 'values' => [ { 'value' => 7 } ] },
+                          { 'name' => 'comments', 'values' => [ { 'value' => 1 } ] },
+                          { 'name' => 'reach', 'values' => [ { 'value' => 100 } ] },
+                          { 'name' => 'saved', 'values' => [ { 'value' => 2 } ] },
+                          { 'name' => 'shares', 'values' => [ { 'value' => 1 } ] } ] }
     connection = double('faraday')
     allow(connection).to receive(:get).and_return(double('response', status: status, body: body))
     allow(Faraday).to receive(:new).and_return(connection)
@@ -149,8 +149,8 @@ RSpec.describe 'scheduling:collect_insights' do
   # GO/PIVOT/KILL criterion is read from.
   it 'records a missing `reach` metric as unknown (nil), never as a default' do
     post = posted(at: 3.days.ago)
-    stub_insights_api(body: { 'data' => [{ 'name' => 'likes', 'values' => [{ 'value' => 2 }] },
-                                        { 'name' => 'comments', 'values' => [{ 'value' => 0 }] }] })
+    stub_insights_api(body: { 'data' => [ { 'name' => 'likes', 'values' => [ { 'value' => 2 } ] },
+                                        { 'name' => 'comments', 'values' => [ { 'value' => 0 } ] } ] })
 
     expect(Rails.logger).to receive(:warn).with(/no `reach` metric/).at_least(:once)
 

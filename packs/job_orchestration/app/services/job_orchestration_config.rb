@@ -5,7 +5,7 @@ class JobOrchestrationConfig
   def self.max_children_per_node
     ENV.fetch("MAX_CHILDREN_PER_NODE", "3").to_i
   end
-  
+
   # K: How many candidates advance to next step by default
   # When approving a step, only top-K by ELO become eligible parents
   # Can be overridden per approval

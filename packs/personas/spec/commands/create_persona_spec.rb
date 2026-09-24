@@ -38,7 +38,7 @@ RSpec.describe CreatePersona do
       it 'destroys created persona on rollback' do
         result = described_class.call(name: 'Alex')
         persona_id = result.persona.id
-        
+
         result.persona.destroy
         expect(Persona.find_by(id: persona_id)).to be_nil
       end

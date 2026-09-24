@@ -31,16 +31,16 @@ class ComfyuiClient
   def get_job_status(job_id)
     response = connection.get("/history/#{job_id}")
     history = parse_response(response)
-    
+
     # History returns a hash with prompt_id as key
     job_data = history[job_id.to_sym] || history[job_id.to_s]
-    
+
     return { status: "not_found" } unless job_data
-    
+
     status = job_data.dig(:status, :status_str)
     completed = job_data.dig(:status, :completed)
     outputs = job_data[:outputs]
-    
+
     case status
     when "success"
       { status: "completed", output: outputs }

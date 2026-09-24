@@ -18,7 +18,7 @@ module PostAutomation
         caption: caption,
         scheduled_at: scheduled_time,
         optimal_time_calculated: optimal_time || scheduled_time,
-        status: 'scheduled'
+        status: "scheduled"
       )
     end
 
@@ -31,14 +31,14 @@ module PostAutomation
     def calculate_next_slot
       # Find the LATEST scheduled time for this persona
       max_scheduled_time = Scheduling::Post
-        .where(persona: persona, status: ['scheduled', 'draft'])
-        .where('scheduled_at > ?', Time.current)
+        .where(persona: persona, status: [ "scheduled", "draft" ])
+        .where("scheduled_at > ?", Time.current)
         .maximum(:scheduled_at)
 
       if max_scheduled_time
         # Space posts roughly 24 hours apart for daily cadence
         base_time = max_scheduled_time + rand(20..28).hours
-        
+
         # Adjust to optimal posting window (9 AM - noon)
         adjust_to_optimal_window(base_time)
       else
@@ -55,7 +55,7 @@ module PostAutomation
 
       # If in alternative window (2 PM - 5 PM), use it
       return time if hour >= 14 && hour < 17
-      
+
       # Otherwise, move to next day's optimal window
       time.tomorrow.change(hour: rand(9..11), min: rand(0..59))
     end

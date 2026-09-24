@@ -58,7 +58,7 @@ module PostAutomation
     def load_ollama_client
       # AI::OllamaClient does NOT autoload (lib/ai is not a clean Zeitwerk root),
       # so it must still be loaded explicitly.
-      load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
+      load "lib/ai/ollama_client.rb" unless defined?(AI::OllamaClient)
     end
   end
 end

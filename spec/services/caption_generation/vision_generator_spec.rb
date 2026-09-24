@@ -20,7 +20,7 @@ RSpec.describe CaptionGeneration::VisionGenerator do
   def stub_ollama_client(reply: 'A real caption', capture: nil)
     klass = Class.new do
       define_method(:initialize) { |**kwargs| capture&.call(:new, kwargs) }
-      define_method(:loaded_models) { ['gemma3:4b'] }
+      define_method(:loaded_models) { [ 'gemma3:4b' ] }
       define_method(:chat) do |messages:, temperature:|
         capture&.call(:chat, messages)
         { text: reply, model: 'gemma3:4b' }

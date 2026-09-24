@@ -15,14 +15,14 @@ module Base
             end
           end
         end
-        
+
         sidebar.with_section do |section|
           section.with_title { "Main" }
           section.with_item(href: "#", active: true, icon: "📊") { "Dashboard" }
           section.with_item(href: "#", icon: "📝") { "Content Strategy" }
           section.with_item(href: "#", icon: "⚙️") { "Generation" }
         end
-        
+
         sidebar.with_section do |section|
           section.with_title { "Settings" }
           section.with_item(href: "#", icon: "🔧") { "Configuration" }

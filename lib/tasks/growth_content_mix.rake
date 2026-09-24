@@ -29,20 +29,20 @@
 # Weight is not decoration: Growth::CadenceEngine now draws pillars in
 # weighted-random order, so `weight` is the share of renders a pillar gets.
 namespace :growth do
-  desc 'Report (APPLY=1 to write) the content mix: retire dead pillars, weight the signal, reset tag volume'
+  desc "Report (APPLY=1 to write) the content mix: retire dead pillars, weight the signal, reset tag volume"
   task content_mix: :environment do
-    dry_run = ENV['APPLY'] != '1'
+    dry_run = ENV["APPLY"] != "1"
     persona = Growth::Goal.active.first&.persona
-    abort 'no active growth goal/persona' unless persona
+    abort "no active growth goal/persona" unless persona
 
     # weight/priority per pillar that SURVIVES, chosen from the table above:
     # the two with the most reach and evidence lead, food keeps a real share
     # (best rate, thinnest sample), wellness a residual share. Sums to 100.
     NEW_WEIGHTS = {
-      'Fashion & Style'           => { weight: 35, priority: 5 },
-      'Lifestyle & Daily Living'  => { weight: 25, priority: 4 },
-      'Food & Cooking'            => { weight: 25, priority: 4 },
-      'Wellness & Self-Care'      => { weight: 15, priority: 3 }
+      "Fashion & Style"           => { weight: 35, priority: 5 },
+      "Lifestyle & Daily Living"  => { weight: 25, priority: 4 },
+      "Food & Cooking"            => { weight: 25, priority: 4 },
+      "Wellness & Self-Care"      => { weight: 15, priority: 3 }
     }.freeze
 
     pillars = persona.content_pillars.order(:id).to_a
@@ -75,9 +75,9 @@ namespace :growth do
       next
     end
 
-    backup_dir = Rails.root.join('ops', 'backups')
+    backup_dir = Rails.root.join("ops", "backups")
     FileUtils.mkdir_p(backup_dir)
-    stamp = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
+    stamp = Time.now.utc.strftime("%Y%m%dT%H%M%SZ")
     backup = backup_dir.join("content-mix-#{stamp}.json")
     backup.write(JSON.pretty_generate(
       persona: { id: persona.id, name: persona.name },

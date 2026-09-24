@@ -24,7 +24,7 @@ class TabsComponentPreview < ViewComponent::Preview
   # @label Many Tabs
   def many_tabs
     render(Base::TabsComponent.new) do |component|
-      ["Home", "Products", "Services", "About", "Contact", "Blog", "FAQ", "Support"].each_with_index do |label, index|
+      [ "Home", "Products", "Services", "About", "Contact", "Blog", "FAQ", "Support" ].each_with_index do |label, index|
         component.with_tab(id: "tab#{index}", label: label, active: index.zero?)
       end
     end

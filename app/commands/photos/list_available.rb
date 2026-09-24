@@ -18,7 +18,7 @@ module Photos
 
       # Filter by pillar if specified
       all_photos = all_photos.where(content_pillar_id: pillar_id) if pillar_id.present?
-      
+
       # Filter to photos whose bytes we can actually SERVE at publish time.
       #
       # This used to be `photo.image.attached?`, which was a proxy for "we have

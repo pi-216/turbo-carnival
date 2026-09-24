@@ -52,17 +52,17 @@ class SubmitJob < GLCommand::Callable
   def apply_job_variables(workflow, job)
     # Convert workflow to JSON string for replacement
     workflow_json = workflow.to_json
-    
+
     # Replace job-specific variables
     workflow_json = workflow_json.gsub('"{{job_id}}"', job.id.to_s)
-    
+
     # If there's a base_seed variable, compute actual seed
     if workflow_json.include?('"{{auto_seed}}"')
       base_seed = context.pipeline_run.variables["seed"] || 1000000
       actual_seed = base_seed + job.id
       workflow_json = workflow_json.gsub('"{{auto_seed}}"', actual_seed.to_s)
     end
-    
+
     # Parse back to hash
     JSON.parse(workflow_json)
   end

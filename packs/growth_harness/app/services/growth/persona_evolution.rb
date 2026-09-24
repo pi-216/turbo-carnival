@@ -156,12 +156,12 @@ module Growth
       # Compute both new weights FIRST so the total never transiently exceeds
       # 100% (the ContentPillar validation would otherwise reject the reward
       # before the penalty brings the sum back down).
-      new_bottom_weight = [penalty_pillar.weight - step, WEIGHT_MIN].max
+      new_bottom_weight = [ penalty_pillar.weight - step, WEIGHT_MIN ].max
       transfer = penalty_pillar.weight - new_bottom_weight   # actual share freed
-      new_top_weight    = [pillar.weight + transfer, 100].min
+      new_top_weight    = [ pillar.weight + transfer, 100 ].min
 
-      new_top_priority    = [pillar.priority + PRIORITY_STEP, 5].min
-      new_bottom_priority = [penalty_pillar.priority - PRIORITY_STEP, PRIORITY_MIN].max
+      new_top_priority    = [ pillar.priority + PRIORITY_STEP, 5 ].min
+      new_bottom_priority = [ penalty_pillar.priority - PRIORITY_STEP, PRIORITY_MIN ].max
 
       ContentPillar.transaction do
         penalty_pillar.update!(weight: new_bottom_weight, priority: new_bottom_priority)
@@ -178,7 +178,7 @@ module Growth
       max = strategy.max_tags.to_i
       brand = Array(strategy.brand_tags || [])
       persona.hashtag_strategy = Personas::HashtagStrategy.new(
-        strategy.to_hash.merge(max_tags: [[max - TAG_STEP, TAG_MIN].max, 1].max)
+        strategy.to_hash.merge(max_tags: [ [ max - TAG_STEP, TAG_MIN ].max, 1 ].max)
       )
       persona.save!
     end
@@ -186,7 +186,7 @@ module Growth
     def expand_tags(strategy)
       max = strategy.max_tags.to_i
       persona.hashtag_strategy = Personas::HashtagStrategy.new(
-        strategy.to_hash.merge(max_tags: [[max + TAG_STEP, TAG_MAX].min, 1].max)
+        strategy.to_hash.merge(max_tags: [ [ max + TAG_STEP, TAG_MAX ].min, 1 ].max)
       )
       persona.save!
     end

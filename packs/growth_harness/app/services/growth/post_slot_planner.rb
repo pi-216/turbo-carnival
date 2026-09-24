@@ -27,7 +27,7 @@ module Growth
   class PostSlotPlanner
     # Posting windows in Time.zone (this app runs UTC) -- the same windows the
     # strategy/command path uses. Spacing inside them is what prevents the burst.
-    WINDOWS = [[9, 12], [14, 17]].freeze
+    WINDOWS = [ [ 9, 12 ], [ 14, 17 ] ].freeze
     SLOT_GAP_MINUTES = 90
     MIN_LEAD_DAYS = 1
     # Bounded search: with a 7-day lookahead and a few posts/day the first few
@@ -42,8 +42,8 @@ module Growth
 
     def initialize(persona:, posts_per_day:, min_lead_days: MIN_LEAD_DAYS, now: Time.current)
       @persona = persona
-      @posts_per_day = [posts_per_day.to_i, 1].max
-      @min_lead_days = [min_lead_days.to_i, 1].max
+      @posts_per_day = [ posts_per_day.to_i, 1 ].max
+      @min_lead_days = [ min_lead_days.to_i, 1 ].max
       @now = now
     end
 

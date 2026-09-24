@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
 namespace :personas do
-  desc 'Download all photos for a persona to a folder (persona_id, target_dir)'
+  desc "Download all photos for a persona to a folder (persona_id, target_dir)"
   task :download_photos, %i[persona_id target_dir] => :environment do |_t, args|
-    require 'fileutils'
+    require "fileutils"
 
     persona_id = args[:persona_id].to_i
     target_dir = args[:target_dir].to_s
 
-    raise ArgumentError, 'persona_id is required' if persona_id <= 0
-    raise ArgumentError, 'target_dir is required' if target_dir.empty?
+    raise ArgumentError, "persona_id is required" if persona_id <= 0
+    raise ArgumentError, "target_dir is required" if target_dir.empty?
 
     persona = Persona.find(persona_id)
 
@@ -31,8 +31,8 @@ namespace :personas do
         File.basename(photo.path.to_s)
       end
 
-      filename = 'image' if filename.empty?
-      filename = filename.gsub(/[^0-9A-Za-z.\-_]+/, '_')
+      filename = "image" if filename.empty?
+      filename = filename.gsub(/[^0-9A-Za-z.\-_]+/, "_")
 
       target_path = File.join(target_dir, "#{photo.id}_#{filename}")
       if File.exist?(target_path)

@@ -116,7 +116,7 @@ class AutoSelectWinners < GLCommand::Callable
     same_pillar_count = recent_pillars.count(pillar.name)
 
     # Bonus decreases as count increases (max 100 for 0, min 0 for 3+)
-    [100 - (same_pillar_count * 35), 0].max
+    [ 100 - (same_pillar_count * 35), 0 ].max
   end
 
   def recent_selections(days = 7)

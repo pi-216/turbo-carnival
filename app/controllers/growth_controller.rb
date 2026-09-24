@@ -29,7 +29,7 @@ class GrowthController < ApplicationController
     if snap
       redirect_to growth_path(goal_id: goal.id), notice: "Snapshot captured: #{snap.followers} followers"
     else
-      redirect_to growth_path(goal_id: goal.id), alert: 'Snapshot failed — see decision log for reason'
+      redirect_to growth_path(goal_id: goal.id), alert: "Snapshot failed — see decision log for reason"
     end
   end
 

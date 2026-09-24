@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# @label Badge  
+# @label Badge
 class BadgeComponentPreview < ViewComponent::Preview
     # Default badge
     # ---------------

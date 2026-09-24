@@ -32,7 +32,7 @@ module ContentPillars
 
     def find_winner
       winner = @run.image_candidates.find_by(winner: true)
-      
+
       unless winner
         Rails.logger.warn("Run #{@run.id} completed but has no winner")
       end

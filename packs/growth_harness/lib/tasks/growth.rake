@@ -33,7 +33,7 @@ namespace :growth do
   end
 
   desc 'Run the full growth harness loop (snapshot, cadence, review) for a persona'
-  task :run_all, [:persona_name] => :environment do |_t, args|
+  task :run_all, [ :persona_name ] => :environment do |_t, args|
     harness = Growth::Harness.new(persona_name: args[:persona_name])
     result = harness.run_all
 
@@ -68,7 +68,7 @@ namespace :growth do
   end
 
   desc 'Top up the scheduled-post queue to meet cadence targets (SYNC_BUDGET_SECONDS bounds the work)'
-  task :sync_cadence, [:persona_name] => :environment do |_t, args|
+  task :sync_cadence, [ :persona_name ] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     unless goal
@@ -100,7 +100,7 @@ namespace :growth do
   end
 
   desc 'Pre-publish age gate: hold queued posts whose render reads juvenile (dry run; APPLY=1 to hold, LIMIT=N)'
-  task :age_gate, [:persona_name] => :environment do |_t, args|
+  task :age_gate, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     apply = ENV['APPLY'] == '1'
     limit = (ENV['LIMIT'].presence || Growth::PersonaAgeGate::DEFAULT_LIMIT).to_i
@@ -156,7 +156,7 @@ namespace :growth do
   end
 
   desc 'Recover abandoned renders into the queue (GPU-free; bounded by the cadence shortfall)'
-  task :salvage_abandoned, [:persona_name] => :environment do |_t, args|
+  task :salvage_abandoned, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     if goal.nil?
@@ -178,7 +178,7 @@ namespace :growth do
   end
 
   desc 'Spend library photos to restore publish runway when renders are blocked (dry run; APPLY=1 to schedule, LIMIT=N, FORCE=1)'
-  task :library_fallback, [:persona_name] => :environment do |_t, args|
+  task :library_fallback, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     if goal.nil?
@@ -213,7 +213,7 @@ namespace :growth do
   end
 
   desc 'Capture a follower-count snapshot for the active goal'
-  task :snapshot_followers, [:persona_name] => :environment do |_t, args|
+  task :snapshot_followers, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     unless goal
@@ -230,7 +230,7 @@ namespace :growth do
   end
 
   desc 'Run the strategy review brain (respects review interval unless FORCE=1)'
-  task :review_strategy, [:persona_name] => :environment do |_t, args|
+  task :review_strategy, [ :persona_name ] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     unless goal
@@ -260,7 +260,7 @@ namespace :growth do
       puts 'No active goal — creating one.'
       goal = Growth::Goal.create!(persona: persona)
     end
-    count = [args[:count].to_i, 1].max
+    count = [ args[:count].to_i, 1 ].max
     puts "Generating #{count} fresh turbo-one-step renders for #{persona.name}..."
     ok = 0
     count.times do |i|
@@ -277,7 +277,7 @@ namespace :growth do
   end
 
   desc 'Report render need + scheduler claim state (shortfall=X need=yes|no claim=<idle|ours|other> comfy=up|down)'
-  task :render_need, [:persona_name] => :environment do |_t, args|
+  task :render_need, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
 
@@ -289,7 +289,7 @@ namespace :growth do
                  .where(status: %w[draft scheduled])
                  .where('scheduled_at > ? OR optimal_time_calculated > ?', Time.current, Time.current)
                  .count
-      shortfall = [target - existing, 0].max
+      shortfall = [ target - existing, 0 ].max
     end
 
     gate = Growth::SchedulerGate.status
@@ -304,7 +304,7 @@ namespace :growth do
   # on, via Growth::WeeklyReview#gate_inputs. Read-only -- no writes, no persona
   # mutation, exit 0 on every verdict (only a missing goal is a failure).
   desc 'Pre-registered GO/PIVOT/KILL gate read for the growth thesis (read-only)'
-  task :gate, [:persona_name] => :environment do |_t, args|
+  task :gate, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     if goal.nil?
@@ -316,7 +316,7 @@ namespace :growth do
   end
 
   desc 'Weekly step-back review: trajectory + per-pillar engagement + persona evolution (DRY=1 audits without changing)'
-  task :weekly_review, [:persona_name] => :environment do |_t, args|
+  task :weekly_review, [ :persona_name ] => :environment do |_t, args|
     persona = Persona.find_by(name: args[:persona_name]) || Persona.first
     goal = Growth::Goal.active.for_persona(persona).first
     unless goal

@@ -70,8 +70,8 @@ module ContentStrategy
 
         # Trending up? Bonus. Trending down? Penalty.
         case data[:trend]
-        when :rising then normalized = [normalized + 10, 100].min
-        when :falling then normalized = [normalized - 10, 0].max
+        when :rising then normalized = [ normalized + 10, 100 ].min
+        when :falling then normalized = [ normalized - 10, 0 ].max
         end
 
         data[:normalized_score] = normalized
