@@ -9,7 +9,12 @@
   "seen_count": 1,
   "source": "manual",
   "route": "tim",
-  "notes": [],
+  "notes": [
+    {
+      "ts": "2026-09-24T18:34:14-0400",
+      "note": "2026-09-24 22:4xZ ops-triage DECISION (agent-owned, recorded here rather than deferred): KEEP PUBLISHING at the configured cadence; do not pause the account. Basis, all measured this pass from the DB: the 36 gone posts span every content pillar (6,7,8,9,16,17,18,19) and four months of history -- 5 posted 2026-05-22, 6 across 2026-05-29..06-03, 1 on 2026-08-21, 26 from 2026-09-05 to 2026-09-24 -- so this is NOT a verdict on one content class we could stop producing, and it is not an escalating new condition: it has been happening unnoticed for months, in waves (>=2 this week). No account-level restriction is visible: the account still serves 200 media, the token publishes and reads normally, and posts published after the 09-24 burst are live. Pausing would spend the one lever the program has (cadence) against no measured benefit and would leave the 09-28 gate reading a smaller, still-confounded set. The decision flips on the Account Status fact alone, which is why this item is routed to Tim and not to the growth brain. The detector and its self-closing window are in place (see platform-media-removed), and the acceptance counter now states the confound (15 of 23 measured posts gone)."
+    }
+  ],
   "route_source": "explicit",
   "ask": "Log in to a1.sarah.a1 and read Settings -> Account Status (and the notification inbox): does it name a policy violation or an account restriction? A screenshot is enough -- this is the only place the removal reason exists."
 }
