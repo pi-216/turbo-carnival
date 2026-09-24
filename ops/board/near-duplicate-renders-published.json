@@ -1,0 +1,14 @@
+{
+  "key": "near-duplicate-renders-published",
+  "title": "the publish path has no near-duplicate gate: five identical images were published on five consecutive days, and every near-duplicate pair in the corpus is inside Instagram removed set",
+  "severity": "warn",
+  "evidence": "Measured 2026-09-25 03:xxZ, read-only, GPU-free (no claim, no render). Method: dHash (9x8 grey, 64-bit) over the asset of every published post, Hamming distance between all pairs; hashes cached in the scratch dir; only 106 of the 150 assets are still on disk (44 older files gone), so the measurement covers those 106 (36 removed / 70 present). RESULT 1: exact duplicates (d=0) exist ONLY in the removed set -- posts 138,139,140,141,142 published the SAME image on five consecutive days (2026-05-29 .. 06-02), from one render dir auto-wellness-self-care-20260526 (hands_00013/00002/00003/00005/00016 -- different files, identical content), and all five were removed by Instagram. There are 10 such pairs in the removed set and ZERO in the present set. RESULT 2: every pair at d<=6 (11 pairs) is in the removed set, and the surviving set has NO pair closer than d=7. Nearest-neighbour distance to the rest of the corpus: removed min=0 p25=9 med=13 (7 of 36 at d<=6); present min=7 p25=10 med=13 (0 of 70 at d<=6). RESULT 3: this does NOT explain the 25-post wave of 2026-09-24 -- those are distinct images (nn d>=9) and they track RENDER BATCHES instead (see the removals item). RESULT 4: the LIVE QUEUE IS CLEAN -- the 21 publishable posts nearest published-image distance is 12..23, so no near-duplicate is queued to publish. RESULT 5: no perceptual-hash or near-duplicate check exists anywhere in the repo (grep -rniE dhash|phash|perceptual|near-dup over packs/ bin/ app/ lib/ returns only unrelated word matches). So the only thing standing between a collapsed render batch and a duplicate post is nothing. FIX DESIGN (agent-owned, worker path): a near-duplicate gate on the publish path next to Growth::PersonaAgeGate -- dHash of the asset against a cached hash of the already-published corpus, and on a hit <= threshold clear BOTH publisher clocks + record a Growth::Decision + reopen the cadence shortfall (reversible, fail-open, never strands the queue). Ruby has no PNG decoder, so use the repo existing Python-helper pattern (bin/nsfw_gate.py, bin/aesthetics_gate.py) plus a Rails task wired into bin/scheduled_posting.sh beside growth:age_gate.",
+  "status": "open",
+  "first_seen": "2026-09-24T19:33:38-0400",
+  "last_seen": "2026-09-24T19:33:38-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [],
+  "route_source": "explicit"
+}
