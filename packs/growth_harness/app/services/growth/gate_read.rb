@@ -15,6 +15,11 @@ module Growth
   # 2026-09-28 and 2026-10-05 reads cannot disagree with each other.
   #
   # Read-only: no writes, no persona mutation, no gate reverts. Safe at any time.
+  #
+  # The engagement leg is measured ON THE COHORT, never on the raw window (see
+  # #call): a window that still holds pre-intervention renders would otherwise
+  # let content the levers never touched decide the leg. The window-wide maximum
+  # is reported as `engagement[:window_max]` for context.
   class GateRead
     # The two locked legs of the criterion. Thresholds are NOT tunable here --
     # changing one is a decision to change the pre-registration, not a config.
@@ -39,14 +44,28 @@ module Growth
 
     def call
       inputs    = review.gate_inputs
-      pillars   = inputs[:pillars]
-      top       = pillars.first
-      followers = @goal.latest_followers.to_i
-      max_eng   = top ? top[:engagement].to_f : 0.0
+      # The leg an intervention can be judged by: the COHORT, never the raw
+      # window. "A post RENDERED before this instant cannot carry any lever's
+      # effect, so it cannot vote on the gate" (see INTERVENTION_AT) is a
+      # property of the SET this leg reads, and the window still holds
+      # pre-intervention renders while the pool fills -- publication lags the
+      # render by the queue depth. Measured 2026-09-24: reading the unfiltered
+      # window let a pillar whose EVERY post predates the levers be the gate's
+      # "top pillar" and pass the leg on content the intervention never touched.
+      # The unfiltered maximum is reported beside it so the difference is
+      # visible, not silent.
+      cohort_scope   = cohort_posts(inputs)
+      pillars        = review.pillar_stats(cohort_scope)
+      window_pillars = inputs[:pillars]
+      top        = pillars.first
+      window_top = window_pillars.first
+      followers  = @goal.latest_followers.to_i
+      max_eng    = top ? top[:engagement].to_f : 0.0
+      window_max = window_top ? window_top[:engagement].to_f : 0.0
 
       follower_pass   = followers >= FOLLOWER_CEILING
       engagement_pass = max_eng > PILLAR_ENGAGEMENT_FLOOR
-      cohort          = cohort_size
+      cohort          = cohort_scope.count
       cohort_valid    = cohort >= MIN_COHORT_POSTS
 
       {
@@ -57,6 +76,8 @@ module Growth
           max_pillar: top && top[:name], max: max_eng, floor: PILLAR_ENGAGEMENT_FLOOR,
           pass: engagement_pass, window_days: inputs[:window_days],
           window_posts: inputs[:window_posts].count,
+          measured_on: 'cohort',
+          window_max: window_max, window_max_pillar: window_top && window_top[:name],
           cohort: cohort, cohort_valid: cohort_valid, min_cohort: MIN_COHORT_POSTS
         },
         pillars: pillars
@@ -66,13 +87,18 @@ module Growth
     # Posts that can actually testify about the intervention: published inside the
     # review window, RENDERED at/after INTERVENTION_AT, and carrying collected
     # insights. Keyed on the render (photo) rather than the publish date, because
-    # the publish date lags the render by the queue depth.
+    # the publish date lags the render by the queue depth. `inputs` is
+    # `review.gate_inputs` when the caller already has it (so the window relation
+    # and its per-pillar stats are built once, not per caller).
+    def cohort_posts(inputs = nil)
+      (inputs || review.gate_inputs)[:window_posts]
+        .joins(:photo)
+        .where('photos.created_at >= ?', INTERVENTION_AT)
+        .where.not(insights_updated_at: nil)
+    end
+
     def cohort_size
-      review.gate_inputs[:window_posts]
-            .joins(:photo)
-            .where('photos.created_at >= ?', INTERVENTION_AT)
-            .where.not(insights_updated_at: nil)
-            .count
+      cohort_posts.count
     end
 
     private

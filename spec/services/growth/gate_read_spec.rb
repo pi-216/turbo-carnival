@@ -16,12 +16,16 @@ RSpec.describe Growth::GateRead do
                          posts_per_day: 2, max_posts_per_day: 3)
   end
   let(:pillar) { create(:content_pillar, persona: persona, name: 'Fashion & Style') }
+  # A pillar whose posts all predate the levers -- the set that must NOT be able
+  # to decide the engagement leg.
+  let(:pre_pillar) { create(:content_pillar, persona: persona, name: 'Travel & Adventure') }
 
   # A published post whose render was imported at `rendered_at` and which carries
   # (or lacks) collected insights.
-  def posted(at:, engagement: 0.0, rendered_at: Time.current, insights: true)
+  def posted(at:, engagement: 0.0, rendered_at: Time.current, insights: true, pillar: nil)
     photo = ContentPillars::Photo.create!(persona: persona, path: "spec-#{SecureRandom.hex(4)}.png",
-                                          content_pillar: pillar, created_at: rendered_at)
+                                          content_pillar: pillar || self.pillar,
+                                          created_at: rendered_at)
     Scheduling::Post.create!(persona: persona, photo: photo, caption: 'a real caption',
                              status: 'posted', posted_at: at, engagement_rate: engagement,
                              provider_post_id: "ig-#{SecureRandom.hex(6)}",
@@ -95,6 +99,38 @@ RSpec.describe Growth::GateRead do
 
     expect(read[:engagement][:window_days]).to eq(Growth::WeeklyReview::REVIEW_WINDOW_DAYS)
     expect(read[:engagement][:window_posts]).to eq(described_class::MIN_COHORT_POSTS)
+  end
+
+  # The class's own rule -- "a post RENDERED before this instant cannot carry any
+  # lever's effect, so it cannot vote on the gate" -- is a property of the SET the
+  # engagement leg reads. The window still holds pre-intervention renders while the
+  # pool fills (publication lags the render by the queue depth), and the pillar
+  # table the leg used to average over was the UNFILTERED window, so a pillar whose
+  # every post predates the levers could be the gate's "top pillar" and pass the
+  # leg on content the intervention never touched.
+  it 'does not let a pre-intervention render vote on the engagement leg' do
+    valid_cohort(engagement: 0.0)
+    Array.new(3) do
+      posted(at: 1.day.ago, engagement: 9.0, pillar: pre_pillar,
+             rendered_at: described_class::INTERVENTION_AT - 2.days)
+    end
+
+    expect(read[:engagement][:max]).to eq(0.0)
+    expect(read[:engagement][:pass]).to be(false)
+    expect(read[:verdict]).to eq(:gate_fires)
+    # The unfiltered window DOES see it: reported beside the leg, never silent.
+    expect(read[:engagement][:window_max]).to eq(9.0)
+    expect(read[:engagement][:window_max_pillar]).to eq('Travel & Adventure')
+  end
+
+  it 'reports the leg as measured on the cohort, naming the set it read' do
+    valid_cohort(engagement: 1.0)
+    posted(at: 1.day.ago, engagement: 9.0, pillar: pre_pillar,
+           rendered_at: described_class::INTERVENTION_AT - 2.days)
+
+    expect(read[:engagement][:measured_on]).to eq('cohort')
+    expect(read[:pillars].map { |p| p[:name] }).to eq([ 'Fashion & Style' ])
+    expect(read[:engagement][:window_max_pillar]).to eq('Travel & Adventure')
   end
 
   it 'writes nothing' do

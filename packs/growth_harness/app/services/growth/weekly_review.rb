@@ -209,9 +209,14 @@ module Growth
     # Aggregate engagement per content pillar from posted posts + insights
     # INSIDE the review window -- see REVIEW_WINDOW_DAYS for why the window is
     # load-bearing rather than cosmetic.
-    def pillar_stats
+    # Per-pillar stats over a set of posts. Defaults to the review WINDOW; a
+    # caller that must measure a SUBSET of it (Growth::GateRead's cohort, i.e.
+    # only those renders that can carry an intervention's effect) passes the
+    # relation in. ONE implementation so a subset read and the review's own read
+    # can never diverge in how they aggregate a post.
+    def pillar_stats(scope = nil)
       rows = {}
-      window_posts.includes(photo: :content_pillar).find_each do |post|
+      (scope || window_posts).includes(photo: :content_pillar).find_each do |post|
         pillar_name = post.photo&.content_pillar&.name || 'Uncategorized'
         r = (rows[pillar_name] ||= { name: pillar_name, posts: 0, engagement: 0.0, reach: 0, likes: 0, saved: 0, follows_est: 0 })
         r[:posts] += 1
@@ -229,6 +234,12 @@ module Growth
           saved: r[:saved], window_days: REVIEW_WINDOW_DAYS }
       end.sort_by { |p| [-p[:engagement], -p[:posts]] }
     end
+
+    # Public DELIBERATELY, and only this one (a bare `public` here would expose
+    # every method below it): the pre-registered gate must measure a SUBSET of
+    # the window, and duplicating the aggregation there is how the two reads
+    # would drift apart.
+    public :pillar_stats
 
     def hashtag_signal(pillars)
       strong = pillars.any? { |p| p[:engagement] > 5.0 && p[:posts] >= MIN_POSTS_PILLAR }

@@ -16,11 +16,16 @@ namespace :growth do
     puts "gate=#{read[:verdict]} " \
          "followers=#{f[:value]}/#{f[:ceiling]}#{f[:pass] ? ' PASS' : ' FAIL'} " \
          "max_pillar_eng=#{e[:max]}%#{e[:pass] ? ' PASS' : ' FAIL'} " \
-         "(floor #{e[:floor]}%, top=#{e[:max_pillar]}) " \
+         "(floor #{e[:floor]}%, top=#{e[:max_pillar]}, measured on #{e[:measured_on]}) " \
          "window=#{e[:window_days]}d posts=#{e[:window_posts]} " \
          "cohort=#{e[:cohort]}/#{e[:min_cohort]}#{e[:cohort_valid] ? '' : ' INVALID'}"
+    # The unfiltered window number sits beside the leg on purpose: the two differ
+    # while pre-intervention renders are still publishing, and that difference is
+    # exactly what a reader must not have to remember (the leg reads the cohort).
+    puts "window_max_pillar_eng=#{e[:window_max]}% (top=#{e[:window_max_pillar]}, " \
+         "unfiltered window -- context only, NOT the leg)"
     puts "reason: #{read[:reason]}"
-    puts 'pillars in window:'
+    puts 'pillars in cohort (the leg reads these):'
     read[:pillars].each do |p|
       puts "  #{p[:name].ljust(28)} posts=#{p[:posts]} avg_eng=#{p[:engagement]}% reach=#{p[:reach]} likes=#{p[:likes]}"
     end
