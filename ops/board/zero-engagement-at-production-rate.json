@@ -5,8 +5,8 @@
   "evidence": "26 post(s) published in the last 14d, 23 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=75 (mean reach 3.3/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Account reach attribution, newest measured snapshot (09-24 23:00): non-follower=0 follower=6 total=6. Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the platform's own split, not an inference from a per-post sum: non-follower=0 means nothing outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than a content problem, and the lever the gate's pivot candidate names. CONFOUND: 15 of those 23 measured post(s) have since been REMOVED from the account (Instagram answers HTTP 400 / code 100 for their media; recorded on insights_unavailable_at and re-measured per post by bin/rake instagram:media_inventory) -- their numbers are what the content earned while it was live, and a zero over content the platform has erased is not the same evidence as a zero over content that is still there. Independent witness: Instagram's own account-level counter (accounts_engaged, period=day) read 0 across 15 measured day(s) in this window, so the zero is stated by the platform rather than produced by our collection. Self-closes when a published post is engaged with (any like/comment/save in the window) -- that predicate stays on the per-post columns the gate reads, so a platform counter that disagrees is reported here and never closes it silently.",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-24T19:25:21-0400",
-  "seen_count": 135,
+  "last_seen": "2026-09-24T19:34:17-0400",
+  "seen_count": 136,
   "source": "probe",
   "route": "agent",
   "notes": [
