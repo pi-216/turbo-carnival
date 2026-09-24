@@ -145,6 +145,35 @@ module Instagram
       raise Error, "Request failed: #{e.message}"
     end
 
+    # Fetch how many media objects the account currently holds.
+    # Graph API: GET /{account_id}?fields=media_count
+    #
+    # This is the only number that can separate a platform-side REMOVAL from our
+    # own bookkeeping. `provider_post_id` is written once at publish time and
+    # never re-read, so a post Instagram takes down keeps counting as published
+    # in every local read (queue runway, acceptance counters, per-pillar
+    # engagement) with nothing erroring. Publishing can only INCREASE
+    # media_count, so a DECREASE across snapshots is removal stated by the
+    # platform rather than inferred from our records.
+    #
+    # Returns nil when the API answers without the field (never measured) --
+    # the same rule as the reach attribution: a failed or changed call must not
+    # read as a measured zero.
+    def media_count
+      response = connection.get(@account_id) do |req|
+        req.params['fields'] = 'media_count'
+        req.params['access_token'] = @access_token
+      end
+
+      body = handle_response(response)
+      count = body['media_count'] || body[:media_count]
+      return nil if count.nil?
+
+      count.to_i
+    rescue Faraday::Error => e
+      raise Error, "Request failed: #{e.message}"
+    end
+
     private
 
     # -> { follower_reach:, non_follower_reach:, reach_total: }, each nil when

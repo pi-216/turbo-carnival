@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_24_080000) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_24_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -201,6 +201,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_24_080000) do
     t.integer "non_follower_reach"
     t.integer "reach_total"
     t.integer "profile_views"
+    t.integer "media_count"
     t.index ["goal_id"], name: "index_growth_snapshots_on_goal_id"
     t.index ["taken_at"], name: "index_growth_snapshots_on_taken_at"
   end

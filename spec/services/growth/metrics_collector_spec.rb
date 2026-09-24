@@ -16,7 +16,7 @@ RSpec.describe Growth::MetricsCollector do
 
   def stub_client(followers: 157, attribution: { follower_reach: 6, non_follower_reach: 0,
                                                  reach_total: 6, profile_views: 0 },
-                  raise_attribution: false)
+                  media_count: 224, raise_attribution: false, raise_media_count: false)
     instance = instance_double(Instagram::Client)
     allow(instance).to receive(:followers_count).and_return(followers)
     if raise_attribution
@@ -24,6 +24,11 @@ RSpec.describe Growth::MetricsCollector do
         .and_raise(Instagram::Client::Error, 'insights unavailable')
     else
       allow(instance).to receive(:reach_attribution).and_return(attribution)
+    end
+    if raise_media_count
+      allow(instance).to receive(:media_count).and_raise(Instagram::Client::Error, 'account unavailable')
+    else
+      allow(instance).to receive(:media_count).and_return(media_count)
     end
     allow(Instagram::Client).to receive(:new).and_return(instance)
   end
@@ -66,6 +71,35 @@ RSpec.describe Growth::MetricsCollector do
 
     expect(snap.reach_total).to eq(6)
     expect(snap.non_follower_reach).to be_nil
+  end
+
+  # The account's own media inventory is the only number that can distinguish a
+  # platform-side REMOVAL from our bookkeeping: provider_post_id is written once
+  # at publish and never re-read, so a taken-down post keeps counting as posted
+  # everywhere. Publishing can only INCREASE media_count, which is why the column
+  # has to be measured on every snapshot rather than inferred.
+  it 'records the account media inventory beside the follower count' do
+    stub_client(media_count: 224)
+
+    expect(collector.collect.media_count).to eq(224)
+  end
+
+  it 'leaves the media inventory UNKNOWN (nil) when the account call fails, without losing the snapshot' do
+    stub_client(raise_media_count: true)
+
+    snap = collector.collect
+
+    expect(snap.followers).to eq(157)
+    expect(snap.media_count).to be_nil
+  end
+
+  it 'keeps the follower count when the API answers without a media_count field' do
+    stub_client(media_count: nil)
+
+    snap = collector.collect
+
+    expect(snap.followers).to eq(157)
+    expect(snap.media_count).to be_nil
   end
 
   it 'still records a decision and returns nil when the follower call itself fails' do

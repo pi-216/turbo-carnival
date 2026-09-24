@@ -2519,6 +2519,92 @@ def check_discovery_attribution():
     )
 
 
+# Every engagement read on this board is keyed on post ids THIS APP recorded, and
+# `provider_post_id` is written once at publish time and never re-read. So if
+# Instagram takes a post down, nothing local changes: the row still counts as
+# posted, it still holds its place in the queue runway, it still sits in the
+# 14-day acceptance window, and the per-pillar engagement read still averages it.
+# The observed condition (0 like / 0 comment / 0 save across 22 measured posts at
+# reach ~3/post) has BOTH shapes -- a distribution failure AND removed content --
+# and until 2026-09-24 nothing could tell them apart: a hand-run check confirmed
+# the newest 10 published posts were all still retrievable with platform counters
+# agreeing with ours, but no check repeats it, and the account node's own
+# media_count was never collected at all.
+#
+# media_count is the cheap discriminator: publishing can only INCREASE it, so a
+# DECREASE between snapshots is a removal stated by the platform rather than
+# inferred from our bookkeeping. It rides on the SAME account node call as
+# followers_count (no extra API round trip) and stays NULL when unanswered, so an
+# unmeasured inventory can never read as "nothing was removed".
+def media_inventory_verdict(peak, newest):
+    """PURE: has the platform-side media inventory SHRANK? -> 'warn' or None.
+
+    Both inputs None/unreadable returns None: an absent read is not a defect, and
+    a probe that manufactures a removal out of a missing number is worse than no
+    probe. Equal is not a shrink -- only a strict decrease is evidence of a
+    removal.
+    """
+    if peak is None or newest is None:
+        return None
+    return "warn" if newest < peak else None
+
+
+def check_platform_media_removed():
+    """OUTPUT != ACCEPTED OUTPUT, platform side: did media the account held disappear?
+
+    Read-only. Fires only on a strict decrease of the account's media_count below
+    its own recorded peak, which our publishing cannot cause.
+    """
+    row = psql(
+        "select coalesce((select max(media_count)::text from growth_snapshots "
+        "where media_count is not null), 'na') || '|' || "
+        "coalesce((select media_count::text from growth_snapshots "
+        "where media_count is not null order by taken_at desc limit 1), 'na') || '|' || "
+        "coalesce((select round(extract(epoch from ((now() at time zone 'UTC') - taken_at)) / 3600.0, 1)::text "
+        "from growth_snapshots where media_count is not null order by taken_at desc limit 1), 'na') || '|' || "
+        "(select count(*)::text from scheduling_posts where status = 'posted' "
+        "and provider_post_id is not null)"
+    )
+    if row is None:
+        return None
+    parts = row.split("|")
+    if len(parts) != 4:
+        return None
+    peak_s, newest_s, age_s, ours_s = parts
+    peak = None if peak_s == "na" else as_int(peak_s)
+    newest = None if newest_s == "na" else as_int(newest_s)
+    sev = media_inventory_verdict(peak, newest)
+    if not sev:
+        return None
+    # media_inventory_verdict returns a severity only when both are measured; the
+    # guard keeps that a POST-CONDITION rather than an assumption (a future edit
+    # to the verdict must not turn into a TypeError inside a probe).
+    if peak is None or newest is None:
+        return None
+    try:
+        age_h = f"{float(age_s):.1f}h ago"
+    except (TypeError, ValueError):
+        age_h = "at an unknown age"
+    ours = as_int(ours_s)
+    return (
+        "platform-media-removed",
+        f"the account's media inventory SHRANK: {newest} now vs a recorded peak of {peak}",
+        sev,
+        f"platform media_count={newest} ({age_h}) against its own recorded peak of "
+        f"{peak} -- a decrease of {peak - newest}. Publishing can only INCREASE "
+        f"media_count, so this many media were removed (or archived) on the platform "
+        f"side. This app believes it has published {ours} post(s) with a provider id, "
+        "and nothing local is re-checked after publish: a removed post still counts as "
+        "posted in the queue runway, the 14-day acceptance counter and the per-pillar "
+        "engagement read. CHECK whether any removed media belong to that set (fetch the "
+        "post ids in `scheduling_posts` and re-read them: a 404 on "
+        "GET /{media-id}?fields=id is a removed post, while `error.subcode` 33 / code "
+        "100 means the object no longer exists). Producer: "
+        "Growth::MetricsCollector#fetch_media_count, hourly via growth:snapshot_followers, "
+        "best effort by design (a failed call stores NULL, never 0).",
+    )
+
+
 def check_placeholder_caption_queued():
     """A queued post whose caption is still the failure artifact publishes as-is.
 
@@ -6305,6 +6391,7 @@ CHECKS = [
     check_ai_disclosure_self_declared,
     check_reel_arm_stall,
     check_discovery_attribution,
+    check_platform_media_removed,
     check_comfyui_vram_unclaimed,
     check_reserve_gate_blocked,
     check_telemetry_oom,
@@ -7320,6 +7407,25 @@ def cmd_selftest(_argv):
            "non-follower=9" in discovery_attribution_clause(9, 3, 12, None), True)
     expect("discovery_attribution_clause[missing-parts]",
            "follower=unknown total=unknown" in discovery_attribution_clause(0, None, None, None), True)
+
+    # media_inventory_verdict: only a MEASURED, STRICT decrease is a removal. An
+    # unmeasured inventory (None) is not a defect, and an unchanged count is not a
+    # shrink -- otherwise the probe would invent a platform takedown out of a
+    # missing number or a quiet day.
+    expect("media_inventory_verdict[both-unmeasured]",
+           media_inventory_verdict(None, None), None)
+    expect("media_inventory_verdict[newest-unmeasured]",
+           media_inventory_verdict(224, None), None)
+    expect("media_inventory_verdict[peak-unmeasured]",
+           media_inventory_verdict(None, 224), None)
+    expect("media_inventory_verdict[grew]",
+           media_inventory_verdict(221, 224), None)
+    expect("media_inventory_verdict[equal]",
+           media_inventory_verdict(224, 224), None)
+    expect("media_inventory_verdict[shrank]",
+           media_inventory_verdict(224, 223), "warn")
+    expect("media_inventory_verdict[shrank-many]",
+           media_inventory_verdict(224, 10), "warn")
 
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [

@@ -14,7 +14,7 @@ module Growth
     def collect
       count = fetch_followers
       snapshot = goal.snapshots.create!(
-        followers: count, taken_at: Time.current, **fetch_reach_attribution
+        followers: count, taken_at: Time.current, **fetch_reach_attribution, **fetch_media_count
       )
       update_start_followers(count)
       snapshot
@@ -45,6 +45,18 @@ module Growth
       Instagram::Client.new.reach_attribution.to_h.compact
     rescue ::Instagram::Client::Error, ArgumentError, Faraday::Error => e
       Rails.logger.warn("Growth::MetricsCollector: reach attribution unavailable (#{e.message})")
+      {}
+    end
+
+    # -> { media_count: N } or {} when the API did not answer, so the column
+    # stays NULL (UNMEASURED) rather than 0. Best effort for the same reason as
+    # the reach attribution: the follower count is the load-bearing number and a
+    # failed inventory call must never cost the snapshot.
+    def fetch_media_count
+      count = Instagram::Client.new.media_count
+      count.nil? ? {} : { media_count: count }
+    rescue ::Instagram::Client::Error, ArgumentError, Faraday::Error => e
+      Rails.logger.warn("Growth::MetricsCollector: media_count unavailable (#{e.message})")
       {}
     end
 
