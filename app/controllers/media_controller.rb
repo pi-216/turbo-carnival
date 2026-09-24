@@ -45,4 +45,36 @@ class MediaController < ApplicationController
               disposition: 'inline',
               cache_control: 'public, max-age=86400'
   end
+
+  # Serves a REELS post's MP4 -- the `video_url` Instagram fetches for the
+  # discovery-surface pivot (ops decision 2026-09-24).
+  #
+  # WHY IT LIVES HERE. Instagram::Client#create_reel needs a publicly fetchable
+  # video URL, and the rail had none: #photo serves `image/png` for a Photo and
+  # nothing served a video. Without this, the pivot's machinery was built but
+  # uncallable.
+  #
+  # THE WITHHOLD RULE IS THE STILL PATH'S, and it is even tighter here: the id
+  # IS a post id, so bytes are served exactly while the post that owns them
+  # exists. A purged/rejected reel post stops being downloadable the moment its
+  # row goes -- the same one-sided rule #photo applies, with nothing extra to
+  # enumerate (there is no separate video row to walk).
+  #
+  # The bytes are the file at `post.reel_path`, which Growth::ReelBuilder wrote
+  # with the IPTC synthetic mark embedded in the container metadata, so the asset
+  # Meta fetches carries the same machine-readable disclosure as the stills.
+  def reel
+    post = Scheduling::Post.find_by(id: params[:id])
+
+    file = post&.reel_path
+    unless file.present? && File.file?(file)
+      head :not_found
+      return
+    end
+
+    send_file file,
+              type: 'video/mp4',
+              disposition: 'inline',
+              cache_control: 'public, max-age=86400'
+  end
 end

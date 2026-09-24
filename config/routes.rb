@@ -73,6 +73,12 @@ Rails.application.routes.draw do
   # Photo media (served from NAS/local disk, no B2) — used for Instagram URLs
   get "media/photos/:id" => "media#photo", as: :media_photo
 
+  # Reel media (a REELS post's MP4, served from local disk, no B2) — the
+  # `video_url` Instagram::Client#create_reel fetches. Keyed on the POST, so the
+  # withhold rule is the still path's: bytes are served only while the post that
+  # references them exists.
+  get "media/reels/:id" => "media#reel", as: :media_reel
+
   # Defines the root path route ("/")
   
   # Personas navigation

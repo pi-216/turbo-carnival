@@ -2228,15 +2228,23 @@ def check_ai_disclosure_self_declared():
 # decided, built, and then DROPPED. The built machinery is invisible to every
 # other condition -- no job, no row, no process -- so the board stays green while
 # the thesis keeps publishing into a surface with a measured ceiling of zero
-# discovery. It self-closes twice over: a production caller silences it, and so
-# does a measured non_follower_reach > 0.
+# discovery. It self-closes twice over: a production PUBLISH caller silences it,
+# and so does a measured non_follower_reach > 0.
+#
+# WHAT COUNTS AS A CALLER, and why it is narrower than "mentions the arm": the
+# pivot is executed by PUBLISHING, not by holding assets. The rail now also has
+# an asset/URL step (Scheduling::Commands::GeneratePublicReelUrl -> the
+# media/reels endpoint), and a run of this check against the live tree proved the
+# wider pattern goes silent because of it: the URL command NAMES the builder in a
+# failure message, and a scan that counts builder references therefore reported
+# "armed" for a rail that publishes nothing. That is the exact false-positive
+# shape this check exists to prevent (see _strip_ruby_comments for its twin).
+# So the scan keys on the publish call alone.
 REEL_ARM_AFTER = calendar.timegm(
     time.strptime("2026-10-05T13:00:00", "%Y-%m-%dT%H:%M:%S"))
 REEL_BUILDER_SRC = (APP / "packs" / "growth_harness" / "app" / "services"
                     / "growth" / "reel_builder.rb")
-# A CALL, not a mention: `def create_reel` and `class ReelBuilder` are the
-# definitions themselves and must not count as evidence that the rail uses them.
-REEL_CALLER_RE = re.compile(r"(?<!def )\bcreate_reel\b|\bReelBuilder\b")
+REEL_CALLER_RE = re.compile(r"(?<!def )\bcreate_reel\b")
 
 
 def reel_arm_verdict(now_ts, arm_after_ts, prod_callers, reach):
@@ -7153,13 +7161,21 @@ def cmd_selftest(_argv):
     expect("reel_arm_verdict[dropped-with-unmeasured-reach]",
            rv(ARM_AT + 1, ARM_AT, [], None)[0], "warn")
     # The caller scan must not mistake a DEFINITION for a use: `def create_reel`
-    # and `class ReelBuilder` are the machinery, not the rail.
+    # is the machinery, not the rail.
     expect("REEL_CALLER_RE[def-is-not-a-caller]",
            bool(REEL_CALLER_RE.search("def create_reel(video_url:, caption:)")), False)
     expect("REEL_CALLER_RE[call-is-a-caller]",
            bool(REEL_CALLER_RE.search("Instagram::Client.new.create_reel(video_url: u)")), True)
-    expect("REEL_CALLER_RE[builder-call-is-a-caller]",
-           bool(REEL_CALLER_RE.search("Growth::ReelBuilder.build(photos: ps)")), True)
+    # ...and holding an ASSET is not executing the pivot. Measured live
+    # 2026-09-24: the URL command's failure message names Growth::ReelBuilder, so
+    # the pre-tightening scan (which counted builder references) reported the arm
+    # as ARMED while nothing published -- silencing the very check that exists to
+    # catch a dropped pivot.
+    expect("REEL_CALLER_RE[builder-call-is-not-a-publish-caller]",
+           bool(REEL_CALLER_RE.search("Growth::ReelBuilder.build(photos: ps)")), False)
+    expect("REEL_CALLER_RE[asset-step-is-not-a-publish-caller]",
+           bool(REEL_CALLER_RE.search(
+               'stop_and_fail!("Rebuild it with Growth::ReelBuilder, which embeds the mark")')), False)
     # Live guard: with the arm built and not yet armed, the ONLY reason this check
     # may be silent is the date -- so assert that reason explicitly rather than
     # letting a green read stand for an unexamined one.
@@ -7174,10 +7190,10 @@ def cmd_selftest(_argv):
     # is not a use of it.
     expect("_strip_ruby_comments[drops-prose-mention]",
            bool(REEL_CALLER_RE.search(_strip_ruby_comments(
-               "# produced by Growth::ReelBuilder, which embeds the mark\nx = 1"))), False)
+               "# produced by Growth::ReelBuilder, which embeds the mark\\nx = 1"))), False)
     expect("_strip_ruby_comments[keeps-a-real-call]",
            bool(REEL_CALLER_RE.search(_strip_ruby_comments(
-               "Growth::ReelBuilder.build(photos: ps) # build one"))), True)
+               "client.create_reel(video_url: u) # publish one"))), True)
 
     # THE FEASIBILITY BOUND. The cohort requires insights_updated_at and insights
     # arrive a lag after publication, so a slot inside the window's last `lag_h`

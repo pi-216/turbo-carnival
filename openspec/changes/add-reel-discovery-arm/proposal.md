@@ -40,10 +40,17 @@ operating agent owns, not an enablement ask on a human.
   is bounded at 30 x 10 s rather than the image path's 10 x 3 s.
 - The image path's request is unchanged by construction: `media_type` is sent only when it
   differs from the default.
+- The serving step a video container needs: `scheduling_posts.reel_path` (NULL = still, so
+  every existing row keeps its meaning), `get /media/reels/:id => media#reel` (keyed on the
+  POST, so the still path's withhold rule carries over unchanged), and
+  `Scheduling::Commands::GeneratePublicReelUrl`, fail-closed on the asset's own bytes. A REELS
+  post may be scheduled with no photo, which also keeps reels out of
+  `Growth::GateRead#cohort_size` — the still-based cohort the pre-registration measures.
+- `bin/reel_rail_smoke.sh` proves the rail end to end against the live tunnel (build → URL →
+  fetch → marked bytes served → non-reel ids 404 → no debris).
 
-Explicitly **out of scope for this change** (tracked in `tasks.md`, not silently omitted):
-serving a reel asset over the public URL, a record/queue representation for reels, and wiring
-the reel into the publishing rail. Those land in a follow-up so this change stays reviewable.
+Still **out of scope** (tracked in `tasks.md`, not silently omitted): wiring a reel into the
+publishing rail, which is the ARM step and is sequenced after the 2026-10-05 read below.
 
 ## Metric and sequencing
 
@@ -62,8 +69,12 @@ the reel into the publishing rail. Those land in a follow-up so this change stay
 
 - Affected specs: `distribution` (ADDED).
 - Affected code: `packs/growth_harness/app/services/growth/reel_builder.rb` (new),
-  `packs/scheduling/app/clients/instagram/client.rb` (`create_reel`, generalised container).
-- No migration, no schema change, no persona or prompt change, no rendering change.
+  `packs/scheduling/app/clients/instagram/client.rb` (`create_reel`, generalised container),
+  `packs/scheduling/app/commands/scheduling/commands/generate_public_reel_url.rb` (new),
+  `app/controllers/media_controller.rb` + `config/routes.rb` (`media/reels/:id`),
+  `packs/scheduling/app/models/scheduling/post.rb` (`reel?`, photo optional for a reel).
+- One additive migration: `scheduling_posts.reel_path` (nullable; no existing query changes).
+- No persona or prompt change, no rendering change.
 - Reversibility: nothing on the live rail references these classes yet, so dropping them
   restores the prior behaviour exactly.
 - Requires `ffmpeg` on the publishing host (verified present: 8.0.1). The builder raises rather

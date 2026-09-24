@@ -66,4 +66,61 @@ RSpec.describe 'Media', type: :request do
       expect(response).to have_http_status(:not_found)
     end
   end
+
+  # The REELS rail's serving step: `Instagram::Client#create_reel` takes a
+  # `video_url:`, and before this endpoint existed nothing served a video at all
+  # (the pivot's machinery was built but uncallable).
+  describe 'GET /media/reels/:id' do
+    def reel_post_at(path)
+      Scheduling::Post.create!(persona: persona, status: 'scheduled', reel_path: path)
+    end
+
+    it 'serves the MP4 of a reel post as video/mp4' do
+      file = Tempfile.new(['media_spec', '.mp4'])
+      file.write('fake video bytes')
+      file.close
+      post = reel_post_at(file.path)
+
+      get media_reel_path(post)
+
+      expect(response).to have_http_status(:success)
+      expect(response.media_type).to eq('video/mp4')
+      expect(response.body).to eq('fake video bytes')
+    ensure
+      file&.unlink
+    end
+
+    it 'withholds a reel whose post is gone (the still path rule, keyed on the post)' do
+      file = Tempfile.new(['media_spec', '.mp4'])
+      file.write('fake video bytes')
+      file.close
+      post = reel_post_at(file.path)
+      post.destroy!
+
+      get "/media/reels/#{post.id}"
+
+      expect(response).to have_http_status(:not_found)
+    ensure
+      file&.unlink
+    end
+
+    it 'is not an enumerable second surface: a still post id serves nothing' do
+      photo, file = photo_with_bytes
+      still = Scheduling::Post.create!(persona: persona, photo: photo, status: 'scheduled')
+
+      get media_reel_path(still)
+
+      expect(response).to have_http_status(:not_found)
+    ensure
+      file&.unlink
+    end
+
+    it '404s a reel whose bytes are gone' do
+      post = reel_post_at('/nonexistent/reel.mp4')
+
+      get media_reel_path(post)
+
+      expect(response).to have_http_status(:not_found)
+    end
+  end
 end

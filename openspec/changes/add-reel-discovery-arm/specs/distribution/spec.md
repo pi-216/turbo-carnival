@@ -53,6 +53,27 @@ retry. The still path's own request MUST NOT change as a result.
 - **WHEN** the video container reports `status_code=ERROR`
 - **THEN** publishing fails with that reason rather than publishing nothing silently
 
+### Requirement: Publicly Fetchable Motion Asset
+
+A reel SHALL be reachable over a public HTTPS URL before publishing is attempted, because the
+Content Publishing API fetches the asset itself: a client that takes a `video_url` and nothing
+that can produce one is a rail whose last step is uncallable. The URL MUST be a passthrough to
+the asset's own bytes, so that the file the provenance gate checked is the file the platform
+fetches, and it MUST NOT expose an enumerable surface beyond what a still exposes.
+
+#### Scenario: Reel resolves to a fetchable URL
+- **WHEN** a scheduled reel post with a marked asset on disk is asked for its public URL
+- **THEN** the command returns a URL under the configured public base that serves those exact
+  bytes as `video/mp4`
+
+#### Scenario: Unmarked motion asset
+- **WHEN** the asset at the post's reel path carries no machine-readable synthetic mark
+- **THEN** the URL is refused fail-closed, with the reason, and no URL is returned
+
+#### Scenario: Serving rule
+- **WHEN** a reel's post no longer exists, or the id given is a still post, or the bytes are gone
+- **THEN** the endpoint answers 404 rather than serving bytes
+
 ### Requirement: Discovery Is the Arm's Metric
 
 A distribution arm that exists to create non-follower reach SHALL be evaluated on measured

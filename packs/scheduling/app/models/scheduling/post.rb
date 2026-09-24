@@ -9,7 +9,17 @@ module Scheduling
     belongs_to :content_suggestion, optional: true
     belongs_to :pipeline_run, optional: true
 
-    validates :photo, presence: true, if: :ready_to_post?
+    # A still post ready to publish must have its photo. EXCEPT a REELS post,
+    # which has no photo to require: its published media
+    # is the composed video at `reel_path`, built from SEVERAL renders, so there
+    # is no single photo that "is" this post. Requiring one would either consume a
+    # render (the (photo_id, persona_id) unique index then bars it from ever being
+    # a still post -- a real cost of one image per reel) or misreport which asset
+    # was published. Deliberate and load-bearing: it also keeps reels OUT of
+    # Growth::GateRead#cohort_size, which counts posts that JOIN a photo, so the
+    # pre-registered strategy cohort stays the still-based measurement it was
+    # registered as while the discovery arm runs beside it.
+    validates :photo, presence: true, if: -> { ready_to_post? && !reel? }
 
     # A photo is posted at most ONCE per persona. This is load-bearing, not
     # tidiness: Growth::LibraryFallback#spend and Growth::RenderSalvage use "a
@@ -95,6 +105,16 @@ module Scheduling
 
     def image_promise_fulfilled?
       photo_id.present?
+    end
+
+    # Is this post published as a REEL (motion) rather than a still?
+    #
+    # The discriminator is the presence of `reel_path`, and that is deliberate: a
+    # still post and a REELS post differ on the API only by the container type,
+    # and the asset path is what decides which container is even possible. A NULL
+    # reel_path keeps every pre-existing row meaning exactly "still".
+    def reel?
+      reel_path.present?
     end
   end
 end
