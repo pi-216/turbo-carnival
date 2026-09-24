@@ -13,13 +13,32 @@ namespace :scheduling do
 
     draft_posts = Scheduling::Post
       .where(status: 'draft')
+      .where(reel_path: nil)
       .where.not(optimal_time_calculated: nil)
       .where('optimal_time_calculated <= ?', now)
 
     scheduled_status_posts = Scheduling::Post
       .where(status: 'scheduled')
+      .where(reel_path: nil)
       .where.not(scheduled_at: nil)
       .where('scheduled_at <= ?', now)
+
+    # The STILL rail publishes stills only. A REELS post is deliberately not one:
+    # it carries `reel_path` and NO photo (its media is the composed clip), while
+    # everything below resolves `post.photo` -- so without this exclusion a due
+    # reel post would reach GeneratePublicPhotoUrl with a nil photo and raise
+    # inside the release loop. Made legal and explicit here rather than left as a
+    # latent crash, and COUNTED so a reel waiting for its own rail is visible
+    # instead of silently absent (see Growth::ReelBuilder / the ops pivot).
+    reel_due = Scheduling::Post
+      .where(status: %w[draft scheduled])
+      .where.not(reel_path: nil)
+      .where('(optimal_time_calculated <= :now) OR (scheduled_at <= :now)', now: now)
+      .count
+    if reel_due.positive?
+      puts "ℹ️  #{reel_due} due REELS post(s) are not published by the still rail (the reel rail owns them)."
+      puts ''
+    end
 
     all_posts = (draft_posts.to_a + scheduled_status_posts.to_a).sort_by do |post|
       post.optimal_time_calculated || post.scheduled_at
