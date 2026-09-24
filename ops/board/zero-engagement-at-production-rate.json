@@ -2,18 +2,14 @@
   "key": "zero-engagement-at-production-rate",
   "title": "nothing published in 14d was accepted: 20 measured post(s), 0 like(s), 0 comment(s), 0 save(s)",
   "severity": "warn",
-  "evidence": "23 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Account reach attribution, newest measured snapshot (09-24 05:36): non-follower=0 follower=6 total=6. Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the platform's own split, not an inference from a per-post sum: non-follower=0 means nothing outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than a content problem, and the lever the gate's pivot candidate names. Self-closes when a published post is engaged with (any like/comment/save in the window).",
+  "evidence": "24 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Account reach attribution, newest measured snapshot (09-24 06:18): non-follower=0 follower=6 total=6. Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the platform's own split, not an inference from a per-post sum: non-follower=0 means nothing outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than a content problem, and the lever the gate's pivot candidate names. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-24T01:37:09-0400",
-  "seen_count": 95,
+  "last_seen": "2026-09-24T02:25:28-0400",
+  "seen_count": 96,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-23T03:33:59-0400",
-      "note": "2026-09-23 07:3xZ ops-triage: unchanged (22 posts/14d, 18 measured, 0 like/comment/save, reach 57, followers flat 157). Verdict remains the pre-registered 09-28 gate read; no new decision."
-    },
     {
       "ts": "2026-09-23T22:40:38-0400",
       "note": "2026-09-24 02:4xZ ops-triage: condition unchanged (23 posts/14d, 20 measured, 0 like / 0 comment / 0 save, reach 64, mean 3.2/post) and the VERDICT stays the pre-registered GO/PIVOT/KILL gate \u2014 but the gate's cohort has just changed the date on which that verdict is actually readable. The 09-28 13:00Z read is still arithmetically :extend (0 of 5 feasible post-intervention posts \u2014 all four in-window slots fall inside the final 31h insights lag), so it will NOT produce an engagement verdict; the 10-05 13:00Z window is now at 5 of 5 feasible (post 355/photo 362 and post 356/photo 363 both landed there from the resumed render loop and the salvage loop), so 10-05 is the read that can return a real number. Nothing in-repo moves reach: re-measured this pass, daily reach stays flat (~11-14/day at 1 post/day vs ~12-14 at 4-5/day) while per-post mean falls ~4x as volume rises, so cadence is not the defect and raising it cannot move this number \u2014 the pivot direction recorded earlier (DISTRIBUTION/REACH) stands. No new lever, no Tim ask; the item self-closes on the first engaged published post."
@@ -33,6 +29,10 @@
     {
       "ts": "2026-09-24T01:37:53-0400",
       "note": "CLOCK CORRECTION on the note above: its opening stamp reads 09:3xZ and the true time of that pass is 2026-09-24 05:3xZ (local 01:3x EDT). Nothing else in the note depends on it -- the readings it cites are all UTC DB timestamps (snapshot 09-24 05:36Z)."
+    },
+    {
+      "ts": "2026-09-24T02:31:50-0400",
+      "note": "2026-09-24 06:3xZ ops-triage: THE PIVOT WAS BUILT (commit 5b446f1), because the decision was already made and re-deriving it every pass is the failure this loop exists to end. Machinery: Growth::ReelBuilder composes 2..8 existing renders into a 1080x1920 H.264/yuv420p MP4 (slow zoom per still, crossfades, 4:5 padded onto a blurred cover-scaled copy rather than centre-cropped so no subject is cut) and embeds the IPTC synthetic mark in the container metadata -- verified on photos 362/363/364: ffprobe h264 1080x1920 yuv420p 30/1, duration 8.000s == 3x3.0s - 2x0.5s crossfade, format_tags carry Iptc4xmpExt:DigitalSourceType=trainedAlgorithmicMedia; Instagram::Client#create_reel publishes it as a media_type=REELS video container, sharing the caption, the AI self-disclosure and the publish retry, with a 30x10s ready-check because a video container is transcoded. The still path is provably unchanged (media_type is sent only when it differs from the default). DELIBERATELY NOT ARMED, and the sequencing is the decision rather than an omission: Growth::GateRead#cohort_size counts posts published inside the review window that join a photo AND carry collected insights, so publishing a NEW FORMAT into the window the pre-registered read measures would inject an uncontrolled variable into that read own cohort -- the arm waits for the 2026-10-05 13:00Z read it was sequenced after. Recorded in openspec/changes/add-reel-discovery-arm (validated --strict) and guarded by a new check, check_reel_arm_stall, which is silent while sequenced, silent when armed, silent once non_follower_reach>0, and warns only if the read has passed with no production caller -- so a decided-and-built pivot cannot be silently dropped. Its own live run caught its first false positive (the client NAMES ReelBuilder in prose; the scan now strips Ruby comments). ITEM STAYS OPEN: it is the gate continuously-tracked acceptance counter and self-closes on the first engaged published post. Metric for the arm remains the collected non_follower_reach (latest measured 0), NOT engagement."
     }
   ]
 }
