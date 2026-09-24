@@ -5679,11 +5679,42 @@ def _newest_mtime_age(path, now, file_budget=2000):
     return None if newest is None else now - newest
 
 
+#: Output surfaces a probe run REGENERATES by design. Their presence in the
+#: worktree is the steady state, not salvage: `ops/NEEDS_HUMAN.md` is rewritten at
+#: the end of EVERY probe run (its header carries the timestamp) and
+#: `ops/media_inventory.json` is rewritten whenever the per-post media check can
+#: measure. Both are therefore guaranteed dirty AND >= 45 min old at the next :25
+#: tick, which satisfies the lingering half of the interrupted-run check on its own
+#: and re-files an item whose work was already committed -- measured 2026-09-24:
+#: the item auto-closed on the commit, and the previous probe's digest, aged past
+#: LINGERING_CHANGE_MIN, would have re-opened it on the next tick for a run that had
+#: already been salvaged. Excluding them costs no signal: the item that fired on the
+#: 09:25Z kill named `lib/tasks/media_inventory.rake` (real salvage), not a
+#: generated surface. Board records stay IN scope on purpose -- their notes are
+#: written by hand and are exactly what an interrupted run can strand.
+PROBE_GENERATED_SURFACES = ("ops/NEEDS_HUMAN.md", "ops/media_inventory.json")
+
+
+def is_probe_generated(path):
+    """PURE: is this path one the probe rewrites on every run (never salvage)?"""
+    try:
+        p = Path(str(path)).as_posix()
+    except Exception:
+        return False
+    while p.startswith("./"):
+        p = p[2:]
+    return p in PROBE_GENERATED_SURFACES
+
+
 def lingering_worktree_changes(now, min_age_s=LINGERING_CHANGE_MIN * 60):
     """[(path, age_seconds)] for uncommitted paths older than min_age_s.
 
     None when git cannot be read. A path that no longer exists (a staged deletion)
     is skipped: the deletion itself is the change, and it has no mtime to date it.
+    Paths the probe REGENERATES on every run are skipped too (see
+    is_probe_generated): they are always dirty and always old by the next tick, so
+    they satisfy the lingering half on their own and re-file an item whose work was
+    already committed.
     """
     out, rc = run(["git", "status", "--porcelain"], timeout=25, cwd=str(APP))
     if rc != 0:
@@ -5695,6 +5726,8 @@ def lingering_worktree_changes(now, min_age_s=LINGERING_CHANGE_MIN * 60):
         path = line[3:].strip().strip('"')
         if " -> " in path:  # rename: the NEW path is the one on disk
             path = path.split(" -> ", 1)[1].strip().strip('"')
+        if is_probe_generated(path):
+            continue
         age = _newest_mtime_age(APP / path, now)
         if age is not None and age >= min_age_s:
             rows.append((path, age))
@@ -10288,6 +10321,19 @@ def cmd_selftest(_argv):
                                    _ling, _now), None)
     expect("interrupted_run[silent-on-a-terminal-row]",
            interrupted_run_verdict([dict(_unk, status="completed")], _ling, _now), None)
+
+    # is_probe_generated: the probe's OWN regenerated surfaces are never salvage.
+    # They are dirty after every probe run and reach LINGERING_CHANGE_MIN by the
+    # next tick, so counting them re-files an item whose work was already
+    # committed -- while a source file or a board record (written by hand, the
+    # thing an interrupted run can actually strand) must stay in scope.
+    expect("probe_generated[digest]", is_probe_generated("ops/NEEDS_HUMAN.md"), True)
+    expect("probe_generated[inventory]", is_probe_generated("ops/media_inventory.json"), True)
+    expect("probe_generated[dot-slash]", is_probe_generated("./ops/NEEDS_HUMAN.md"), True)
+    expect("probe_generated[board-record]", is_probe_generated("ops/board/x.json"), False)
+    expect("probe_generated[source-file]", is_probe_generated("lib/tasks/media_inventory.rake"), False)
+    expect("probe_generated[the-rake-that-did-fire]",
+           is_probe_generated("bin/tc_ops_media_removed_test.py"), False)
 
     # ...and the CAUSE of such an interruption lives only in the kernel: our worker
     # scope is capped at 4 GiB and a heavy verification command run inline blows
