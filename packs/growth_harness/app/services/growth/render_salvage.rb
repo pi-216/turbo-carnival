@@ -28,9 +28,13 @@ module Growth
   #     gates, so both gates run again here and a rejection is recorded, never
   #     scheduled. Runs whose reject_reason already names a gate rejection are
   #     skipped outright (deterministic gates; no point paying for them twice).
-  #   * Photo row = idempotency marker — a path that already has a Photo has been
-  #     imported by someone (producer or an earlier salvage) and is skipped, so
-  #     re-running this service can never double-post.
+  #   * Post row = idempotency marker — a path whose image already has a POST
+  #     has been finished by someone (producer or an earlier salvage) and is
+  #     skipped, so re-running this service can never double-post. The marker is
+  #     the POST, deliberately not the Photo row: the producer imports the photo
+  #     and captions it before scheduling, so a kill between those two steps
+  #     leaves a Photo with no post — an interrupted producer to finish, not a
+  #     completed one to skip.
   #   * One candidate per run — a run that already produced a post is not mined
   #     for a second one.
   #   * Sync-produced runs only (the async dispatcher's runs are live work and
@@ -139,9 +143,30 @@ module Growth
       path = candidate.image_path.to_s
       return false if path.empty?
       return false unless File.file?(path)
-      return false if ContentPillars::Photo.exists?(path: path)
+      # A POST is the completion marker; a Photo row is NOT (fixed 2026-09-24).
+      # Growth::ContentGenerator imports the photo and only THEN captions it --
+      # a slow Ollama call -- before creating the post, so a producer killed in
+      # that window leaves a Photo row and no post. Refusing on Photo-existence
+      # (the old rule here) classified that interrupted producer as "already
+      # handled" and silently discarded the paid render. The window is not
+      # theoretical: the producer is a SYNC path killed by the tick's foreground
+      # timeout, and with `--reserve-vram` a flux render now takes ~400s against
+      # a ~420s ceiling, so the kill lands inside the post-actions nearly every
+      # tick. `already_posted?` has always used the post for exactly this class
+      # of reason; this is the candidate-level half of the same rule.
+      return false if post_for_path?(path)
 
       true
+    end
+
+    # A post for this image, however it was produced. Keying on the photo PATH
+    # catches the interrupted producer's Photo row too -- a run-level
+    # `pipeline_run_id` check cannot, because a Photo imported before the
+    # producer died carries no post to join against.
+    def post_for_path?(path)
+      Scheduling::Post.joins(:photo).where(photos: { path: path }).exists?
+    rescue StandardError
+      false
     end
 
     def salvage(candidate)
@@ -172,11 +197,14 @@ module Growth
         'sharpness' => realism.sharpness,
         'salvaged_post_id' => post.id
       ))
-      record(run, 'salvage_recovered', "recovered an abandoned render into post #{post.id} (photo #{photo.id}); producer was killed before the post-actions ran")
+      record(run, 'salvage_recovered', "recovered an abandoned render into post #{post.id} (photo #{photo.id}); producer was killed before the post-actions completed")
       [ :recovered, post.id ]
     end
 
     def import_photo(run, path)
+      # ContentPillars::Photo.import_render is itself idempotent on `path` (it
+      # find_or_creates), so an interrupted producer's Photo row is reused and
+      # the recovery only has to add the missing post.
       photo = ContentPillars::Photo.import_render(
         path: path,
         persona: goal.persona,

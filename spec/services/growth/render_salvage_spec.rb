@@ -67,13 +67,43 @@ RSpec.describe Growth::RenderSalvage do
       expect(Growth::Decision.where(action: 'salvage_recovered').count).to eq(1)
     end
 
-    it 'is idempotent — the Photo row is the marker, so a second call recovers nothing' do
+    it 'is idempotent — a path that already has a POST is the marker, so a second call recovers nothing' do
       expect(salvage.call(limit: 3).recovered).to eq(1)
 
       second = salvage.call(limit: 3)
       expect(second.recovered).to eq(0)
       expect(second.examined).to eq(0)
       expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(1)
+    end
+
+    # Regression (2026-09-24): the producer imports the photo and only THEN
+    # captions it (a slow Ollama call) before creating the post, so a kill in
+    # that window leaves a Photo row and no post. The candidate-level guard used
+    # to refuse on Photo-existence, which classified that interrupted producer
+    # as finished and silently discarded the paid render. Only a POST proves
+    # completion.
+    it 'finishes a producer that was killed AFTER importing the photo but BEFORE scheduling' do
+      orphan = ContentPillars::Photo.create!(persona: persona, content_pillar: pillar,
+                                             path: image_path, image_candidate: candidate)
+
+      result = salvage.call(limit: 3)
+
+      expect(result.recovered).to eq(1)
+      expect(ContentPillars::Photo.where(path: image_path).count).to eq(1)
+      post = Scheduling::Post.find(result.post_ids.first)
+      expect(post.photo_id).to eq(orphan.id)
+      expect(post.pipeline_run_id).to eq(run.id)
+    end
+
+    it 'does not double-post a path whose post already exists without the run link' do
+      photo = ContentPillars::Photo.create!(persona: persona, content_pillar: pillar, path: image_path)
+      Scheduling::Post.create!(persona: persona, photo: photo, caption: 'already scheduled',
+                               status: 'scheduled', scheduled_at: 1.day.from_now)
+
+      result = salvage.call(limit: 3)
+
+      expect(result.recovered).to eq(0)
+      expect(result.examined).to eq(0)
     end
 
     it 'never races a live producer: a render that just landed is skipped' do

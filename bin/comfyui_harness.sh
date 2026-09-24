@@ -88,6 +88,30 @@ FIT_HEADROOM_MIB=1024  # MiB left free for the desktop + ComfyUI's own slack
 # "usable" render above already PROVED -- and the reserve is for ComfyUI's own
 # transient sampler/inductor buffers, not for a co-tenant (we hold the claim).
 # Override with COMFY_RESERVE_VRAM; see cmd_plan / the launch instrumentation.
+#
+# MEASURED COST OF THE RESERVE (2026-09-24), and why SYNC_BUDGET_SECONDS can no
+# longer prevent the producer's mid-render kill. The reserve is not free: it
+# moves ~5 GiB out of the UNet's budget, which turns into OFFLOAD traffic on
+# every sampler step. The same install, same persona, same workflow:
+#   * ~20.9 GiB usable / ~2.0 GiB offloaded (no reserve) -> 174-300 s renders
+#   * ~16.4 GiB usable / ~6.7 GiB offloaded (reserve=5)  -> 291-402 s renders
+# The growth tick passes SYNC_BUDGET_SECONDS=360 and its foreground tool call is
+# SIGKILLed at ~420 s, so a render that now runs 362-402 s outlives the budget
+# and crowds the ceiling: those ticks are killed inside the producer's
+# post-actions (Growth::ContentGenerator: import -> caption -> schedule) and the
+# finished render is recovered by Growth::RenderSalvage after its 30-min
+# abandonment grace. Observed 4 renders / 2 recoveries in the 24 h to 2026-09-24
+# 04:30Z, exactly tracking render length (291 s -> completed; 362/396 s ->
+# killed). Salvage is now LOAD-BEARING, not a rare backstop, so:
+#   * do NOT revert the reserve to buy render time without measuring: it is
+#     there because an empty card at ~21.7 GiB usable OOMs 78 MiB short (job
+#     7564), and that OOM leaves ComfyUI's model state broken.
+#   * a shorter render, not a larger budget, is the only lever (the ceiling is
+#     the caller's, outside this repo). If a tick ever holds a claim with the
+#     card to itself, the experiment worth running is COMFY_RESERVE_VRAM=3 with
+#     the "Prompt executed in" line and a clean completion as the two numbers.
+#   * Growth::RenderSalvage keys completion on the POST, not the Photo row, so a
+#     kill anywhere in those post-actions is recoverable -- keep it that way.
 COMFY_RESERVE_VRAM="${COMFY_RESERVE_VRAM:-5}"
 # The ONE owner of ComfyUI's launch flags. The launch line, the offline `plan`
 # surface and the launch instrumentation all read this array, so a flag cannot
