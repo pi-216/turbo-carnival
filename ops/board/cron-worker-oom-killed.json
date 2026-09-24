@@ -1,0 +1,19 @@
+{
+  "key": "cron-worker-oom-killed",
+  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 6.7h ago)",
+  "severity": "warn",
+  "evidence": "`journalctl -k` names oom_memcg inside a hermes-worker-cron scope for job(s) 9c05f60f5fef x2; newest kill 2026-09-24 09:40 local (13:40Z), victims node-MainThread, ruby. A worker scope is capped at 4 GiB and a verification command run INLINE can exceed it (a full-repo bin/rubocop peaks at 2113-3518 MB and RuboCop 1.81 defaults to --parallel across all CPUs): the tick dies mid-run, its execution row ends `unknown`, its work and its report are lost. Run heavy verification through `bin/ops_heavy.sh <label> <command...>` -- it gets its own accounted scope and asserts the child's cgroup -- instead of inline. Self-closing: clears once no kill lands inside the window.",
+  "status": "open",
+  "first_seen": "2026-09-24T15:52:15-0400",
+  "last_seen": "2026-09-24T16:25:22-0400",
+  "seen_count": 2,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T15:55:54-0400",
+      "note": "ops-triage 2026-09-24: ROOT CAUSE FOUND AND FIXED. The 09:25 tick's 'unknown' execution was NOT a gateway restart (gateway up since 09-23 10:15 EDT, NRestarts=1): journalctl -k shows the kernel cgroup OOM killer took the worker scope at 13:40:34Z, 4.13GB anon vs its 4096MB cap, killing ruby+node-MainThread, while the tick ran a full-repo bin/rubocop whose 1.81 default --parallel forks ~38 procs (peak measured 2113-3518MB in an isolated scope). 18 such kills in 7d (14 = growth-brain, hourly 09-18). FIX: bin/ops_heavy.sh (own accounted scope + cgroup assertion; verified peak_mb=2114 isolated=yes oom_kill=0 while our worker scope stayed at 398MB/4096) + 'tc_ops.py heavy' passthrough + this check. Self-closes 24h after the last kill."
+    }
+  ],
+  "route_source": "check"
+}

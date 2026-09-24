@@ -45,6 +45,11 @@ then works the open issues and closes them with a note.
                              held row look like a defect to repair; and a bare
                              count cannot say whether the harness has one day of
                              runway or two weeks)
+  tc_ops.py heavy LABEL CMD...  run heavy verification OUTSIDE this worker's 4 GiB
+                             cgroup cap (repo-wide rubocop/rspec): its own
+                             accounted scope + a cgroup assertion, printing
+                             rc=/peak_mb=/oom_kill=. Running such a command inline
+                             got a tick OOM-killed mid-run (2026-09-24 13:40:34Z)
   tc_ops.py checks-audit     is the MONITORING still live? runs every check and
                              reports ones that RAISED and any DB read that came
                              back unreadable -- a check whose query broke returns
@@ -295,7 +300,12 @@ CRON_JOBS = Path(os.environ.get("TC_CRON_JOBS")
 # already written and verified but never committed; nothing in jobs.json, in the
 # repo's checks or on the board showed it, and it surfaced only because the next
 # tick happened to read `git status` (genome: 'Completion Status != Completion
-# Evidence'). Override with TC_CRON_EXEC_DB; both reads are read-only, and an
+# Evidence'). The CAUSE was not the gateway, which that day never restarted
+# (hermes-gateway-turbo-carnival was up since 2026-09-23 10:15 EDT, NRestarts=1):
+# `journalctl -k` shows the kernel's cgroup OOM killer took the worker scope at
+# 13:40:34Z with 4.13 GB anon against its 4096 MB cap, killing ruby and node --
+# so read check_cron_worker_oom for the reason the `unknown` row exists at all.
+# Override with TC_CRON_EXEC_DB; both reads are read-only, and an
 # unreadable one returns no signal rather than a warn.
 CRON_EXEC_DB = Path(os.environ.get("TC_CRON_EXEC_DB")
                     or Path.home() / ".hermes" / "profiles" / "turbo-carnival"
@@ -5539,6 +5549,132 @@ def check_interrupted_run_debris():
     return interrupted_run_verdict(rows, lingering, now)
 
 
+# OUR OWN TICK, KILLED BY THE KERNEL -- the CAUSE side of an interrupted run.
+# The scheduler writes "Scheduler restarted after this execution's owner exited
+# before a durable write" for any row it finds orphaned, and that is how the
+# 09:25Z ops-triage tick was recorded -- but the gateway did NOT restart that day
+# (hermes-gateway-turbo-carnival stayed up from 2026-09-23 10:15 EDT, NRestarts=1,
+# same pid throughout). The real cause was the kernel's cgroup OOM killer: a
+# Hermes cron worker runs in its OWN transient scope capped at min(gateway
+# memory.max, RAM/2) bounded to 4 GiB, and a heavy VERIFICATION command run
+# inline exceeds it. Measured 2026-09-24 13:40:34Z:
+#   oom_memcg=.../hermes-worker-cron-9c05f60f5fef-exec-0889....scope
+#   memory: usage 4194304kB, limit 4194304kB, failcnt 31149  (4.13 GB anon)
+#   Killed process (node-MainThread);  Killed process (ruby)
+# -- 18 such kills in the 7 days to that date, 14 of them the growth-brain, one
+# an hour through 09-18 -- and NOTHING on this board reported any of them:
+# executions.db keeps only the `unknown` row (check_interrupted_run_debris needs
+# uncommitted work alongside it, and a run killed after it committed leaves
+# none), jobs.json keeps reporting the PREVIOUS run's last_status, and no report
+# is ever delivered. Only the kernel names this cause, so read the kernel.
+# The in-repo fix is `bin/ops_heavy.sh` (own scope, accounting, cgroup
+# assertion): a full-repo `bin/rubocop` peaks at 2113-3518 MB -- more than half
+# that 4096 MB cap -- because RuboCop 1.81 defaults to --parallel across ALL
+# CPUs, while `python3 bin/tc_ops.py probe` peaks at 203 MB and is safe inline.
+CRON_WORKER_SCOPE_RE = re.compile(
+    r"oom_memcg=[^,]*hermes-worker-cron-([0-9a-f]{8,})-exec-[0-9a-f]*\.scope")
+# Any memcg OOM event line, ours or another cgroup's: a kill belongs to the
+# nearest preceding EVENT, so a foreign event between our event and a kill line
+# must break the association rather than let the kill be blamed on us.
+OOM_EVENT_LINE_RE = re.compile(r"oom-kill:constraint=CONSTRAINT_MEMCG")
+KERNEL_KILL_RE = re.compile(r"Killed process [0-9]+ \(([^)]+)\)")
+SYSLOG_UNIX_RE = re.compile(r"^(\d{9,}(?:\.\d+)?)\s")
+CRON_WORKER_OOM_WINDOW_H = 24
+
+
+def parse_kernel_oom_events(text):
+    """`journalctl -k -o short-unix` text -> [(epoch, job_id, [victim, ...])].
+
+    `short-unix` stamps every line with epoch seconds, so this never mixes clock
+    domains (the default syslog output is LOCAL time and a UTC comparison against
+    it would flip the ordering). A `Killed process` line is attributed only to the
+    nearest PRECEDING oom event within 5 s and only when that event was OUR scope,
+    so a victim can never be attached to an event that did not happen, nor borrowed
+    from a co-tenant's kill.
+    """
+    events = []
+    last_ep = None
+    last_ours = None
+    for line in (text or "").splitlines():
+        m = SYSLOG_UNIX_RE.match(line)
+        if not m:
+            continue
+        try:
+            ep = float(m.group(1))
+        except ValueError:
+            continue
+        if OOM_EVENT_LINE_RE.search(line):
+            last_ep, last_ours = ep, None
+            hit = CRON_WORKER_SCOPE_RE.search(line)
+            if hit:
+                last_ours = [ep, hit.group(1), []]
+                events.append(last_ours)
+            continue
+        km = KERNEL_KILL_RE.search(line)
+        if (km and last_ours is not None and last_ep is not None
+                and 0 <= ep - last_ep <= 5):
+            last_ours[2].append(km.group(1))
+    return events
+
+
+def cron_worker_oom_verdict(events, now):
+    """PURE: kernel OOM kills of OUR worker scopes -> (key, title, sev, evidence).
+
+    None when nothing lands inside the window, and None for an empty or unreadable
+    read: an absent journal is no signal, never a warn. Counted per job, so an
+    hourly burst (09-18: 14 kills in one night) stays legible as a burst instead of
+    collapsing into one anonymised line.
+    """
+    cutoff = now - CRON_WORKER_OOM_WINDOW_H * 3600
+    hits = [e for e in (events or []) if e and e[0] and e[0] >= cutoff]
+    if not hits:
+        return None
+    hits.sort(key=lambda e: e[0])
+    by_job = {}
+    for ep, job, victims in hits:
+        by_job.setdefault(job, []).append((ep, victims))
+    jobs_txt = ", ".join(f"{job} x{len(v)}" for job, v in
+                         sorted(by_job.items(), key=lambda kv: (-len(kv[1]), kv[0])))
+    victims = sorted({x for e in hits for x in e[2]}) or ["(unnamed)"]
+    newest = hits[-1][0]
+    age_h = (now - newest) / 3600.0
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(newest))
+    whenz = time.strftime("%H:%M", time.gmtime(newest))
+    return (
+        "cron-worker-oom-killed",
+        f"{len(hits)} of this profile's own cron run(s) were OOM-killed by the "
+        f"kernel in the last {CRON_WORKER_OOM_WINDOW_H}h (newest {age_h:.1f}h ago)",
+        "warn",
+        f"`journalctl -k` names oom_memcg inside a hermes-worker-cron scope for "
+        f"job(s) {jobs_txt}; newest kill {when} local ({whenz}Z), victims "
+        f"{', '.join(victims[:6])}. A worker scope is capped at 4 GiB and a "
+        f"verification command run INLINE can exceed it (a full-repo bin/rubocop "
+        f"peaks at 2113-3518 MB and RuboCop 1.81 defaults to --parallel across all "
+        f"CPUs): the tick dies mid-run, its execution row ends `unknown`, its work "
+        f"and its report are lost. Run heavy verification through "
+        f"`bin/ops_heavy.sh <label> <command...>` -- it gets its own accounted "
+        f"scope and asserts the child's cgroup -- instead of inline. Self-closing: "
+        f"clears once no kill lands inside the window.",
+    )
+
+
+def check_cron_worker_oom():
+    """The CAUSE of an interrupted run, from the only source that names it.
+
+    check_interrupted_run_debris sees the symptom (an `unknown` execution row) and
+    only when the killed run also left uncommitted work behind; this reads the
+    kernel for why that row exists at all. Read-only, and an unreadable journal
+    yields no signal.
+    """
+    now = time.time()
+    since = int(now - CRON_WORKER_OOM_WINDOW_H * 3600)
+    out, rc = run(["journalctl", "-k", "--since", f"@{since}",
+                   "-o", "short-unix", "--no-pager"], timeout=30)
+    if rc != 0 or not out:
+        return None
+    return cron_worker_oom_verdict(parse_kernel_oom_events(out), now)
+
+
 # A cron prompt is CONFIG, and config rots silently: a probe written as a raw-IP
 # curl is blocked by the tool scanner on private-network/plain-HTTP grounds, so
 # every run improvises its own workaround (an SSH hop, or a string-concatenated
@@ -6942,6 +7078,7 @@ CHECKS = [
     check_cron_delivery,
     check_cron_liveness,
     check_interrupted_run_debris,
+    check_cron_worker_oom,
     check_cron_prompt_probes,
     check_cron_prompt_orphan_wording,
     check_cron_prompt_log_paths,
@@ -9926,6 +10063,58 @@ def cmd_selftest(_argv):
     expect("interrupted_run[silent-on-a-terminal-row]",
            interrupted_run_verdict([dict(_unk, status="completed")], _ling, _now), None)
 
+    # ...and the CAUSE of such an interruption lives only in the kernel: our worker
+    # scope is capped at 4 GiB and a heavy verification command run inline blows
+    # through it. Drive the parser and the verdict on a synthetic journal: the
+    # event for OUR job must fire and name its victims; a co-tenant's kill in the
+    # same second must NOT be borrowed; a kill line with no preceding event must
+    # not invent one; and no kill at all must stay silent.
+    _ep0 = 1758718235.0
+    _journal = (
+        "1758718234.500000 game kernel: Killed process 999 (orphan) total-vm:1kB\n"
+        "1758718235.100000 game kernel: oom-kill:constraint=CONSTRAINT_MEMCG,"
+        "oom_memcg=/user.slice/user-1000.slice/user@1000.service/app.slice/"
+        "hermes-worker-cron-9c05f60f5fef-exec-0889be0f.scope,task_memcg=same\n"
+        "1758718235.300000 game kernel: Memory cgroup out of memory: "
+        "Killed process 1265063 (ruby) total-vm:1042240kB\n"
+        "1758718235.400000 game kernel: Memory cgroup out of memory: "
+        "Killed process 1254158 (node-MainThread) total-vm:1912132kB\n"
+        "1758718235.600000 game kernel: oom-kill:constraint=CONSTRAINT_MEMCG,"
+        "oom_memcg=/user.slice/user-1000.slice/user@1000.service/app.slice/"
+        "some-other-project-exec.scope,task_memcg=same\n"
+        "1758718235.700000 game kernel: Killed process 500 (foreign_victim)\n"
+    )
+    _kev = parse_kernel_oom_events(_journal)
+    expect("worker_oom[parses-only-our-worker-scopes]", len(_kev), 1)
+    expect("worker_oom[attributes-only-our-own-kill-lines]",
+           _kev[0][2], ["ruby", "node-MainThread"])
+    _kov = cron_worker_oom_verdict(_kev, _ep0)
+    expect("worker_oom[fires-on-a-kill-inside-the-window]",
+           (_kov or (None,))[0], "cron-worker-oom-killed")
+    expect("worker_oom[evidence-names-the-job-and-the-victim]",
+           "9c05f60f5fef" in ((_kov or ("", "", "", ""))[3] or "")
+           and "ruby" in ((_kov or ("", "", "", ""))[3] or ""), True)
+    expect("worker_oom[silent-when-the-kill-predates-the-window]",
+           cron_worker_oom_verdict(_kev, _ep0 + 48 * 3600), None)
+    expect("worker_oom[silent-on-an-empty-read]",
+           cron_worker_oom_verdict([], _ep0), None)
+    expect("worker_oom[ignores-a-kill-line-with-no-event]",
+           parse_kernel_oom_events("1758718234.500000 game kernel: "
+                                   "Killed process 999 (orphan) total-vm:1kB"), [])
+    expect("worker_oom[ignores-a-non-memcg-oom]",
+           parse_kernel_oom_events("1758718235.100000 game kernel: "
+                                   "Out of memory: Killed process 7 (x)"), [])
+    # ...and the production path must still resolve: an unreadable journal yields
+    # no signal, and a readable one yields either nothing or a 4-tuple.
+    _jtxt, _jrc = run(["journalctl", "-k", "--since", "@%d" % int(_ep0),
+                       "-o", "short-unix", "--no-pager"], timeout=30)
+    if _jrc == 0:
+        expect("worker_oom[live-journal-parses]",
+               isinstance(parse_kernel_oom_events(_jtxt), list), True)
+        _livekov = check_cron_worker_oom()
+        expect("worker_oom[check-runs-on-the-production-path]",
+               _livekov is None or len(_livekov) == 4, True)
+
     # ...and the AGE of an untracked directory must come from the work inside it.
     # Git reports an untracked dir by the directory's own mtime, which measured
     # 7,070h for a directory the interrupted run had created minutes earlier -- and
@@ -10081,6 +10270,30 @@ def cmd_warm_caption(_argv):
     return 1
 
 
+def cmd_heavy(argv):
+    """Run a heavy verification command OUTSIDE this worker's cgroup cap.
+
+    A cron worker scope is capped at 4 GiB and anything a tick spawns inherits
+    it, so a repo-wide `bin/rubocop` (2113-3518 MB measured, --parallel across all
+    CPUs by default) gets the tick SIGKILLed mid-run. This passthrough exists so
+    the safe path is reachable from the one command every ops tick already runs;
+    bin/ops_heavy.sh owns the isolation and the cgroup assertion.
+    """
+    if not argv:
+        print("usage: tc_ops.py heavy <label> <command...>")
+        return 2
+    script = APP / "bin" / "ops_heavy.sh"
+    if not script.exists():
+        print(f"heavy: {script} is MISSING -- do not run the command inline in this "
+              f"worker (4 GiB cap); re-add bin/ops_heavy.sh first")
+        return 2
+    try:
+        return subprocess.call([str(script), *argv])
+    except Exception as exc:  # never silently fall back to an inline run
+        print(f"heavy: could not launch {script}: {exc}")
+        return 2
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -10098,6 +10311,7 @@ def main():
         "needs-human": cmd_needs_human,
         "route": cmd_route,
         "escalations": cmd_escalations,
+        "heavy": cmd_heavy,
     }.get(cmd, lambda a: (print(__doc__), 2)[1])(argv)
 
 
