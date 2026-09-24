@@ -5,8 +5,8 @@
   "evidence": "24 post(s) published in the last 14d, 20 with insights collected; totals over the measured set: likes=0 comments=0 saves=0 reach=64 (mean reach 3.2/post). The harness is producing normally -- renders complete, posts land, the queue holds at target -- so every machine-level check stays green while the RESULT is zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL gate; a flat engagement read there is this condition, not a starved pipeline. Account reach attribution, newest measured snapshot (09-24 06:18): non-follower=0 follower=6 total=6. Instagram's account insights answer `reach` with `breakdown=follow_type`, so this is the platform's own split, not an inference from a per-post sum: non-follower=0 means nothing outside the follower list was shown these posts at all -- a DISTRIBUTION ceiling rather than a content problem, and the lever the gate's pivot candidate names. Self-closes when a published post is engaged with (any like/comment/save in the window).",
   "status": "open",
   "first_seen": "2026-09-22T04:34:24-0400",
-  "last_seen": "2026-09-24T02:25:28-0400",
-  "seen_count": 96,
+  "last_seen": "2026-09-24T02:32:07-0400",
+  "seen_count": 97,
   "source": "probe",
   "route": "agent",
   "notes": [
