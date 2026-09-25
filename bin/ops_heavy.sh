@@ -39,6 +39,15 @@
 #
 # Prints: rc=<code> peak_mb=<scope peak> cap_mb=<scope cap> oom_kill=<0|n> and
 # the scope path, so a tick can record what the command actually cost.
+#
+# The command's OUTPUT is captured, not discarded (2026-09-25). It used to go to
+# /dev/null, which meant any heavy command whose output is the point -- a gate
+# read, an inventory count, a report -- could NOT be isolated: the tick had to
+# run it inline (the very thing that gets the tick OOM-killed) or lose the text.
+# Now the child writes to $OPS_HEAVY_OUT (default log/ops_heavy-<label>.out) and
+# the last $OPS_HEAVY_TAIL (default 25) lines are echoed after the verdict, with
+# the path for the full text. Bounded on purpose: an unbounded dump would flood
+# the tick's context instead of the caller's memory.
 # Fallback when systemd-run is unavailable: run inline and WARN that the caller's
 # cgroup applies (an honest loud failure, never a silent one).
 set -u
@@ -66,6 +75,14 @@ if ! command -v systemd-run >/dev/null 2>&1; then
 fi
 
 unit="ops-heavy-$label-$$"
+# Output capture: the child writes here so a heavy command whose TEXT is the
+# point can still be isolated (see the header). Absolute path, because the
+# child's cwd is the scope's, and exported so the inner bash can see it.
+out="${OPS_HEAVY_OUT:-$PWD/log/ops_heavy-$label.out}"
+mkdir -p "$(dirname "$out")" 2>/dev/null || true
+export OPS_HEAVY_OUT_FILE="$out"
+: > "$out" 2>/dev/null || true
+
 systemd-run --user --scope --unit="$unit" -q --collect \
   -p MemoryAccounting=yes -p MemoryMax="$mem_max" \
   bash -c '
@@ -78,12 +95,21 @@ systemd-run --user --scope --unit="$unit" -q --collect \
       *)            iso=no
                     echo "ops_heavy: ERROR child cgroup is $cg, not a dedicated" \
                          "ops-heavy scope -- isolation did NOT apply, this runs" \
-                         "under the caller'"'"'s cap." >&2 ;;
+                         "under the callers own cap." >&2 ;;
     esac
-    timeout "${OPS_HEAVY_TIMEOUT:-900}" "$@" >/dev/null 2>&1; rc=$?
+    timeout "${OPS_HEAVY_TIMEOUT:-900}" "$@" > "${OPS_HEAVY_OUT_FILE:-/dev/null}" 2>&1; rc=$?
     peak=$(( $(cat "$cg/memory.peak" 2>/dev/null || echo 0) / 1048576 ))
     cap=$(( $(cat "$cg/memory.max" 2>/dev/null || echo 0) / 1048576 ))
     oom=$(grep -o "[0-9]*$" <(grep "^oom_kill " "$cg/memory.events" 2>/dev/null) || echo 0)
     echo "ops_heavy: label='"$label"' rc=$rc peak_mb=$peak cap_mb=$cap oom_kill=${oom:-0} isolated=$iso cgroup=$cg"
     exit $rc
   ' _ "$@"
+rc=$?
+
+# Surface the capture, bounded: the last OPS_HEAVY_TAIL lines plus the path to
+# the full text. Silence when the command produced nothing (a pure lint pass).
+if [ -s "$out" ]; then
+  echo "ops_heavy: output -> $out (last ${OPS_HEAVY_TAIL:-25} line(s) below)"
+  tail -n "${OPS_HEAVY_TAIL:-25}" "$out"
+fi
+exit "$rc"

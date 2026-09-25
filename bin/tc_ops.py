@@ -48,8 +48,10 @@ then works the open issues and closes them with a note.
   tc_ops.py heavy LABEL CMD...  run heavy verification OUTSIDE this worker's 4 GiB
                              cgroup cap (repo-wide rubocop/rspec): its own
                              accounted scope + a cgroup assertion, printing
-                             rc=/peak_mb=/oom_kill=. Running such a command inline
-                             got a tick OOM-killed mid-run (2026-09-24 13:40:34Z)
+                             rc=/peak_mb=/oom_kill= plus the command's OUTPUT
+                             (last 25 lines, full text in log/ops_heavy-<label>.out).
+                             Running such a command inline got a tick OOM-killed
+                             mid-run (2026-09-24 13:40:34Z)
   tc_ops.py checks-audit     is the MONITORING still live? runs every check and
                              reports ones that RAISED and any DB read that came
                              back unreadable -- a check whose query broke returns
@@ -11518,6 +11520,9 @@ def cmd_heavy(argv):
     CPUs by default) gets the tick SIGKILLed mid-run. This passthrough exists so
     the safe path is reachable from the one command every ops tick already runs;
     bin/ops_heavy.sh owns the isolation and the cgroup assertion.
+    The child's OUTPUT is captured too (last 25 lines echoed, full text at
+    log/ops_heavy-<label>.out), so a heavy command whose text is the point -- a
+    gate read, an inventory count -- can be isolated instead of run inline.
     """
     if not argv:
         print("usage: tc_ops.py heavy <label> <command...>")

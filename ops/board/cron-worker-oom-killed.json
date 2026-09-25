@@ -1,12 +1,12 @@
 {
   "key": "cron-worker-oom-killed",
-  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 18.8h ago)",
+  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 19.7h ago)",
   "severity": "warn",
   "evidence": "`journalctl -k` names oom_memcg inside a hermes-worker-cron scope for job(s) 9c05f60f5fef x2; newest kill 2026-09-24 09:40 local (13:40Z), victims node-MainThread, ruby. A worker scope is capped at 4 GiB and a verification command run INLINE can exceed it (a full-repo bin/rubocop peaks at 2113-3518 MB and RuboCop 1.81 defaults to --parallel across all CPUs): the tick dies mid-run, its execution row ends `unknown`, its work and its report are lost. Run heavy verification through `bin/ops_heavy.sh <label> <command...>` -- it gets its own accounted scope and asserts the child's cgroup -- instead of inline. Self-closing: clears once no kill lands inside the window.",
   "status": "open",
   "first_seen": "2026-09-24T15:52:15-0400",
-  "last_seen": "2026-09-25T04:25:59-0400",
-  "seen_count": 35,
+  "last_seen": "2026-09-25T05:25:29-0400",
+  "seen_count": 36,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -21,6 +21,10 @@
     {
       "ts": "2026-09-24T23:36:35-0400",
       "note": "2026-09-25 03:3xZ ops-triage: no further change warranted -- this item is the rolling window, not a defect. Root fix already landed (ac9d3a4 bin/ops_heavy.sh + 511ada9 bin/rubocop degrades to serial: 3518 MB parallel -> 577 MB serial, under the 4 GiB worker scope), and the guard sits at the POINT OF USE, so the command is safe regardless of what any cron prompt says; there is nothing left to change in the prompt or the repo. Newest kill is still 2026-09-24 13:40Z (13.8h ago this tick), i.e. none since the fix. Self-closes once no kill lands inside the rolling 24h window (~2026-09-25 13:40Z)."
+    },
+    {
+      "ts": "2026-09-25T05:28:47-0400",
+      "note": "2026-09-25 ops-triage: FIXED the missing CALLER, not just the tool. bin/ops_heavy.sh existed and the probe evidence told every tick to use it, but no cron prompt mentioned it -- and the runner discarded the child OUTPUT to /dev/null, so a heavy command whose text is the point (a gate read, an inventory count) could not be isolated at all: the tick had to run it inline, which is exactly what gets the tick OOM-killed at the 4 GiB cap. Two changes: (1) bin/ops_heavy.sh now captures output to OPS_HEAVY_OUT (default log/ops_heavy-LABEL.out), echoes the last 25 lines plus the path, and still propagates rc; (2) the tc-ops-triage prompt (job 9c05f60f5fef -- the scope the 2026-09-24 13:40:34Z kill named) now carries a HEAVY COMMANDS section requiring the isolated runner for repo-wide lint/test/verification, plus the cgroup diagnosis recipe. Verified: bin/ops_heavy_test.sh ALL PASS, 12 assertions (rc propagation, stdout+stderr captured, path echoed, silence on an empty command, usage rc=2); a real heavy READ ran isolated -- bin/ops_heavy.sh gate bundle exec rake growth:gate -> rc=0 peak_mb=148 oom_kill=0 isolated=yes with the gate line printed; the tc_ops.py heavy passthrough shows the same; tc_ops.py selftest 821/0. Newest kill is still 2026-09-24 13:40Z; this item self-closes when the rolling window passes it."
     }
   ],
   "route_source": "check"
