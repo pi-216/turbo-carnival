@@ -45,6 +45,10 @@ SCHED_DIR=/mnt/nas-ai-models/gpu-scheduler
 # reconciliation logic can be exercised against a fixture directory without
 # touching the live queue.
 SCHED_JOBS_DIR="${TC_SCHED_JOBS_DIR:-$SCHED_DIR/jobs}"
+# Read directly (never through the CLI) by blocker_kind: which KIND of entry holds
+# the FIFO ahead of us is a property of state.json + jobs/*.json only, so it stays
+# answerable offline against a fixture -- same rule as the jobs dir above.
+SCHED_STATE_JSON="${TC_SCHED_STATE:-$SCHED_DIR/state.json}"
 PY3="$(command -v python3)"
 # NO artificial memory cap on ComfyUI (Tim, 2026-09-19): "if you have the GPU,
 # there is no one else in the blast radius — that's what the scheduler is for."
@@ -128,7 +132,16 @@ HARNESS_LOG_MAX_LINES=1200   # rotate past this (probe flags >1500)
 HARNESS_LOG_KEEP_LINES=600   # retention window kept after rotation
 HEARTBEAT_INTERVAL=300   # 5 min
 UP_WAIT=240              # max seconds to wait for /system_stats after launch
-POLL_INTERVAL=10
+POLL_INTERVAL="${TC_POLL_INTERVAL:-10}"
+# Ceiling on the WHOLE claim phase of `ensure`, including the wait for a RUNNING
+# job ahead of us in the FIFO (see blocker_kind). The caller's foreground tool
+# call is hard-capped at ~420s in this profile, so ensure must return before that
+# or the kill lands on a process that is still waiting -- never on an unclaimed
+# one -- and the tick reads as a timeout instead of a refusal. 360 leaves room for
+# the post-claim launch + /system_stats wait on top of the wait. A blocker that
+# outlasts this is ordinary FIFO waiting: the entry is kept and the next tick
+# adopts it (reconcile_own_queue), so the cost is bounded, not unbounded.
+ENSURE_DEADLINE_S="${TC_ENSURE_DEADLINE:-360}"
 
 mkdir -p "$(dirname "$HARNESS_LOG")"
 
@@ -297,6 +310,78 @@ try:
 except (TypeError, ValueError):
     sys.exit(1)
 sys.exit(0 if rec > live else 1)
+PY
+}
+
+# WHAT KIND of entry holds the FIFO ahead of us: none | running | stale.
+#
+# `poll` answers `not_my_turn` whenever any queued entry has requested_at <= ours
+# -- regardless of whether that entry is WAITING or RUNNING. It cannot tell the
+# difference, because it does not need to: our project must wait either way. But
+# WE must, because the two have opposite costs to wait on:
+#
+#   * RUNNING  -- the entry is the GPU's current_job. Its record stays
+#     status="queued" for its whole life (the scheduler's claim() never flips
+#     jobs/<id>.json; only release() does), so it holds the head while it runs.
+#     It WILL release, usually within minutes: measured 2026-09-25 07:00:28Z,
+#     prx-tg-eidolon requested 5s before us, claimed immediately and released
+#     `failed` 5m14s later -- ensure gave up in 0s, the 4090 sat physically idle
+#     for the remaining 55 min of the hour, and our head entry blocked that
+#     co-tenant from re-requesting too. Waiting it out costs minutes and wins the
+#     window; not waiting costs the hour.
+#   * STALE    -- queued, ahead of us, and NOT the GPU's current_job: nobody is
+#     polling it, so `waiting cannot help` (this is the 2026-09-21 shape: one
+#     foreign entry refused every tick from 09:01 to 22:34).
+#
+# A file read, never a scheduler call, so it is exercisable with no GPU and no
+# claim (`bin/comfyui_harness.sh blockerkind <job-id>` against a fixture dir). The
+# failure direction is GIVE UP, never stall: an unreadable jobs dir (or no record
+# for our own id) yields "none" -- no wait -- and an unreadable state.json yields
+# "stale" -- no wait -- so a parse bug costs one refused tick, not a tick that sits
+# on the caller's budget.
+blocker_kind() {
+  python3 - "$SCHED_JOBS_DIR" "$SCHED_STATE_JSON" "$GPU" "$1" <<'PY'
+import json, os, sys
+
+jobs_dir, state_path, gpu, mine = sys.argv[1:5]
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+me = load(os.path.join(jobs_dir, f"{mine}.json"))
+myt = (me or {}).get("requested_at") or ""
+try:
+    names = os.listdir(jobs_dir)
+except OSError:
+    names = []
+
+ahead = []
+for fn in names:
+    if not fn.endswith(".json"):
+        continue
+    j = load(os.path.join(jobs_dir, fn))
+    if not isinstance(j, dict) or j.get("status") != "queued":
+        continue
+    if j.get("id") == mine:
+        continue
+    if gpu and gpu != "any" and j.get("gpu") != gpu:
+        continue
+    if (j.get("requested_at") or "") <= myt:
+        ahead.append(j.get("id"))
+
+if not ahead:
+    print("none")
+    raise SystemExit
+
+st = load(state_path) or {}
+cur = ((st.get("gpus") or {}).get(gpu) or {}).get("current_job")
+print("running" if cur and cur in ahead else "stale")
 PY
 }
 
@@ -901,6 +986,7 @@ cmd_ensure() {
   # GPU held by another agent (or we never had a job): adopt our own queued
   # entry if we have one (it holds the best FIFO position), else request fresh.
   local job="" attempts=0 result=""
+  local nmy_deadline=$(( $(date +%s) + ENSURE_DEADLINE_S ))
   while [ "$attempts" -lt 2 ]; do
     attempts=$((attempts + 1))
     job="$(reconcile_own_queue)"
@@ -951,8 +1037,8 @@ cmd_ensure() {
     fi
 
     result=""
-    local waited=0
-    while [ "$waited" -lt "$wait_s" ]; do
+    local waited=0 kind="" nmy_logged=0
+    while : ; do
       result="$(sched poll --gpu "$GPU" --job-id "$job" 2>/dev/null | tr -d '[:space:]')"
       if [ "$result" = "claimed" ]; then
         log "ensure: CLAIMED $job (after ${waited}s)"
@@ -965,14 +1051,29 @@ cmd_ensure() {
         echo "job_id=$job"
         return 0
       fi
-      # not_my_turn cannot resolve inside this tick: poll only claims when NO
-      # queued entry is at or ahead of ours, so waiting just burns the caller's
-      # budget -- and when the caller is killed mid-wait the entry is leaked,
-      # which is the failure this block exists to prevent.
       if [ "$result" = "not_my_turn" ]; then
-        log "ensure: NOT claimed — $job is behind another queued job (not_my_turn after ${waited}s); entry stays queued for the next tick"
+        # Two shapes, opposite costs -- see blocker_kind. A RUNNING blocker (its
+        # queue record stays "queued" while it runs) releases within minutes and
+        # is worth waiting out; a STALE one (nobody polls it) never resolves in
+        # this tick and must not burn the caller's budget.
+        kind="$(blocker_kind "$job")"
+        if [ "$kind" = "running" ]; then
+          if [ "$(date +%s)" -lt "$nmy_deadline" ]; then
+            if [ "$nmy_logged" -eq 0 ]; then
+              log "ensure: $job is behind a RUNNING job ahead of us in the FIFO — waiting it out (deadline ${ENSURE_DEADLINE_S}s, poll every ${POLL_INTERVAL}s)"
+              nmy_logged=1
+            fi
+            sleep "$POLL_INTERVAL"
+            waited=$((waited + POLL_INTERVAL))
+            continue
+          fi
+          log "ensure: NOT claimed — $job is behind a RUNNING job that had not released within ${ENSURE_DEADLINE_S}s (blocker=running); entry stays queued for the next tick"
+          return 2
+        fi
+        log "ensure: NOT claimed — $job is behind another queued job (not_my_turn after ${waited}s, blocker=${kind:-unknown}); nobody polls it, so waiting cannot help — entry stays queued for the next tick"
         return 2
       fi
+      if [ "$waited" -ge "$wait_s" ]; then break; fi
       sleep "$POLL_INTERVAL"
       waited=$((waited + POLL_INTERVAL))
     done
@@ -1262,6 +1363,14 @@ cmd_deps() {
   return 3
 }
 
+# Offline surface for blocker_kind: `blockerkind <job-id>` -> none|running|stale.
+# Exists so the in-tick wait decision (wait out a RUNNING blocker, give up
+# immediately on a STALE one) is exercisable with no GPU, no claim and no
+# scheduler -- the same contract as cmd_plan and cmd_killverdict.
+cmd_blockerkind() {
+  blocker_kind "${1:-}"
+}
+
 cmd_killverdict() {
   # Offline: `killverdict <origin> <pid> [stage]` -> "kill" | "refuse:<reason>".
   # Exists so the ownership rule can be exercised (and audited) with no GPU, no
@@ -1281,8 +1390,9 @@ case "${1:-}" in
   shutdown)  cmd_shutdown ;;
   ownqueue)  own_queued_jobs ;;
   reconcile) reconcile_own_queue ;;
+  blockerkind) shift; cmd_blockerkind "$@" ;;
   killverdict) shift; cmd_killverdict "$@" ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile|killverdict ORIGIN PID [STAGE]}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile|blockerkind JOB_ID|killverdict ORIGIN PID [STAGE]}" >&2
     exit 1 ;;
 esac

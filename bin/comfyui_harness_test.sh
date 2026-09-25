@@ -60,6 +60,46 @@ PY
 
 export TC_SCHED_JOBS_DIR="$SCHED/jobs" TC_HARNESS_LOG="$SCRATCH/harness.log"
 
+# --- fixtures for blocker_kind / the in-tick wait decision (jobs-bk) ----------
+# `poll` answers not_my_turn whenever ANY queued entry has requested_at <= ours,
+# whether that entry is WAITING or RUNNING -- and it cannot tell them apart,
+# because it does not need to. WE do: a RUNNING one (the GPU's current_job, whose
+# record stays status="queued" for its whole life because claim() never flips it)
+# releases within minutes and is worth waiting out, while a STALE one is never
+# polled by its owner and must not burn the caller's budget. Separate dir so the
+# reconcile fixtures above keep their exact expectations.
+python3 - "$SCHED/jobs-bk" "$SCRATCH/state-idle.json" "$SCRATCH/state-running.json" <<'PY'
+import json, os, sys
+d, idle_path, run_path = sys.argv[1:4]
+os.makedirs(d, exist_ok=True)
+
+
+def w(name, **kw):
+    rec = {"id": name[:-5], "project": "turbo-carnival", "gpu": "4090",
+           "vram_gb": 21.0, "duration_h": 9.0, "status": "queued",
+           "requested_at": "2026-09-25T07:00:28Z", "submitted_by": "test",
+           "consecutive_failures": 0}
+    rec.update(kw)
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(rec, f, indent=2)
+
+
+# The live shape measured 2026-09-25T07:00:2xZ: eidolon requested 5 s before us.
+w("bk-me.json")
+w("bk-first.json", project="prx-tg-flux-latents-hegre",
+  requested_at="2026-09-25T06:00:00Z")
+w("bk-other.json", project="prx-tg-eidolon-identity-renderer",
+  requested_at="2026-09-25T07:00:23Z")
+
+json.dump({"gpus": {"4090": {"status": "idle", "current_job": None}}}, open(idle_path, "w"))
+json.dump({"gpus": {"4090": {"status": "busy", "current_job": "bk-other"}}}, open(run_path, "w"))
+PY
+
+# Deterministic state path for the ensure tests below: without it they would read
+# the LIVE state.json and their outcome would depend on what the 4090 happens to
+# be running at test time.
+export TC_SCHED_STATE="$SCRATCH/state-idle.json"
+
 ok()   { printf '  PASS  %s\n' "$1"; }
 bad()  { printf '  FAIL  %s: expected [%s] got [%s]\n' "$1" "$2" "$3"; FAILED=1; }
 is()   { [ "$2" = "$3" ] && ok "$1" || bad "$1" "$2" "$3"; }
@@ -393,6 +433,68 @@ run_shutdown claim-empty yes yes
 is "claim + empty queue: proceeds (rc=0)" "rc=0" "$(cat "$SCRATCH/sd-claim-empty.out")"
 is "claim + empty queue: stops the instance" "1" "$(grep -c 'KILL' "$SCRATCH/sd-kill")"
 is "claim + empty queue: releases the claim" "1" "$(grep -c 'release --gpu' "$SCRATCH/sd-sched")"
+
+echo "--- blocker_kind: a RUNNING job ahead is worth waiting for, a STALE one is not ---"
+# blockerkind is a pure file read (jobs dir + state.json), so it is answerable with
+# no GPU, no claim and no scheduler call.
+bk() { TC_SCHED_JOBS_DIR="$SCHED/jobs-bk" TC_SCHED_STATE="$1" \
+       bash "$APP_DIR/bin/comfyui_harness.sh" blockerkind "$2" 2>/dev/null; }
+is "a RUNNING job ahead of us -> running" "running" "$(bk "$SCRATCH/state-running.json" bk-me)"
+is "a queued entry ahead of us that is NOT running -> stale" "stale" "$(bk "$SCRATCH/state-idle.json" bk-me)"
+is "nothing ahead of this entry -> none" "none" "$(bk "$SCRATCH/state-idle.json" bk-first)"
+# An unreadable state file must NOT produce a wait: "stale" is the give-up answer,
+# so a state.json that cannot be read costs a refused tick, never a stalled one.
+is "unreadable state file -> stale (never a wait)" "stale" \
+   "$(bk "$SCRATCH/state-does-not-exist.json" bk-me)"
+
+# The in-tick wait decision, exercised end to end against a stubbed `poll` that
+# always answers not_my_turn -- the caller's whole budget is at stake, so the two
+# shapes must not be confused:
+#   RUNNING -> keep re-polling until the stubbed deadline (the blocker will release)
+#   STALE   -> return 2 at once (nothing will release it; 2026-09-21 refused every
+#              tick from 09:01 to 22:34 and waiting would have burned all 13 hours)
+run_ensure_nmy() { # run_ensure_nmy <tag> <state.json> <deadline_s>
+  : > "$SCRATCH/nmy-$1.calls"
+  TC_SCHED_JOBS_DIR="$SCHED/jobs-bk" TC_HARNESS_LOG="$SCRATCH/nmy-$1.log" \
+  TC_SCHED_STATE="$2" TC_ENSURE_DEADLINE="$3" TC_POLL_INTERVAL=1 \
+  bash -c '
+    source '"$APP_DIR"'/bin/comfyui_harness.sh ownqueue >/dev/null 2>&1
+    STATE_FILE="'$SCRATCH'/nmy-claim-'"$1"'.json"; rm -f "$STATE_FILE"
+    # 23500 MiB free -> the live-fit ask is the full 21GiB, so the adopted fixture
+    # entry (vram_gb 21.0) is KEPT instead of retired for asking above the live fit
+    # -- this test is about the FIFO wait, not about the ask policy (covered above).
+    vram_free_mib() { echo 23500; }
+    comfyui_up() { return 1; }
+    gpu_idle() { return 0; }
+    comfyui_running_pid() { echo ""; }
+    comfyui_ours() { return 1; }
+    sched() { case "$1" in
+                poll) printf "poll\n" >> "'$SCRATCH'/nmy-'"$1"'.calls"; echo not_my_turn ;;
+                status) printf "4090:\n  status:     idle\n  current_job: None\n" ;;
+                request) printf "request\n" >> "'$SCRATCH'/nmy-'"$1"'.calls" ;;
+                *) : ;;
+              esac; return 0; }
+    rc=0; cmd_ensure --wait 5 || rc=$?; printf "rc=%s" "$rc"
+  ' > "$SCRATCH/nmy-$1.out" 2>/dev/null
+}
+
+run_ensure_nmy stale "$SCRATCH/state-idle.json" 360
+is "STALE blocker: refused this tick (rc=2)" "rc=2" "$(cat "$SCRATCH/nmy-stale.out")"
+is "STALE blocker: named as not-running" "1" "$(grep -c 'blocker=stale' "$SCRATCH/nmy-stale.log")"
+is "STALE blocker: polled exactly once (no budget burned)" "1" "$(grep -c poll "$SCRATCH/nmy-stale.calls")"
+is "STALE blocker: our FIFO place is KEPT" "queued" "$(field "$SCHED/jobs-bk/bk-me.json" status)"
+is "STALE blocker: never asks for a second entry" "0" "$(grep -c request "$SCRATCH/nmy-stale.calls")"
+
+run_ensure_nmy running "$SCRATCH/state-running.json" 4
+is "RUNNING blocker: still refuses when it does not release in time (rc=2)" "rc=2" \
+   "$(cat "$SCRATCH/nmy-running.out")"
+is "RUNNING blocker: waited and re-polled (>=3 polls)" "1" \
+   "$([ "$(grep -c poll "$SCRATCH/nmy-running.calls")" -ge 3 ] && echo 1 || echo 0)"
+is "RUNNING blocker: logs the wait, with the deadline" "1" \
+   "$(grep -c 'waiting it out' "$SCRATCH/nmy-running.log")"
+is "RUNNING blocker: refusal names the kind, not a generic queued job" "1" \
+   "$(grep -c 'blocker=running' "$SCRATCH/nmy-running.log")"
+is "RUNNING blocker: our FIFO place is KEPT" "queued" "$(field "$SCHED/jobs-bk/bk-me.json" status)"
 
 echo
 if [ "$FAILED" = 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: FAILURES"; fi

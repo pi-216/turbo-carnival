@@ -725,8 +725,43 @@ def check_slot():
 OWN_QUEUE_GRACE_MIN = 10   # a just-requested entry is not a blockade yet
 
 
+def fifo_blocker_kind(records, gpu, mine, current_job):
+    """Which KIND of entry holds the FIFO ahead of `mine`: none|running|stale.
+
+    Mirrors blocker_kind() in bin/comfyui_harness.sh (selftest runs both over the
+    same fixture, so a change to either fails there rather than silently
+    re-splitting the two).
+
+    WHY the distinction matters, and why it is invisible from the queue alone:
+    `poll` refuses `not_my_turn` for ANY queued entry with requested_at <= ours,
+    whether that entry is WAITING or RUNNING -- it does not need to tell them
+    apart, because our project must wait either way. But the two have opposite
+    costs. A RUNNING blocker (the GPU's current_job, whose record stays
+    status="queued" for its whole life because the scheduler's claim() never flips
+    jobs/<id>.json -- only release() does) releases within minutes: measured
+    2026-09-25T07:00:28Z, eidolon requested 5s before us, claimed immediately and
+    released failed 5m14s later, and ensure gave up in 0s -- the 4090 then sat
+    physically idle for the remaining 55 min of the hour while our head entry also
+    blocked that co-tenant from re-requesting. A STALE one is never polled by its
+    owner and cannot resolve in-tick (2026-09-21: one foreign entry refused every
+    tick from 09:01 to 22:34).
+    """
+    mine_at = ""
+    for j in records or []:
+        if j.get("id") == mine:
+            mine_at = j.get("requested_at") or ""
+            break
+    ahead = [j.get("id") for j in (records or [])
+             if j.get("status") == "queued" and j.get("id") != mine
+             and (not gpu or gpu == "any" or j.get("gpu") == gpu)
+             and (j.get("requested_at") or "") <= mine_at]
+    if not ahead:
+        return "none"
+    return "running" if current_job and current_job in ahead else "stale"
+
+
 def own_queue_verdict(q, status, ours, now=None, free_mib=None, requested_mib=None,
-                      blockers=None):
+                      blockers=None, current_job=None):
     """Our own queued 4090 entries -> (key, title, severity, evidence) or None.
 
     Two shapes, both invisible to every existing check (check_slot only files a
@@ -9712,6 +9747,53 @@ def cmd_selftest(_argv):
     # Unreadable free memory must NOT be read as "cannot fit" -- accuse only on data.
     v = own_queue_verdict(oq_head, "idle", False, now=oq_now, free_mib=None)
     expect("own_queue_verdict[free-unknown]", v[0] if v else None, "own-queue-blockade")
+
+    # fifo_blocker_kind: WHICH KIND of entry holds the FIFO ahead of us. `poll`
+    # refuses not_my_turn for a WAITING entry and a RUNNING one alike -- so an own
+    # entry parked behind either looks identical from the queue alone, while the two
+    # have opposite costs. A RUNNING blocker releases (measured 2026-09-25: 5m14s
+    # after claiming, while ensure had already given up in 0s and idled the other
+    # 55 min of the hour); a STALE one never resolves in-tick (2026-09-21: refused
+    # every tick from 09:01 to 22:34).
+    def BK(i, req, st="queued", gpu="4090"):
+        return {"id": i, "project": "turbo-carnival", "gpu": gpu, "status": st,
+                "requested_at": req}
+
+    bk_rows = [BK("me", "2026-09-25T07:00:28Z"),
+               BK("earlier", "2026-09-25T06:00:00Z"),
+               BK("just-ahead", "2026-09-25T07:00:23Z"),
+               BK("terminal", "2026-09-25T05:00:00Z", st="completed"),
+               BK("other-gpu", "2026-09-25T05:00:00Z", gpu="strix")]
+    bk_cases = [
+        ("nothing-ahead", bk_rows, "earlier", None, "none"),
+        ("running-ahead", bk_rows, "me", "just-ahead", "running"),
+        ("stale-ahead", bk_rows, "me", None, "stale"),
+        ("terminal-record-not-ahead", bk_rows, "me", "terminal", "stale"),
+        ("other-gpu-record-not-ahead", bk_rows, "me", "other-gpu", "stale"),
+        ("unknown-id", bk_rows, "not-mine", "just-ahead", "none"),
+    ]
+    for name, rows, mine, cur, want in bk_cases:
+        expect(f"fifo_blocker_kind[{name}]", fifo_blocker_kind(rows, "4090", mine, cur), want)
+
+    # ...and the mirror must AGREE with the launcher's own offline surface, not
+    # merely with itself: the harness reads the same two files, so run it over this
+    # fixture (no GPU, no claim, no scheduler) and require identical answers. A
+    # change to either side fails HERE instead of silently re-splitting them.
+    _harness_bk = APP / "bin" / "comfyui_harness.sh"
+    if _harness_bk.exists():
+        _bkdir = Path(tempfile.mkdtemp())
+        (_bkdir / "jobs").mkdir()
+        for _rec in bk_rows:
+            (_bkdir / "jobs" / f"{_rec['id']}.json").write_text(json.dumps(_rec))
+        for name, rows, mine, cur, want in bk_cases:
+            (_bkdir / "state.json").write_text(json.dumps(
+                {"gpus": {"4090": {"status": "busy" if cur else "idle", "current_job": cur}}}))
+            _p = subprocess.run(
+                [str(_harness_bk), "blockerkind", mine], capture_output=True, text=True,
+                timeout=25, env=dict(os.environ, TC_SCHED_JOBS_DIR=str(_bkdir / "jobs"),
+                                     TC_SCHED_STATE=str(_bkdir / "state.json")))
+            expect(f"harness-blockerkind-matches-mirror[{name}]",
+                   _p.stdout.strip(), want)
 
     # close: a note flag with no value must be refused, not persisted.
     tmp = Path(tempfile.mkdtemp())
