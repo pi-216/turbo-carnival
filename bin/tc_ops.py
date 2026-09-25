@@ -3262,6 +3262,31 @@ def media_stability_clause(rows):
             "is a bounded event rather than active suppression.")
 
 
+def media_removed_headline(drop, newest, window_h, rows):
+    """PURE: the board HEADLINE for a media drop, bracketed by the trend.
+
+    The trend clause lives in the EVIDENCE, but the headline is what a reader skims,
+    and "media_count fell by N inside the last 26h" asserts an EVENT that stays
+    literally true for a whole day after a one-hour removal wave -- so the board
+    reads as active suppression while nothing has moved for hours (genome:
+    Point-Reading != Event). When the history is readable it decides the verb: a
+    falling inventory is "STILL SHRINKING", a held one is a "BOUNDED event".
+    Unreadable history keeps the literal wording -- never guess from no data.
+    """
+    if not drop:
+        return None
+    verdict = media_stability_verdict(rows)
+    if verdict is None:
+        return (f"the account's media inventory SHRANK: media_count fell by "
+                f"{drop} inside the last {window_h}h (now {newest})")
+    _streak, hours, falling = verdict
+    if falling:
+        return (f"the account's media inventory is STILL SHRINKING: media_count "
+                f"fell by {drop} inside the last {window_h}h (now {newest})")
+    return (f"the account lost {drop} media in a BOUNDED event inside the last "
+            f"{window_h}h (now {newest}); the inventory has held for {hours:.1f}h")
+
+
 def media_history_rows(limit=12):
     """Recent (media_count, age_hours) newest-first, or None when unreadable."""
     lines = psql_lines(
@@ -3362,10 +3387,10 @@ def check_platform_media_removed():
     # Bracket the event: the headline states a drop inside a 26h window, which stays
     # true long after the removals stopped (genome: Point-Reading != Event), so the
     # evidence has to say whether the inventory is still moving.
-    stability = media_stability_clause(media_history_rows())
+    rows = media_history_rows()
+    stability = media_stability_clause(rows)
     if drop:
-        headline = (f"the account's media inventory SHRANK: media_count fell by "
-                    f"{drop} inside the last {MEDIA_SHRINK_WINDOW_H}h (now {newest})")
+        headline = media_removed_headline(drop, newest, MEDIA_SHRINK_WINDOW_H, rows)
         stock = (
             f"platform media_count={newest} ({age_h}) -- down {drop} between two "
             f"consecutive snapshots inside the last {MEDIA_SHRINK_WINDOW_H}h. Publishing "
@@ -8611,6 +8636,21 @@ def cmd_selftest(_argv):
     expect("media_stability_clause[falling]",
            "ONGOING" in media_stability_clause([(200, 0.5), (225, 1.5)]), True)
     expect("media_stability_clause[unreadable]", media_stability_clause(None), "")
+    # media_removed_headline: the HEADLINE -- not just the evidence -- must bracket
+    # the event, or a reader skimming the board reads a finished wave as ongoing.
+    _mrh_flat = media_removed_headline(25, 200, 26,
+                                       [(200, 0.5), (200, 1.5), (225, 2.5)])
+    expect("media_removed_headline[bounded]", "BOUNDED" in (_mrh_flat or ""), True)
+    expect("media_removed_headline[bounded-not-shrinking]",
+           "SHRANK" in (_mrh_flat or ""), False)
+    _mrh_fall = media_removed_headline(25, 200, 26, [(200, 0.5), (225, 1.5)])
+    expect("media_removed_headline[falling]",
+           "STILL SHRINKING" in (_mrh_fall or ""), True)
+    _mrh_unk = media_removed_headline(25, 200, 26, None)
+    expect("media_removed_headline[unreadable-keeps-literal]",
+           "SHRANK" in (_mrh_unk or ""), True)
+    expect("media_removed_headline[no-drop]",
+           media_removed_headline(0, 200, 26, None), None)
 
     # render_error_verdict: failed-job error rows (newest first) -> severity. None
     # means the DB read failed (never a silent "no errors"), [] means a clean
