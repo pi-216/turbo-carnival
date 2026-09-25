@@ -1988,6 +1988,164 @@ def media_gone_clause(n_gone, measured):
     )
 
 
+# The reach-trajectory clause below answers a question the acceptance counter
+# cannot: is the zero a verdict on the CONTENT, or the loss of a distribution the
+# account had already earned? It is scoped to the account's CURRENT publishing
+# run, so it must know where a run begins -- a gap this long is dormancy, not a
+# publication gap -- and how thin a cohort may be before averaging it is
+# editorialising rather than measuring.
+REACH_ERA_DORMANCY_DAYS = 30
+REACH_COHORT_MIN = 3
+REACH_PLATEAU_DAYS = 7
+REACH_GAP_MIN_DAYS = 2.0
+
+
+def post_reach_series():
+    """-> [(posted_epoch, reach|None)] oldest-first for the active persona, or None.
+
+    `reach` stays None where the platform did not report it (CollectPostInsights
+    records nil rather than defaulting, see its `reach` comment): a missing metric
+    dropped here would silently enter an average as a zero.
+    """
+    rows = psql_lines(
+        "select extract(epoch from posted_at)::bigint || '|' || coalesce(reach::text, '') "
+        "from scheduling_posts where status = 'posted' and posted_at is not null "
+        "and persona_id = (select persona_id from growth_goals where status = 'active' "
+        "order by id desc limit 1) order by posted_at"
+    )
+    if rows is None:
+        return None
+    series = []
+    for line in rows:
+        epoch, _, reach = line.partition("|")
+        try:
+            series.append((float(epoch), int(reach) if reach.strip() else None))
+        except ValueError:
+            continue
+    return series
+
+
+def reach_stat(values):
+    """PURE: [int] -> (n, mean, median, max) or None. Sorted copy: never mutate."""
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    return {
+        "n": n,
+        "mean": round(sum(vals) / n, 1),
+        "median": vals[(n - 1) // 2],
+        "max": vals[-1],
+    }
+
+
+def reach_era_split(series, now_epoch=None, dormancy_days=REACH_ERA_DORMANCY_DAYS,
+                    gap_min_days=REACH_GAP_MIN_DAYS, min_cohort=REACH_COHORT_MIN,
+                    plateau_days=REACH_PLATEAU_DAYS):
+    """PURE: [(epoch, reach|None)] -> the trajectory around the run's longest gap.
+
+    Returns None -- printing NOTHING -- whenever the data cannot carry the claim:
+    too few posts, no gap wide enough to bracket a collapse, or a cohort too small
+    to average. A thin cohort averaged anyway would editorialise, and an
+    unmeasured account reported as a collapse is the fabricated verdict this
+    measurement exists to prevent (same rule as discovery_attribution_clause).
+
+    The CURRENT RUN begins after the last gap longer than `dormancy_days` (this
+    account's history holds 75d and 97d dormant stretches, so an unscoped "longest
+    gap" would bracket February instead of September); within the run the longest
+    gap is the one publication silence the cohorts are split on.
+    """
+    pts = sorted((float(t), r) for t, r in series if t is not None)
+    if len(pts) < 2 * min_cohort + 1:
+        return None
+    era_idx = 0
+    for i in range(1, len(pts)):
+        if (pts[i][0] - pts[i - 1][0]) > dormancy_days * 86400:
+            era_idx = i
+    era = pts[era_idx:]
+    if len(era) < 2 * min_cohort:
+        return None
+    best_i, best_gap = None, 0.0
+    for i in range(1, len(era)):
+        gap = era[i][0] - era[i - 1][0]
+        if gap > best_gap:
+            best_i, best_gap = i, gap
+    gap_days = best_gap / 86400.0
+    if best_i is None or gap_days < gap_min_days:
+        return None
+    gap_start, gap_end = era[best_i - 1][0], era[best_i][0]
+    pre = era[:best_i]
+    before = reach_stat(r for _, r in pre)
+    plateau = reach_stat(r for t, r in pre if t >= gap_start - plateau_days * 86400)
+    after = reach_stat(r for _, r in era[best_i:])
+    if not before or not plateau or not after:
+        return None
+    if min(before["n"], plateau["n"], after["n"]) < min_cohort:
+        return None
+    def fmt(epoch):
+        return time.strftime("%Y-%m-%d %H:%M", time.gmtime(epoch))
+    return {
+        "era_start_txt": fmt(era[0][0]),
+        "gap_days": gap_days,
+        "gap_start_txt": fmt(gap_start),
+        "gap_end_txt": fmt(gap_end),
+        "plateau_days": plateau_days,
+        "days_since_txt": f"{(now_epoch - gap_end) / 86400.0:.0f}d" if now_epoch else "?",
+        "before": before,
+        "plateau": plateau,
+        "after": after,
+        "collapsed": after["mean"] < plateau["mean"] and after["max"] < plateau["max"],
+    }
+
+
+def reach_trajectory_clause(split):
+    """PURE: the measured reach trajectory as a sentence, or '' when unmeasured.
+
+    It reports the trajectory and what the collapse does NOT license -- a uniform
+    verdict on the content -- rather than naming a cause: the same silence could
+    have cost a distribution the account already earned, or content may have
+    changed inside the same window, and this measurement cannot separate them.
+    What it CAN say is that the pre-gap cohort reads 3x higher on the same
+    account six days earlier, so "nothing here was ever distributed" is false.
+    """
+    if not split:
+        return ""
+    b, p, a = split["before"], split["plateau"], split["after"]
+    if not split["collapsed"]:
+        return (
+            f" REACH TRAJECTORY: this account's current publishing run began "
+            f"{split['era_start_txt']} and its longest gap in that run is "
+            f"{split['gap_days']:.1f}d ({split['gap_start_txt']} -> {split['gap_end_txt']}); "
+            f"reach before it was {p['mean']} mean / {p['max']} max over {p['n']} post(s) and "
+            f"since resuming it reads {a['mean']} mean / {a['max']} max over {a['n']} post(s), so "
+            "the zero is NOT a collapse bracketing that gap."
+        )
+    return (
+        f" REACH TRAJECTORY, from the same per-post columns: this account's current publishing "
+        f"run began {split['era_start_txt']} and its longest gap in that run is "
+        f"{split['gap_days']:.1f}d ({split['gap_start_txt']} -> {split['gap_end_txt']}). Reach had "
+        f"been CLIMBING across that run -- the {p['n']} post(s) in the {split['plateau_days']}d "
+        f"immediately before the gap average {p['mean']} (median {p['median']}, max {p['max']}), "
+        f"the whole pre-gap run {b['mean']} over {b['n']} measured post(s) -- and every measured "
+        f"post since publishing resumed reads {a['mean']} mean / {a['median']} median / {a['max']} "
+        f"max over {a['n']} post(s), flat across the {split['days_since_txt']} since. The pre-gap "
+        "cohort has also had longer to accumulate its reach, which if anything understates the "
+        "drop. So the zero counted above brackets a SILENCE the account published through before, "
+        "not a machine that never reached anyone -- and it does not by itself separate a "
+        "distribution reset at that silence from a content change inside the same window."
+    )
+
+
+def reach_trajectory_clause_live(now_epoch=None):
+    """The clause against the live per-post series; '' when unreadable."""
+    series = post_reach_series()
+    if not series:
+        return ""
+    return reach_trajectory_clause(
+        reach_era_split(series, now_epoch=now_epoch if now_epoch is not None else time.time())
+    )
+
+
 def check_engagement_acceptance():
     """OUTPUT != ACCEPTED OUTPUT: full-cadence publishing that nobody accepts.
 
@@ -2044,6 +2202,7 @@ def check_engagement_acceptance():
     attribution = latest_discovery_attribution()
     discovery_txt = discovery_attribution_clause(*attribution) if attribution else ""
     gone_txt = media_gone_clause(measured_posts_media_gone(), measured)
+    trend_txt = reach_trajectory_clause_live()
     platform_kind, platform_txt = platform_engagement_corroboration(
         platform_max, days_measured, likes + comments + saved
     )
@@ -2059,7 +2218,7 @@ def check_engagement_acceptance():
         "target -- so every machine-level check stays green while the RESULT is "
         "zero. This is the acceptance counter for the 2026-09-28 GO/PIVOT/KILL "
         "gate; a flat engagement read there is this condition, not a starved "
-        "pipeline." + discovery_txt + gone_txt + platform_txt + " Self-closes when a published "
+        "pipeline." + discovery_txt + gone_txt + trend_txt + platform_txt + " Self-closes when a published "
         "post is engaged with (any like/comment/save in the window) -- that "
         "predicate stays on the per-post columns the gate reads, so a platform "
         "counter that disagrees is reported here and never closes it silently."
@@ -8926,6 +9085,59 @@ def cmd_selftest(_argv):
            platform_engagement_corroboration(0, 12, 2)[0], "ours_only")
     expect("platform_engagement_corroboration[both-engaged]",
            platform_engagement_corroboration(3, 12, 5)[0], "ours_only")
+
+    # reach_era_split / reach_trajectory_clause: the reach trajectory that says
+    # whether the acceptance zero is a content verdict or the loss of a
+    # distribution the account had already earned. Every branch that must stay
+    # SILENT is asserted here, because a clause that fires on a thin or unmeasured
+    # cohort is a fabricated verdict, and one that never fires is zero coverage.
+    DAY = 86400.0
+    _base = 1000000.0 * DAY
+    def _series(before_vals, after_vals, gap=9.0, n_dormant=6):
+        # a dormant stretch, then the run, then the gap, then the resume: the
+        # split must ignore the dormancy gap and bracket the intra-run one.
+        s = [(_base - (n_dormant - i) * 40 * DAY, 3) for i in range(n_dormant)]
+        s += [(_base + i * DAY, v) for i, v in enumerate(before_vals)]
+        start = _base + (len(before_vals) - 1 + gap) * DAY
+        s += [(start + i * DAY, v) for i, v in enumerate(after_vals)]
+        return s
+    _s = reach_era_split(_series([3, 5, 9, 11, 12], [3, 2, 4, 3, 3]),
+                         now_epoch=_base + 30 * DAY)
+    expect("reach_era_split[collapsed-detected]", bool(_s and _s["collapsed"]), True)
+    expect("reach_era_split[gap-brackets-intra-run]", round(_s["gap_days"], 1), 9.0)
+    expect("reach_era_split[era-excludes-dormancy]",
+           _s["era_start_txt"], time.strftime("%Y-%m-%d %H:%M", time.gmtime(_base)))
+    expect("reach_era_split[before-n]", _s["before"]["n"], 5)
+    expect("reach_era_split[after-n]", _s["after"]["n"], 5)
+    expect("reach_trajectory_clause[collapse-says-climbing]",
+           "CLIMBING" in reach_trajectory_clause(_s), True)
+    expect("reach_trajectory_clause[collapse-names-gap-date]",
+           "->" in reach_trajectory_clause(_s), True)
+    expect("reach_trajectory_clause[collapse-does-not-name-a-cause]",
+           "does not by itself separate" in reach_trajectory_clause(_s), True)
+    # a run whose reach did not collapse must SAY so -- silence here would let a
+    # content verdict stand unexamined.
+    _flat = reach_era_split(_series([3, 3, 4, 3, 3], [3, 4, 3, 3, 4]),
+                            now_epoch=_base + 30 * DAY)
+    expect("reach_era_split[flat-not-collapsed]", bool(_flat), True)
+    expect("reach_era_split[flat-collapsed-flag]", _flat["collapsed"], False)
+    expect("reach_trajectory_clause[flat-says-not-collapse]",
+           "NOT a collapse" in reach_trajectory_clause(_flat), True)
+    # too thin / no gap / unmeasured -> NO clause at all.
+    expect("reach_era_split[thin-cohort]",
+           reach_era_split(_series([3, 4], [3, 4]), now_epoch=_base + 30 * DAY), None)
+    expect("reach_era_split[no-gap]",
+           reach_era_split(_series([3, 4, 5, 6], [3, 4, 5, 6], gap=0.5),
+                           now_epoch=_base + 30 * DAY), None)
+    expect("reach_era_split[no-data]", reach_era_split([]), None)
+    expect("reach_era_split[unmeasured-reach-dropped]",
+           reach_era_split(_series([3, 4, 5, 6], [None, None, None, None]),
+                           now_epoch=_base + 30 * DAY), None)
+    expect("reach_trajectory_clause[none]", reach_trajectory_clause(None), "")
+    expect("reach_stat[empty]", reach_stat([]), None)
+    expect("reach_stat[none-values]", reach_stat([None, None]), None)
+    expect("reach_stat[median-is-middle]", reach_stat([5, 1, 3])["median"], 3)
+    expect("reach_stat[mean]", reach_stat([2, 4])["mean"], 3.0)
 
     # colliding_pairs: sorted epoch seconds -> pairs inside the burst window.
     burst_cases = [
