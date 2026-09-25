@@ -155,6 +155,37 @@ namespace :growth do
     # publisher treats a non-zero here as a WARN and publishes anyway.
   end
 
+  desc 'Pre-publish near-duplicate gate: hold queued posts whose render duplicates an already-published (or already-queued) image (dry run; APPLY=1 to hold, LIMIT=N, NEAR_DUP_THRESHOLD=N)'
+  task :near_dup_gate, [ :persona_name ] => :environment do |_t, args|
+    persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first
+    apply = ENV['APPLY'] == '1'
+    limit = (ENV['LIMIT'].presence || Growth::NearDuplicateGate::DEFAULT_LIMIT).to_i
+    threshold = ENV['NEAR_DUP_THRESHOLD'].presence&.to_i
+
+    results = Growth::NearDuplicateGate.call(persona: persona, dry_run: !apply, limit: limit,
+                                             threshold: threshold)
+
+    if results.empty?
+      puts 'Near-dup gate: nothing to check (no unpublished future post without a current read)'
+    end
+
+    results.each do |r|
+      mark = { held: 'HELD', would_hold: 'WOULD HOLD', cleared: 'distinct', would_clear: 'distinct',
+               kept: 'kept (earliest of the pair)', would_keep: 'kept (earliest of the pair)',
+               skipped: 'unreadable' }.fetch(r.outcome, r.outcome.to_s)
+      partner = r.partner_kind ? "#{r.partner_kind} post #{r.partner_post_id}" : 'none'
+      puts "Near-dup gate: post #{r.post_id} (photo #{r.photo_id}) -> #{r.verdict} [#{mark}] " \
+           "d=#{r.distance.inspect} nearest=#{partner}"
+    end
+
+    held = results.count { |r| r.outcome == :held }
+    would = results.count { |r| r.outcome == :would_hold }
+    puts "Near-dup gate: #{results.size} checked, #{held} held, #{would} would hold, " \
+         "#{results.count { |r| r.outcome == :skipped }} unreadable (dry_run=#{!apply})"
+    # Deliberately exit 0: a HOLD is the gate working, not a failure. The
+    # publisher treats a non-zero here as a WARN and publishes anyway.
+  end
+
   desc 'Recover abandoned renders into the queue (GPU-free; bounded by the cadence shortfall)'
   task :salvage_abandoned, [ :persona_name ] => :environment do |_t, args|
     persona = args[:persona_name] ? Persona.find_by(name: args[:persona_name]) : Persona.first

@@ -174,6 +174,37 @@ if [ "$AGE_GATE_CODE" -ne 0 ]; then
     log "WARN: age gate exited $AGE_GATE_CODE — publishing anyway"
 fi
 
+# Hold any queued post whose render duplicates an image already published, or
+# already queued to publish (2026-09-24). Instagram removed 36 of the 150 posts
+# this account published, and the removals are CONTENT-linked: posts 138-142
+# published the SAME image on five consecutive days (dHash distance 0, one
+# collapsed render directory) and all five were removed, every pair at distance
+# <= 6 in the corpus is inside the removed set, and no surviving pair is closer
+# than 7. Nothing in the repo checked for this (grep for dhash/phash/perceptual
+# over packs/ bin/ app/ lib/ found nothing), so the only thing standing between a
+# collapsed render batch and a duplicate post was nothing. Instagram suppresses
+# duplicate content, so this is a removal cause AND an independent candidate
+# contributor to the account's ~0 reach.
+#
+# The publisher is the only path that knows a post is about to become public, so
+# the gate lives here, ahead of scheduling:post_scheduled -- alongside the age
+# gate and for the same reason. GPU-FREE (dHash over the assets via bin/dhash.py;
+# Ruby has no PNG decoder in this bundle) and bounded to LIMIT posts per tick,
+# nearest slot first. Of a collapsed batch, exactly one member survives (the
+# earliest slot) and the rest are held; a hold clears the post's two publisher
+# clocks, which reopens the cadence shortfall so the next growth tick renders a
+# replacement.
+#
+# Deliberately NON-FATAL, and it FAILS OPEN: a missing/undecodable asset or an
+# unavailable hasher records nothing and publishes exactly as before, so the gate
+# can never stall the queue.
+log "Checking queued renders for near-duplicates..."
+APPLY=1 LIMIT=3 bundle exec rails growth:near_dup_gate[Sarah] 2>&1 | tee -a "$LOG_FILE"
+NEAR_DUP_CODE=${PIPESTATUS[0]}
+if [ "$NEAR_DUP_CODE" -ne 0 ]; then
+    log "WARN: near-duplicate gate exited $NEAR_DUP_CODE — publishing anyway"
+fi
+
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}
