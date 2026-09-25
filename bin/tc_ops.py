@@ -340,6 +340,21 @@ LINGERING_CHANGE_MIN = 45
 PROMPT_SAFETY_GUARD_SRC = (APP / "packs" / "job_orchestration" / "app"
                            / "commands" / "build_job_payload.rb")
 PROMPT_SAFETY_GUARD_REF = "PipelinePromptSafety"
+# The near-duplicate gate (Growth::NearDuplicateGate). A gate dropped from the
+# publisher is a gate that does nothing and nothing else would notice, because
+# the gate FAILS OPEN: without it the publish path simply ships duplicates again
+# -- a measured Instagram removal cause (posts 138-142 shipped one image five
+# days running and all five were removed). So the call site and the hasher are
+# asserted STRUCTURALLY, the same way the prompt-safety call site is.
+NEAR_DUP_GATE_REF = "growth:near_dup_gate"
+NEAR_DUP_GATE_SRC = (APP / "packs" / "growth_harness" / "app" / "services"
+                     / "growth" / "near_duplicate_gate.rb")
+NEAR_DUP_HASHER_SRC = APP / "bin" / "dhash.py"
+NEAR_DUP_HOLD_WINDOW_H = 48
+# Three holds inside the window means the UPSTREAM fault -- a render path
+# collapsing a batch into one image -- is not fixed, and the gate is holding
+# renders faster than the producer replaces them.
+NEAR_DUP_HOLD_WARN_N = 3
 # The DATABASE half of the synthetic mark (openspec change
 # add-synthetic-provenance). Both render producers must create the Photo through
 # this ONE method, or the mark is remembered by one path and forgotten by the
@@ -1281,6 +1296,166 @@ def check_age_gate_holds():
         "later. The INPUT half of the fix is the adult age anchor in the persona's "
         f"positive prompt (PersonaAgeAnchor); >= {AGE_HOLD_WARN_N} holds in the "
         f"window means that anchor is not landing. Held rows: {named}",
+    )
+
+
+def near_dup_verdict(wired, publishable, recent_holds, live_holds):
+    """Pure: near-duplicate gate counts -> (severity, kind) or None.
+
+    Four counts, and the two that raise severity are the two ways this gate
+    silently stops existing:
+
+    wired -- bin/scheduled_posting.sh still invokes growth:near_dup_gate, the
+        gate source is still on disk, and its hasher (bin/dhash.py) still exists.
+        A gate dropped from the publisher is a gate that does nothing, and
+        NOTHING else in the repo would notice: the publish path would go back to
+        shipping duplicates exactly as it did before the fix, with no error
+        anywhere. The check is STRUCTURAL for the same reason the prompt-safety
+        check asserts its call site -- a code edit that removes the call is
+        invisible until a post ships. Dangling, not merely degraded: the hasher
+        missing makes every render read as unreadable, and the gate fails OPEN,
+        so its absence is undetectable at runtime.
+    publishable -- an unpublished post whose own stored read says DUPLICATE still
+        carries a live clock (or is not marked held at all). The publisher
+        selects on exactly that predicate, so the hold is NOT in force and the
+        duplicate is one tick from the account.
+    recent_holds -- holds inside NEAR_DUP_HOLD_WINDOW_H. >= NEAR_DUP_HOLD_WARN_N
+        means the PRODUCER is collapsing batches faster than the queue replaces
+        them (the render path is emitting the same image repeatedly), which is
+        the upstream fault this gate exists to survive; 1..N-1 is informational
+        -- the gate did its job and the queue owes a replacement render.
+    live_holds -- posts held right now (unpublished, no clock). Deliberately NOT
+        what raises severity: a hold is a decision already taken, so keying on it
+        would pin the board forever instead of letting an aged-out hold
+        self-close.
+
+    Returns None when nothing is recent and nothing is unwired -- that is what
+    makes the entry self-closing.
+    """
+    if not wired:
+        return ("critical", "unwired")
+    if publishable:
+        return ("critical", "publishable")
+    if recent_holds >= NEAR_DUP_HOLD_WARN_N:
+        return ("warn", "holds")
+    if recent_holds > 0:
+        return ("info", "holds")
+    return None
+
+
+def check_near_dup_gate():
+    """The near-duplicate gate: wired into the publisher, and holding what it holds.
+
+    WHY THIS EXISTS (measured 2026-09-24): Instagram removed 36 of the 150 posts
+    this account published, and the removals are CONTENT-linked -- posts 138-142
+    published the SAME image on five consecutive days (dHash distance 0, one
+    collapsed render directory) and all five were removed, every pair at distance
+    <= 6 in the corpus is inside the removed set, no surviving pair is closer
+    than 7, and no near-duplicate check existed anywhere in the repo. The gate
+    (Growth::NearDuplicateGate, called from bin/scheduled_posting.sh ahead of
+    scheduling:post_scheduled) is the fix. This check is the evidence that it is
+    still in force: a producer-side fix with no observability is re-diagnosed as
+    a defect and "repaired" in the unsafe direction -- the exact failure the
+    age-gate check was written for.
+    """
+    publisher_src = ""
+    try:
+        publisher_src = (APP / "bin" / "scheduled_posting.sh").read_text()
+    except Exception:
+        pass
+
+    missing = []
+    if NEAR_DUP_GATE_REF not in publisher_src:
+        missing.append(f"bin/scheduled_posting.sh no longer invokes {NEAR_DUP_GATE_REF}")
+    for label, path in (
+        ("the gate source", NEAR_DUP_GATE_SRC),
+        ("its hasher bin/dhash.py", NEAR_DUP_HASHER_SRC),
+    ):
+        if not path.is_file():
+            missing.append(f"{label} is missing ({path.relative_to(APP)})")
+    wired = not missing
+
+    row = psql(
+        "select "
+        " count(*) filter (where flagged and (not held or has_clock)) || '|' || "
+        " count(*) filter (where held and ts > (now() at time zone 'UTC') "
+        f" - interval '{NEAR_DUP_HOLD_WINDOW_H} hours') || '|' || "
+        " count(*) filter (where held and not has_clock) "
+        "from (select "
+        " (caption_metadata->'near_dup_gate'->>'verdict') = 'duplicate' as flagged, "
+        " (caption_metadata->'near_dup_gate'->>'held') = 'true' as held, "
+        " (coalesce(scheduled_at, optimal_time_calculated) is not null) as has_clock, "
+        " case when (caption_metadata->'near_dup_gate'->>'checked_at') "
+        "      ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' "
+        "  then (caption_metadata->'near_dup_gate'->>'checked_at')::timestamptz end as ts "
+        " from scheduling_posts "
+        " where status in ('draft','scheduled') and caption_metadata ? 'near_dup_gate') t")
+    publishable = recent = live = None
+    if row is not None:
+        try:
+            p_str, r_str, l_str = row.split("|")
+            publishable, recent, live = int(p_str), int(r_str), int(l_str)
+        except ValueError:
+            publishable = recent = live = None
+
+    v = near_dup_verdict(wired, publishable or 0, recent or 0, live or 0)
+    if not v:
+        return None
+    sev, kind = v
+
+    if kind == "unwired":
+        return (
+            "near-dup-gate-unwired",
+            "the near-duplicate gate is not in force on the publish path",
+            sev,
+            "The gate that stops an image already published (or already queued) "
+            "from shipping again is not in force: " + "; ".join(missing) + ". "
+            "Nothing else in the repo notices this -- the publish path simply goes "
+            "back to shipping duplicates, which is a measured Instagram removal "
+            "cause (posts 138-142 shipped one image five days running and all five "
+            "were removed). Restore the step in bin/scheduled_posting.sh: "
+            "APPLY=1 LIMIT=3 bundle exec rails growth:near_dup_gate[Sarah], ahead of "
+            "scheduling:post_scheduled.",
+        )
+
+    detail = psql_lines(
+        "select '#' || id || ' (photo ' || coalesce(photo_id::text, '?') || '): ' || "
+        "coalesce(caption_metadata->'near_dup_gate'->>'partner_kind', '?') || ' post ' || "
+        "coalesce(caption_metadata->'near_dup_gate'->>'partner_post_id', '?') || "
+        "' d=' || coalesce(caption_metadata->'near_dup_gate'->>'distance', '?') "
+        "from scheduling_posts "
+        "where status in ('draft','scheduled') "
+        "and caption_metadata->'near_dup_gate'->>'held' = 'true' "
+        "order by id desc limit 3") or []
+    named = "; ".join(r.strip() for r in detail if r and r.strip())
+
+    if kind == "publishable":
+        return (
+            "near-dup-gate-hold",
+            f"{publishable} post(s) the near-duplicate gate flagged are still publishable",
+            sev,
+            f"{publishable} unpublished row(s) carry caption_metadata.near_dup_gate."
+            "verdict='duplicate' with a live clock (or no hold marker), so "
+            "scheduling:post_scheduled can release a duplicate to the account. The "
+            "hold is (no scheduled_at AND no optimal_time_calculated) -- a held row "
+            "is NOT broken, so do not repair it by restoring its clock; re-apply the "
+            "hold (both cleared clocks are stored in the Growth::Decision row "
+            f"action=near_dup_hold, so it stays reversible). Held rows: {named}",
+        )
+    return (
+        "near-dup-gate-hold",
+        f"{recent} render(s) held by the near-duplicate gate in the last "
+        f"{NEAR_DUP_HOLD_WINDOW_H}h",
+        sev,
+        f"{recent} post(s) held in the window; {live} still in the held state "
+        "(unpublished, both clocks cleared, so never released by the publisher). "
+        "The gate holds a queued render whose image already exists in the published "
+        "corpus or elsewhere in the queue (only the EARLIEST of a duplicate set "
+        "survives) and is WORKING AS DESIGNED -- a hold drops the post out of the "
+        "cadence count, so the producer owes a replacement render. The UPSTREAM "
+        f"fault is the render path emitting the same image repeatedly: >= "
+        f"{NEAR_DUP_HOLD_WARN_N} holds in the window means the collapsed-batch "
+        f"producer is not fixed. Held rows: {named}",
     )
 
 
@@ -7286,6 +7461,7 @@ CHECKS = [
     check_render_acceptance,
     check_render_execution_errors,
     check_age_gate_holds,
+    check_near_dup_gate,
     check_photo_pool,
     check_photo_resolution,
     check_photo_provenance,
@@ -8239,6 +8415,25 @@ def cmd_selftest(_argv):
     ]
     for name, pj, recent, live, want in age_cases:
         expect(f"age_hold_verdict[{name}]", age_hold_verdict(pj, recent, live), want)
+
+    # near_dup_verdict: (wired, publishable, recent_holds, live_holds). The gate
+    # FAILS OPEN, so an unwired/dangling gate is invisible at runtime -- that is
+    # the only reason the structural verdict is critical. A flagged-but-publishable
+    # duplicate is the other critical, and an old live hold must NOT raise severity
+    # or a stale hold pins the board forever.
+    nd_cases = [
+        ("nothing", True, 0, 0, 0, None),
+        ("one-hold", True, 0, 1, 1, ("info", "holds")),
+        ("at-warn", True, 0, NEAR_DUP_HOLD_WARN_N, 3, ("warn", "holds")),
+        ("many-holds", True, 0, 5, 5, ("warn", "holds")),
+        ("unwired", False, 0, 0, 0, ("critical", "unwired")),
+        ("unwired-beats-holds", False, 0, 5, 5, ("critical", "unwired")),
+        ("publishable-duplicate", True, 1, 0, 1, ("critical", "publishable")),
+        ("publishable-beats-warn", True, 1, 5, 5, ("critical", "publishable")),
+        ("old-live-hold-self-closes", True, 0, 0, 2, None),
+    ]
+    for name, wired, pub, recent, live, want in nd_cases:
+        expect(f"near_dup_verdict[{name}]", near_dup_verdict(wired, pub, recent, live), want)
 
     # queued_hashtag_verdict: untagged queued posts -> severity. Zero must be
     # None (the entry self-closes once the publisher's repair fills the queue) and
