@@ -3,17 +3,13 @@
   "title": "the next gate read cannot be a measurement: 0 post-intervention post(s) can carry insights inside the 09-28 13:00 review window (need 5) while the render loop is refused",
   "severity": "warn",
   "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 15. Inside that window the SLOTS hold 0 published + 4 queued = 4, but Growth::GateRead#cohort_size ALSO requires insights_updated_at, and insights arrive a measured 30h after publication (fastest observed publish->insights lag, taken from the DB) -- so a slot inside the window's last 30h can never testify. FEASIBLE cohort: 0 published + 0 queued = 0, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: its LAST attempt was refused (newest refusal 2026-09-25 07:04:15.634126Z is newer than the newest post-intervention photo 2026-09-25 06:40:30.408511), 1 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window; the launch-args gate is NOT firing (no :8188 instance is up without --reserve-vram), so the refusal is the VRAM/claim path -- check_render_starved carries that attribution and this entry deliberately does not guess a holder. Nothing here is ours to repair -- the refusal itself is correct (an instance launched without --reserve-vram cannot be submitted to) -- and this entry is not an ask on the holder: it self-closes when the loop stops being refused.",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-22T17:59:02-0400",
   "last_seen": "2026-09-25T03:52:26-0400",
   "seen_count": 84,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-24T00:36:24-0400",
-      "note": "2026-09-24 04:4xZ ops-triage: unchanged and on its self-close path. Last comfyui_unclaimed refusal 01:00:38Z (18:00-21:00 local holds by the operator's flagless :8188 session); refunds stopped when that session ended -- the 22:00/23:00/00:00 local ticks all CLAIMED after 0s and launched with --reserve-vram 5, and 3 photos (362/363/364) landed in the 3h to 03:39Z. 9 refusals are still inside the 12h window, so gate_cohort_verdict keeps the entry alive until ~13:00:38Z, then it clears on its own. No action, nothing hand-closed."
-    },
     {
       "ts": "2026-09-24T01:37:53-0400",
       "note": "2026-09-24 05:3xZ ops-triage: unchanged and still on its self-close path. Refusals in the 12h window are down to 8 (was 9); the last comfyui_unclaimed refusal is 01:00:38Z, so the window empties and check_gate_cohort_starved returns None on its own at ~13:00:38Z -- no hand-close. The render loop is producing again: photos 362/363/364/365 across 02:15Z..04:40Z, and the 10-05 window's feasible cohort stands at 5 of 5 (posts 355-358, photos 362-365), so the strategy read it forecasts is a real measurement rather than another :extend. No action taken on this item, nothing hand-closed."
@@ -33,7 +29,11 @@
     {
       "ts": "2026-09-24T05:27:48-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-25T04:25:39-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-09-24T05:27:48-0400"
+  "closed_at": "2026-09-25T04:25:39-0400"
 }
