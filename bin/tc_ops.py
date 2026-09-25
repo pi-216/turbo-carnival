@@ -723,6 +723,7 @@ def check_slot():
 
 
 OWN_QUEUE_GRACE_MIN = 10   # a just-requested entry is not a blockade yet
+FOREIGN_STALE_MIN = 60     # a co-tenant's entry queued this long with the card idle is abandoned
 
 
 def fifo_blocker_kind(records, gpu, mine, current_job):
@@ -762,10 +763,10 @@ def fifo_blocker_kind(records, gpu, mine, current_job):
 
 def own_queue_verdict(q, status, ours, now=None, free_mib=None, requested_mib=None,
                       blockers=None, current_job=None):
-    """Our own queued 4090 entries -> (key, title, severity, evidence) or None.
+    """Our own queued 4090 entries -> (key, title, severity, evidence[, route, ask]).
 
-    Two shapes, both invisible to every existing check (check_slot only files a
-    foreign hold, and only when one of our jobs is queued):
+    Three shapes, all invisible to the QUEUE field alone (state.json's per-GPU
+    `queue` is vestigial and reads []; the queue is derived from jobs/*.json):
 
     * FLOOD: more than one outstanding request from this project. The harness
       mints a fresh `comfyui-<ts>-<pid>` per tick, so a tick killed mid-wait (the
@@ -807,6 +808,36 @@ def own_queue_verdict(q, status, ours, now=None, free_mib=None, requested_mib=No
     j = own[0]
     head = (q or [None])[0]
     age = age_min(j)
+    # BLOCKED BY ANOTHER PROJECT'S ABANDONED ENTRY -- the third shape, and the one
+    # no check saw: our entry is queued BEHIND a foreign entry that is neither
+    # running nor polled, while the card sits idle. `poll` refuses us `not_my_turn`
+    # until that record leaves the queue (24 h expiry) or its owner claims it, so the
+    # shared 4090 is idle and unusable for every project at once. Measured
+    # 2026-09-21: one such entry refused every tick from 09:01 to 22:34. It is not
+    # ours to cancel (a co-tenant's work surface; the operator's standing rule is to
+    # leave other projects alone), so this rides the enablement queue rather than an
+    # agent-owned decision -- with the record named, which is the only thing the
+    # owner needs.
+    if (status == "idle" and not ours and isinstance(head, dict)
+            and head.get("project") != "turbo-carnival"
+            and head.get("id") != j.get("id")):
+        head_age = age_min(head)
+        if (fifo_blocker_kind(q, GPU, j.get("id"), current_job) == "stale"
+                and head_age is not None and head_age >= FOREIGN_STALE_MIN):
+            return (
+                "fifo-blocked-by-foreign-entry",
+                "our 4090 entry is blocked behind another project's abandoned queue entry",
+                "warn",
+                f"our entry {j.get('id')} queued {age:.0f} min ago sits BEHIND {head.get('id')} "
+                f"(project {head.get('project')}), queued {head_age:.0f} min with the 4090 idle and no "
+                f"claim ours — so that entry is neither running nor being polled, and `poll` refuses us "
+                f"`not_my_turn` until it leaves the queue (24h expiry) or its owner claims it; the card "
+                f"is idle and unusable for every project meanwhile",
+                "tim",
+                f"cancel the queued scheduler entry {head.get('id')} "
+                f"(project {head.get('project')}): it holds the shared 4090 FIFO head while the card is "
+                f"idle, and only the owning project may retire its record",
+            )
     if (head is not None and head.get("id") == j.get("id") and status == "idle"
             and not ours and age is not None and age >= OWN_QUEUE_GRACE_MIN):
         req_mib = None
@@ -836,12 +867,16 @@ def own_queue_verdict(q, status, ours, now=None, free_mib=None, requested_mib=No
 
 
 def check_own_queue_leak():
-    status, _job, ours, _ourjob = our_claim()
+    status, cur_job, ours, _ourjob = our_claim()
     return own_queue_verdict(
         queue(GPU), status, ours,
         free_mib=gpu_vram_free_mib(),
         requested_mib=(our_reservation_gb() or 0) * 1024 or None,
         blockers=vram_blocker_note(),
+        # The GPU's current_job is what separates a co-tenant's RUNNING entry from
+        # an abandoned one: both sit status="queued" in jobs/, and only the state
+        # file says which is in flight.
+        current_job=cur_job,
     )
 
 
@@ -9708,8 +9743,13 @@ def cmd_selftest(_argv):
     # mints a fresh job id per tick, so a tick killed mid-wait leaks its entry and
     # the next tick queues BEHIND it (self-starvation); a single own entry at the
     # head with the GPU idle is the blockade. Both were live on 2026-09-20.
-    def OQ(i, req="2026-09-20T19:00:00Z", proj="turbo-carnival"):
-        return {"id": i, "project": proj, "requested_at": req}
+    def OQ(i, req="2026-09-20T19:00:00Z", proj="turbo-carnival", gpu="4090", status="queued"):
+        # `gpu` and `status` are present on every real record and every reader
+        # filters on them (gpu_scheduler.read_queue returns status=="queued" records
+        # for one GPU), so the fixtures carry them too -- a fixture without them is a
+        # record the scheduler would never show in this GPU's queue.
+        return {"id": i, "project": proj, "gpu": gpu, "status": status,
+                "requested_at": req}
 
     oq_now = calendar.timegm(time.strptime("2026-09-20T21:00:00", "%Y-%m-%dT%H:%M:%S"))
     oq_cases = [
@@ -9747,6 +9787,28 @@ def cmd_selftest(_argv):
     # Unreadable free memory must NOT be read as "cannot fit" -- accuse only on data.
     v = own_queue_verdict(oq_head, "idle", False, now=oq_now, free_mib=None)
     expect("own_queue_verdict[free-unknown]", v[0] if v else None, "own-queue-blockade")
+
+    # ...the third shape: ours queued BEHIND a co-tenant's ABANDONED entry while the
+    # card is idle (measured 2026-09-21: refused every tick 09:01-22:34). Nothing saw
+    # it before, because this verdict only reasoned about OUR entry being at the head
+    # -- an idle card plus a foreign head entry read as nobody's problem, while `poll`
+    # refused us not_my_turn for 13 hours.
+    oq_blocked = [OQ("foreign", req="2026-09-20T18:00:00Z", proj="prx-tg-pixel-posttrain"),
+                  OQ("a", req="2026-09-20T19:00:00Z")]
+    v = own_queue_verdict(oq_blocked, "idle", False, now=oq_now)
+    expect("own_queue_verdict[blocked-by-foreign-key]", v[0] if v else None,
+           "fifo-blocked-by-foreign-entry")
+    expect("own_queue_verdict[blocked-by-foreign-sev]", v[2] if v else None, "warn")
+    expect("own_queue_verdict[blocked-by-foreign-route]", v[4] if v else None, "tim")
+    expect("own_queue_verdict[blocked-by-foreign-ask-names-record]",
+           bool(v and len(v) > 5 and v[5] and "foreign" in v[5]), True)
+    # ...and it must NOT fire for ordinary FIFO waiting: a co-tenant's entry that is
+    # RUNNING, or one only just queued, is normal sharing -- not an abandoned record.
+    v = own_queue_verdict(oq_blocked, "busy", False, now=oq_now, current_job="foreign")
+    expect("own_queue_verdict[blocked-by-running-foreign]", v[0] if v else None, None)
+    v = own_queue_verdict([OQ("foreign", req="2026-09-20T20:50:00Z", proj="prx-tg-pixel-posttrain"),
+                           OQ("a", req="2026-09-20T20:55:00Z")], "idle", False, now=oq_now)
+    expect("own_queue_verdict[blocked-by-fresh-foreign]", v[0] if v else None, None)
 
     # fifo_blocker_kind: WHICH KIND of entry holds the FIFO ahead of us. `poll`
     # refuses not_my_turn for a WAITING entry and a RUNNING one alike -- so an own
