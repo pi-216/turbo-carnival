@@ -1511,8 +1511,115 @@ def check_publish_liveness():
         sev,
         f"oldest overdue {oldest_h:.1f}h (grace {PUBLISH_GRACE_H}h, critical at "
         f"{PUBLISH_CRITICAL_H}h); newest published={last}; "
-        "publisher=bin/scheduled_posting.sh (user crontab, hourly)",
+        "publisher=bin/scheduled_posting.sh (user crontab, hourly; the driver "
+        "itself is asserted by check_publish_driver)",
     )
+
+
+# ------------------------------------------------------------------- driver
+# The publisher's DRIVER is configuration that lives OUTSIDE this repo, and config
+# rots silently (genome #13). bin/scheduled_posting.sh is run hourly from the USER
+# crontab, so every gate and repair it performs -- the persona age gate, the
+# near-duplicate gate, placeholder-caption repair, insights collection, post-slot
+# planning -- goes quiet TOGETHER the moment that one line is removed, and nothing
+# in the repo could see it. check_publish_liveness has named "user crontab" in its
+# evidence for weeks while nothing READ the crontab, and check_publish_gap only
+# sees the CONSEQUENCE hours later and without the cause. Measured 2026-09-25: the
+# driver `0 * * * * .../bin/scheduled_posting.sh` was located by hand only after an
+# ops pass failed to find it in cron/jobs.json, the systemd user timers and crontab
+# -- the first read of `crontab -l` printed only the file's comment header, which
+# is exactly why a probe, not prose, has to own this. A probe must be able to FAIL;
+# this one can.
+PUBLISHER_SCRIPT = "bin/scheduled_posting.sh"
+PUBLISHER_HOURLY = "0 * * * *"
+
+
+def publish_driver_verdict(crontab_text, unit_text):
+    """PURE: crontab text + systemd-user unit text -> (key, title, sev, evidence).
+
+    Only a DRIVER that RUNS the publisher is a hit. A commented-out line is not --
+    the crontab's own comment header names the script, which is the measured trap
+    that sent the first ops pass past the real line. A driver on a schedule other
+    than hourly is a warn rather than a pass, because the whole pipeline downstream
+    (runway, slot planner, burst window) is sized on an hourly tick.
+
+    `None` for either input means UNREADABLE there, and both unreadable is no
+    signal rather than a warn: an OK that is not causally tied to the condition is
+    the failure this family exists to avoid.
+    """
+    if crontab_text is None and unit_text is None:
+        return None
+    found = []
+    for line in (crontab_text or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "scheduled_posting.sh" not in s:
+            continue
+        fields = s.split()
+        if fields and fields[0].startswith("@"):
+            sched = fields[0]  # @hourly / @daily: the schedule IS the first field
+        else:
+            sched = " ".join(fields[:5]) if len(fields) >= 5 else ""
+        found.append((sched, s))
+    for chunk in (unit_text or "").split("\n---\n"):
+        for line in chunk.splitlines():
+            s = line.strip()
+            if s.startswith("#") or "scheduled_posting.sh" not in s:
+                continue
+            found.append(("@unit", s))
+    if not found:
+        return (
+            "publish-driver-absent",
+            "bin/scheduled_posting.sh has no driver: it is in neither the user "
+            "crontab nor any systemd user unit",
+            "critical",
+            "Nothing inside this repo invokes the publisher -- the hourly tick IS "
+            "the driver. Without it every gate and repair the publisher performs "
+            "goes quiet at once (persona age gate, near-duplicate gate, "
+            "placeholder-caption repair, insights collection, post-slot planning), "
+            "and check_publish_gap only sees the consequence hours later without "
+            "the cause. Restore it in `crontab -e`: "
+            f"`{PUBLISHER_HOURLY} /home/tim/source/activity/turbo-carnival/"
+            f"{PUBLISHER_SCRIPT}`.",
+        )
+    if any(sched in (PUBLISHER_HOURLY, "@hourly", "@unit") for sched, _ in found):
+        return None
+    sched, line = found[0]
+    return (
+        "publish-driver-cadence-changed",
+        f"the publisher's driver no longer runs hourly (schedule `{sched}`)",
+        "warn",
+        f"found: {line!r}. The pipeline downstream is sized on an hourly tick -- "
+        "the post-slot planner's burst window, the publish runway and the "
+        "near-duplicate/age gates all assume one publish pass per hour. A slower "
+        "cadence silently changes the posting rate; a faster one can release a "
+        "planned burst in the same tick. Change it deliberately or restore "
+        f"`{PUBLISHER_HOURLY}`.",
+    )
+
+
+def check_publish_driver():
+    """Read the publisher's driver and assert it is still wired. Read-only."""
+    out, rc = run(["crontab", "-l"], timeout=15)
+    if rc == 0:
+        crontab_text = out
+    elif "no crontab" in (out or "").lower():
+        crontab_text = ""  # readable and empty: the driver is genuinely gone
+    else:
+        crontab_text = None  # unreadable: no signal, never a guess
+    unit_text = None
+    try:
+        parts = []
+        for p in sorted((Path.home() / ".config" / "systemd" / "user").glob("*")):
+            if p.suffix not in (".service", ".timer"):
+                continue
+            try:
+                parts.append(p.read_text(errors="replace"))
+            except OSError:
+                continue
+        unit_text = "\n---\n".join(parts)
+    except OSError:
+        unit_text = None
+    return publish_driver_verdict(crontab_text, unit_text)
 
 
 def publish_gap_verdict(age_h):
@@ -3111,6 +3218,70 @@ def own_posts_missing_clause(stats, newly):
     return txt + "."
 
 
+def media_stability_verdict(rows):
+    """PURE: newest-first [(media_count, age_h)] -> (streak, hours, still_falling).
+
+    A point reading cannot say whether a purge is ONGOING (genome: Point-Reading !=
+    Event), and this check's headline -- "media_count fell by 25 inside the last
+    26h" -- stays literally true for a whole day AFTER a one-hour removal wave, so
+    the board reads as active suppression while nothing has moved for hours.
+    Measured 2026-09-25: 25 media went in the single hour 20:00Z->21:00Z on 09-24,
+    then every snapshot since held at 200, and the evidence could not tell a reader
+    which of those two situations they were looking at.
+
+    `streak` counts consecutive newest-first snapshots holding the newest value and
+    `hours` is the age of the oldest of them, so the clause brackets the event
+    instead of re-asserting it.
+    """
+    if not rows:
+        return None
+    newest = rows[0][0]
+    streak = 0
+    for count, _age in rows:
+        if count != newest:
+            break
+        streak += 1
+    idx = min(streak, len(rows)) - 1
+    hours = float(rows[idx][1] or 0.0)
+    falling = len(rows) > 1 and rows[0][0] < rows[1][0]
+    return (streak, hours, falling)
+
+
+def media_stability_clause(rows):
+    """PURE: the trend clause, or '' when the history could not be read."""
+    v = media_stability_verdict(rows)
+    if v is None:
+        return ""
+    streak, hours, falling = v
+    if falling:
+        return (" The two newest snapshots are STILL FALLING "
+                f"({rows[1][0]} -> {rows[0][0]}, newest {rows[0][1]:.1f}h ago): removals "
+                "are ONGOING as of the newest reading.")
+    return (f" Removals are NOT ongoing: the inventory has held at {rows[0][0]} across "
+            f"the last {streak} consecutive snapshot(s), spanning {hours:.1f}h, so this "
+            "is a bounded event rather than active suppression.")
+
+
+def media_history_rows(limit=12):
+    """Recent (media_count, age_hours) newest-first, or None when unreadable."""
+    lines = psql_lines(
+        "select media_count || '|' || round(extract(epoch from "
+        "((now() at time zone 'UTC') - taken_at)) / 3600.0, 1) "
+        "from growth_snapshots where media_count is not null "
+        f"order by taken_at desc limit {int(limit)}"
+    )
+    if lines is None:
+        return None
+    rows = []
+    for line in lines:
+        a, _, b = line.partition("|")
+        try:
+            rows.append((int(a), float(b)))
+        except ValueError:
+            continue
+    return rows
+
+
 def check_platform_media_removed():
     """OUTPUT != ACCEPTED OUTPUT, platform side: did media the account held disappear?
 
@@ -3188,6 +3359,10 @@ def check_platform_media_removed():
         age_h = "at an unknown age"
     ours = as_int(ours_s)
     per_post = own_posts_missing_clause(stats, newly)
+    # Bracket the event: the headline states a drop inside a 26h window, which stays
+    # true long after the removals stopped (genome: Point-Reading != Event), so the
+    # evidence has to say whether the inventory is still moving.
+    stability = media_stability_clause(media_history_rows())
     if drop:
         headline = (f"the account's media inventory SHRANK: media_count fell by "
                     f"{drop} inside the last {MEDIA_SHRINK_WINDOW_H}h (now {newest})")
@@ -3212,7 +3387,7 @@ def check_platform_media_removed():
         stock +
         "and nothing local is re-checked after publish: a removed post still counts as "
         "posted in the queue runway, the 14-day acceptance counter and the per-pillar "
-        "engagement read." + per_post +
+        "engagement read." + per_post + stability +
         " A gone media answers GET /{media-id}?fields=id with HTTP 400, code 100, "
         "subcode 33, while a live one answers 200 -- that is how the set above was "
         "established. Producer: Growth::MetricsCollector#fetch_media_count, hourly via "
@@ -7470,6 +7645,7 @@ CHECKS = [
     check_queue_runway,
     check_publish_silence,
     check_publish_liveness,
+    check_publish_driver,
     check_publish_gap,
     check_publish_failed_silent,
     check_insights_stale,
@@ -8382,6 +8558,59 @@ def cmd_selftest(_argv):
     ]
     for name, n, age, want in failed_cases:
         expect(f"publish_failed_verdict[{name}]", publish_failed_verdict(n, age), want)
+
+    # publish_driver_verdict: (crontab text, unit text) -> severity. The driver is
+    # the only thing that RUNS the publisher, so a missing or non-hourly driver must
+    # be able to FAIL -- and a commented-out line must NOT count as a driver, since
+    # the crontab's own header comment names the script (the measured trap that sent
+    # the first ops pass past the real line).
+    driver_cases = [
+        ("shipped", f"{PUBLISHER_HOURLY} /x/bin/scheduled_posting.sh", None, None),
+        ("at-hourly", "@hourly /x/bin/scheduled_posting.sh", None, None),
+        ("hourly-plus-other-jobs",
+         "30 23 * * * /home/tim/backup.sh\n0 * * * * /x/bin/scheduled_posting.sh",
+         None, None),
+        ("systemd-unit", "", "ExecStart=/x/bin/scheduled_posting.sh", None),
+        ("absent", "0 3 * * * /home/tim/backup.sh", None, "critical"),
+        ("commented-out", "# 0 * * * * /x/bin/scheduled_posting.sh", None, "critical"),
+        ("empty-crontab", "", "", "critical"),
+        ("only-path-in-a-prose-line", "# see bin/scheduled_posting.sh", None, "critical"),
+        ("daily", "0 9 * * * /x/bin/scheduled_posting.sh", None, "warn"),
+        ("every-15", "*/15 * * * * /x/bin/scheduled_posting.sh", None, "warn"),
+        ("both-unreadable", None, None, None),
+    ]
+    for name, ct, ut, want in driver_cases:
+        v = publish_driver_verdict(ct, ut)
+        expect(f"publish_driver_verdict[{name}]", v[2] if v else None, want)
+
+    # Live guard: a quiet result is only "the driver is wired" if the driver's OWN
+    # input parsed -- an unreadable crontab ALSO returns None, and an OK that is not
+    # causally tied to the condition is the failure this family exists to avoid.
+    _pd_out, _pd_rc = run(["crontab", "-l"], timeout=15)
+    if _pd_rc == 0:
+        _pd_hit = any("scheduled_posting.sh" in l and not l.strip().startswith("#")
+                      for l in _pd_out.splitlines())
+        expect("check_publish_driver[live-crontab-names-the-driver]", _pd_hit, True)
+        expect("check_publish_driver[live-agrees-with-its-own-input]",
+               (check_publish_driver() or (None,))[0], None)
+
+    # media_stability_verdict / clause: newest-first (media_count, age_h) -> trend.
+    # The headline is window-scoped and stays true for a day after a one-hour wave,
+    # so the clause is what tells a reader whether removals are still happening.
+    stab_cases = [
+        ("flat-after-wave", [(200, 0.5), (200, 1.5), (200, 2.5), (225, 3.5)],
+         (3, 2.5, False)),
+        ("still-falling", [(200, 0.5), (225, 1.5), (225, 2.5)], (1, 0.5, True)),
+        ("single-snapshot", [(200, 0.5)], (1, 0.5, False)),
+        ("empty", [], None),
+    ]
+    for name, rows, want in stab_cases:
+        expect(f"media_stability_verdict[{name}]", media_stability_verdict(rows), want)
+    expect("media_stability_clause[flat]",
+           "NOT ongoing" in media_stability_clause([(200, 0.5), (200, 1.5)]), True)
+    expect("media_stability_clause[falling]",
+           "ONGOING" in media_stability_clause([(200, 0.5), (225, 1.5)]), True)
+    expect("media_stability_clause[unreadable]", media_stability_clause(None), "")
 
     # render_error_verdict: failed-job error rows (newest first) -> severity. None
     # means the DB read failed (never a silent "no errors"), [] means a clean
