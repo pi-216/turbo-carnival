@@ -166,6 +166,17 @@ GATE_FOLLOWER_CEILING_RE = re.compile(r"FOLLOWER_CEILING\s*=\s*([\d.]+)")
 GATE_PILLAR_FLOOR_RE = re.compile(r"PILLAR_ENGAGEMENT_FLOOR\s*=\s*([\d.]+)")
 GATE_FOLLOWER_CEILING = 170
 GATE_PILLAR_FLOOR = 3.0
+# The read must also REPORT the platform's erasure of the very cohort it judges.
+# Instagram removed 36 of the 150 posts this app published (24 of them after their
+# insights were collected, 11 before it), and the erasure is invisible to `gate=`
+# in BOTH directions: a post removed after collection still votes -- with the zeros
+# it earned post-erasure -- and one removed before collection silently leaves the
+# cohort, shrinking it toward `:extend`. A read that judges a cohort whose posts
+# are gone, without saying so, is a verdict on the platform's deletions. Two
+# tokens are asserted because either half can be deleted independently: the
+# accounting in the read, and its line in the emitted output.
+GATE_REMOVAL_ACCOUNTING_RE = re.compile(r"def\s+removal_accounting\b")
+GATE_REMOVAL_PRINT_RE = re.compile(r"cohort_removed\s*=")
 # The engagement leg of that gate is a MEASUREMENT only if the review window
 # holds MIN_COHORT_POSTS posts whose PHOTO was rendered at/after the content-mix
 # intervention (Growth::GateRead.cohort_size: a post rendered before it cannot
@@ -2313,6 +2324,14 @@ def weekly_gate_wired_verdict(rake_src, gate_src):
     can be edited silently is not pre-registered -- changing one is a decision to
     change the pre-registration, not a config tweak, and it has to show up as an
     event rather than as a quiet diff.
+
+    And that the read still REPORTS the platform's ERASURE of its own cohort
+    (Growth::GateRead#removal_accounting plus the line `print_gate_read` emits):
+    Instagram removed 36 of the 150 posts this app published, in both the
+    after-collection shape (the posts still vote, with post-erasure zeros) and the
+    before-collection one (they silently leave the cohort, shrinking it toward
+    `:extend`), and neither is readable from `gate=`. Deleting the accounting
+    leaves every other signal green while the gate judges the platform's deletions.
     """
     if not rake_src:
         return ("warn", f"cannot read the weekly review task ({GROWTH_RAKE.name})")
@@ -2353,6 +2372,26 @@ def weekly_gate_wired_verdict(rake_src, gate_src):
                     "whose every post predates INTERVENTION_AT can pass it on content "
                     "the intervention never touched (the cohort rule is still enforced "
                     "on cohort_size, which is exactly how this reads green)")
+        # The read must also report the erasure of the cohort it judges -- see the
+        # constants' comment: the platform's removals are invisible to `gate=` in
+        # both directions, so a read that judges erased posts without saying so is
+        # a verdict on the deletions.
+        if not GATE_REMOVAL_ACCOUNTING_RE.search(gate_src):
+            return ("warn",
+                    "Growth::GateRead no longer accounts for the platform's REMOVALS of "
+                    "the cohort it judges: Instagram has removed 36 of the 150 posts this "
+                    "app published -- 24 after their insights were collected (they still "
+                    "vote, with post-erasure zeros, dragging the pillar leg down) and 11 "
+                    "before it (they leave the cohort silently, shrinking it toward "
+                    ":extend, which reads as 'not enough data yet'). Both shapes make "
+                    "`gate=` a verdict on the deletions, not on the levers")
+    if not GATE_REMOVAL_PRINT_RE.search(rake_src):
+        return ("warn",
+                "the pre-registered gate LINE no longer PRINTS the cohort's removal "
+                "accounting (cohort_removed=/gone_before_collection=): the read may "
+                "compute it, but the 09-28/10-05 lines are what a reader and the "
+                "GO/PIVOT/KILL decision actually see, and an erasure a reader cannot "
+                "see is an erasure that decides the gate")
     return None
 
 
@@ -8958,19 +8997,30 @@ def cmd_selftest(_argv):
     # so the gate would read green while judging content that cannot vote).
     gate_ok = "  FOLLOWER_CEILING        = 170\n  PILLAR_ENGAGEMENT_FLOOR = 3.0\n"
     gate_ok_leg = gate_ok + "  pillars = review.pillar_stats(cohort_scope)\n"
-    review_wired = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n")
+    # The read must also ACCOUNT for the platform's removals of its own cohort, and
+    # the emitted line must PRINT them: the two halves delete independently, so a
+    # revert of either has to read as a warn rather than as a green board.
+    gate_ok_full = gate_ok_leg + "  def removal_accounting(inputs = nil)\n"
+    # Removal accounting present, cohort leg REVERTED -- the case that must still
+    # warn (a removal clause must not mask the leg rule).
+    gate_no_leg = gate_ok + "  def removal_accounting(inputs = nil)\n"
+    review_wired = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
+                    "    puts \"cohort_removed=#{rm[:in_cohort]}\"\n")
+    review_wired_no_removal = "  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
     review_dark = ("  task :weekly_review do\n    puts review.verdict\n  end\n")
     gate_cases = [
-        ("wired", review_wired, gate_ok_leg, None),
-        ("wired-inline", "  task :weekly_review do\n    Growth::GateRead.new(goal: goal).call\n  end\n",
-         gate_ok_leg, None),
-        ("review-dropped-the-gate", review_dark, gate_ok_leg, "warn"),
+        ("wired", review_wired, gate_ok_full, None),
+        ("wired-inline", "  task :weekly_review do\n    Growth::GateRead.new(goal: goal).call\n  end\n"
+         "    puts \"cohort_removed=1\"\n", gate_ok_full, None),
+        ("review-dropped-the-gate", review_dark, gate_ok_full, "warn"),
         ("task-renamed", "  task :weekly_something_else do\n    print_gate_read.call(goal)\n  end\n",
-         gate_ok_leg, "warn"),
+         gate_ok_full, "warn"),
         ("ceiling-moved", review_wired, "  FOLLOWER_CEILING        = 250\n", "warn"),
         ("floor-moved", review_wired, "  PILLAR_ENGAGEMENT_FLOOR = 1.0\n", "warn"),
-        ("leg-back-on-the-window", review_wired, gate_ok, "warn"),
-        ("rake-unreadable", "", gate_ok_leg, "warn"),
+        ("leg-back-on-the-window", review_wired, gate_no_leg, "warn"),
+        ("removal-accounting-dropped", review_wired, gate_ok_leg, "warn"),
+        ("removal-line-dropped", review_wired_no_removal, gate_ok_full, "warn"),
+        ("rake-unreadable", "", gate_ok_full, "warn"),
         ("gate-src-unreadable", review_wired, "", None),
     ]
     for name, rake_src, gate_src, want in gate_cases:

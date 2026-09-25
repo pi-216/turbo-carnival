@@ -20,6 +20,13 @@ module Growth
   # #call): a window that still holds pre-intervention renders would otherwise
   # let content the levers never touched decide the leg. The window-wide maximum
   # is reported as `engagement[:window_max]` for context.
+  #
+  # The cohort's ERASURE is reported beside it (`removal`, printed by both call
+  # sites). Instagram has removed 36 of the 150 posts this app published, and the
+  # erasure is invisible to the verdict in BOTH directions: a post removed after
+  # its insights were collected still votes, with post-erasure zeros, and one
+  # removed before collection silently leaves the cohort -- so a wave can look
+  # like a failed lever OR like "not enough data yet". See #removal_accounting.
   class GateRead
     # The two locked legs of the criterion. Thresholds are NOT tunable here --
     # changing one is a decision to change the pre-registration, not a config.
@@ -57,6 +64,7 @@ module Growth
       cohort_scope   = cohort_posts(inputs)
       pillars        = review.pillar_stats(cohort_scope)
       window_pillars = inputs[:pillars]
+      removal        = removal_accounting(inputs)
       top        = pillars.first
       window_top = window_pillars.first
       followers  = @goal.latest_followers.to_i
@@ -70,7 +78,8 @@ module Growth
 
       {
         verdict: verdict_for(follower_pass, engagement_pass, cohort_valid),
-        reason: reason_for(follower_pass, engagement_pass, cohort_valid, cohort),
+        reason: reason_for(follower_pass, engagement_pass, cohort_valid, cohort) +
+                removal_clause(removal),
         followers: { value: followers, ceiling: FOLLOWER_CEILING, pass: follower_pass },
         engagement: {
           max_pillar: top && top[:name], max: max_eng, floor: PILLAR_ENGAGEMENT_FLOOR,
@@ -80,7 +89,8 @@ module Growth
           window_max: window_max, window_max_pillar: window_top && window_top[:name],
           cohort: cohort, cohort_valid: cohort_valid, min_cohort: MIN_COHORT_POSTS
         },
-        pillars: pillars
+        pillars: pillars,
+        removal: removal
       }
     end
 
@@ -106,10 +116,70 @@ module Growth
     # fires there rather than extending again. Size any future read off that gate,
     # never off the queue's clock count.
     def cohort_posts(inputs = nil)
+      post_intervention_posts(inputs).where.not(insights_updated_at: nil)
+    end
+
+    # The candidate POOL the cohort is drawn from: posts inside the review window
+    # whose RENDER is post-intervention, with no insights filter. Split out from
+    # #cohort_posts so the ERASURE of a candidate is measurable -- see
+    # #removal_accounting.
+    def post_intervention_posts(inputs = nil)
       (inputs || review.gate_inputs)[:window_posts]
         .joins(:photo)
         .where('photos.created_at >= ?', INTERVENTION_AT)
-        .where.not(insights_updated_at: nil)
+    end
+
+    # Removal accounting for the cohort this read judges. Read-only, and it changes
+    # NO threshold and NO cohort membership: it exists because the platform's
+    # ERASURE of our own posts is otherwise invisible to this leg in BOTH
+    # directions, and neither direction is readable from `gate=`.
+    #
+    # Every count below is a post the platform has called terminal
+    # (`insights_unavailable_at`, written by
+    # Scheduling::Commands::CollectPostInsights when Instagram answers HTTP 400 /
+    # code 100 for the media). Measured 2026-09-24: Instagram removed 36 of our 150
+    # published posts, 25 of them in a single hour -- 24 had already been collected
+    # and 11 were erased before their first collection, so those 11 can never enter
+    # this cohort at all.
+    #
+    #   * `in_cohort` posts were erased AFTER collection. They still testify, but
+    #     with the zeros they earned post-erasure, which drags the pillar leg DOWN
+    #     -- a gate that fires on them is firing on an erasure, not on an audience.
+    #   * `gone_uncollected` posts were erased BEFORE collection. They are silently
+    #     absent from the cohort, so a removal wave shrinks the cohort toward
+    #     :extend -- which reads as "not enough data yet" when the truth is that the
+    #     platform deleted the evidence. The 10-05 read's cohort is the posts
+    #     published 09-28..10-01, the same vintage the 09-24 wave wiped.
+    def removal_accounting(inputs = nil)
+      pool = post_intervention_posts(inputs)
+      {
+        rendered: pool.count,
+        in_cohort: pool.where.not(insights_updated_at: nil)
+                       .where.not(insights_unavailable_at: nil).count,
+        gone_uncollected: pool.where(insights_updated_at: nil)
+                              .where.not(insights_unavailable_at: nil).count
+      }
+    end
+
+    # PURE: the erasure clause, or '' when nothing this leg reads is gone.
+    def removal_clause(removal)
+      in_cohort   = removal[:in_cohort].to_i
+      uncollected = removal[:gone_uncollected].to_i
+      return '' if (in_cohort + uncollected).zero?
+
+      parts = []
+      if in_cohort.positive?
+        parts << "#{in_cohort} post(s) IN this cohort have since been REMOVED from the " \
+                 'account, so they vote with the zeros they earned after the erasure, ' \
+                 'not with an audience verdict'
+      end
+      if uncollected.positive?
+        parts << "#{uncollected} post-intervention post(s) were removed BEFORE their " \
+                 'insights were collected and can never enter the cohort at all, so a ' \
+                 'cohort that shrinks this way is an ERASURE and not an absence of data ' \
+                 '-- :extend on the count alone cannot tell the two apart'
+      end
+      " CONFOUND (platform removals): #{parts.join('; ')}."
     end
 
     def cohort_size

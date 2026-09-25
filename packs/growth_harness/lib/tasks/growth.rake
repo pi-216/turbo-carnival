@@ -19,6 +19,16 @@ namespace :growth do
          "(floor #{e[:floor]}%, top=#{e[:max_pillar]}, measured on #{e[:measured_on]}) " \
          "window=#{e[:window_days]}d posts=#{e[:window_posts]} " \
          "cohort=#{e[:cohort]}/#{e[:min_cohort]}#{e[:cohort_valid] ? '' : ' INVALID'}"
+    # The cohort's ERASURE sits beside the cohort size on purpose. Instagram has
+    # removed a quarter of the posts this app published, and the erasure is
+    # invisible to `gate=` in BOTH directions: a post removed AFTER collection
+    # votes with the zeros it earned post-erasure (dragging the leg down), while a
+    # post removed BEFORE collection can never enter the cohort at all (shrinking
+    # it toward :extend, which reads as "not enough data yet"). A reader must not
+    # have to remember to check.
+    rm = read[:removal]
+    puts "cohort_removed=#{rm[:in_cohort]} gone_before_collection=#{rm[:gone_uncollected]} " \
+         "(of #{rm[:rendered]} post-intervention render(s) in the window)"
     # The unfiltered window number sits beside the leg on purpose: the two differ
     # while pre-intervention renders are still publishing, and that difference is
     # exactly what a reader must not have to remember (the leg reads the cohort).

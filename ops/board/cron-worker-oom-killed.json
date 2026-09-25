@@ -1,12 +1,12 @@
 {
   "key": "cron-worker-oom-killed",
-  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 13.8h ago)",
+  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 14.7h ago)",
   "severity": "warn",
   "evidence": "`journalctl -k` names oom_memcg inside a hermes-worker-cron scope for job(s) 9c05f60f5fef x2; newest kill 2026-09-24 09:40 local (13:40Z), victims node-MainThread, ruby. A worker scope is capped at 4 GiB and a verification command run INLINE can exceed it (a full-repo bin/rubocop peaks at 2113-3518 MB and RuboCop 1.81 defaults to --parallel across all CPUs): the tick dies mid-run, its execution row ends `unknown`, its work and its report are lost. Run heavy verification through `bin/ops_heavy.sh <label> <command...>` -- it gets its own accounted scope and asserts the child's cgroup -- instead of inline. Self-closing: clears once no kill lands inside the window.",
   "status": "open",
   "first_seen": "2026-09-24T15:52:15-0400",
-  "last_seen": "2026-09-24T23:30:20-0400",
-  "seen_count": 23,
+  "last_seen": "2026-09-25T00:25:25-0400",
+  "seen_count": 24,
   "source": "probe",
   "route": "agent",
   "notes": [

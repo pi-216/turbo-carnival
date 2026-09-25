@@ -22,14 +22,16 @@ RSpec.describe Growth::GateRead do
 
   # A published post whose render was imported at `rendered_at` and which carries
   # (or lacks) collected insights.
-  def posted(at:, engagement: 0.0, rendered_at: Time.current, insights: true, pillar: nil)
+  def posted(at:, engagement: 0.0, rendered_at: Time.current, insights: true, pillar: nil,
+             unavailable: false)
     photo = ContentPillars::Photo.create!(persona: persona, path: "spec-#{SecureRandom.hex(4)}.png",
                                           content_pillar: pillar || self.pillar,
                                           created_at: rendered_at)
     Scheduling::Post.create!(persona: persona, photo: photo, caption: 'a real caption',
                              status: 'posted', posted_at: at, engagement_rate: engagement,
                              provider_post_id: "ig-#{SecureRandom.hex(6)}",
-                             insights_updated_at: insights ? Time.current : nil)
+                             insights_updated_at: insights ? Time.current : nil,
+                             insights_unavailable_at: unavailable ? Time.current : nil)
   end
 
   # Cohort-valid fixture: MIN_COHORT_POSTS post-intervention posts with insights.
@@ -137,5 +139,39 @@ RSpec.describe Growth::GateRead do
     valid_cohort
 
     expect { read }.not_to change { Growth::Review.count }
+  end
+
+  # Instagram has removed 36 of the 150 posts this app published, and the erasure
+  # is invisible to `gate=` in BOTH directions -- so the read has to name it beside
+  # the cohort it judges. Direction 1: erased AFTER collection, so the post still
+  # testifies, with the zeros it earned post-erasure.
+  it 'names cohort posts the platform has REMOVED (they vote with post-erasure zeros)' do
+    valid_cohort(engagement: 0.0)
+    posted(at: 1.day.ago, unavailable: true)
+
+    expect(read[:removal][:in_cohort]).to eq(1)
+    expect(read[:removal][:gone_uncollected]).to eq(0)
+    expect(read[:reason]).to include('REMOVED')
+  end
+
+  # Direction 2, the silent one: erased BEFORE its first collection, so it can
+  # never enter the cohort. A wave of these shrinks the cohort toward :extend,
+  # which reads as "not enough data yet" when the platform deleted the evidence.
+  it 'names post-intervention posts erased BEFORE collection (excluded, not absent)' do
+    valid_cohort(engagement: 1.0)
+    Array.new(3) { posted(at: 1.day.ago, insights: false, unavailable: true) }
+
+    expect(read[:removal][:gone_uncollected]).to eq(3)
+    expect(read[:removal][:in_cohort]).to eq(0)
+    expect(read[:engagement][:cohort]).to eq(described_class::MIN_COHORT_POSTS)
+    expect(read[:reason]).to include('ERASURE')
+  end
+
+  it 'adds no confound clause when nothing this leg reads is gone' do
+    valid_cohort(engagement: 1.0)
+
+    expect(read[:removal]).to eq(rendered: described_class::MIN_COHORT_POSTS,
+                                in_cohort: 0, gone_uncollected: 0)
+    expect(read[:reason]).not_to include('CONFOUND')
   end
 end
