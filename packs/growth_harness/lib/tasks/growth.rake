@@ -29,6 +29,20 @@ namespace :growth do
     rm = read[:removal]
     puts "cohort_removed=#{rm[:in_cohort]} gone_before_collection=#{rm[:gone_uncollected]} " \
          "(of #{rm[:rendered]} post-intervention render(s) in the window)"
+    # The account-level DISCOVERY split sits beside the cohort for the same reason
+    # the erasure does: the gate's own pivot candidate is distribution/reach, so a
+    # reader must be able to tell "the content levers did nothing" from "nothing
+    # outside the follower list is being shown" WITHOUT querying another table.
+    # NULL prints as UNMEASURED -- never as 0, which would manufacture the
+    # "no discovery at all" reading this counter exists to support.
+    d = read[:discovery]
+    if d[:measured]
+      puts "discovery=non_follower=#{d[:non_follower_reach]} follower=#{d[:follower_reach]} " \
+           "total=#{d[:reach_total]} profile_views=#{d[:profile_views]} " \
+           "(newest measured snapshot #{d[:taken_at]})"
+    else
+      puts 'discovery=UNMEASURED (no snapshot has a follow_type breakdown yet)'
+    end
     # The unfiltered window number sits beside the leg on purpose: the two differ
     # while pre-intervention renders are still publishing, and that difference is
     # exactly what a reader must not have to remember (the leg reads the cohort).

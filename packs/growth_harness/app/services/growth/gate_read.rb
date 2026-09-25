@@ -65,6 +65,7 @@ module Growth
       pillars        = review.pillar_stats(cohort_scope)
       window_pillars = inputs[:pillars]
       removal        = removal_accounting(inputs)
+      discovery      = discovery_accounting
       top        = pillars.first
       window_top = window_pillars.first
       followers  = @goal.latest_followers.to_i
@@ -79,7 +80,7 @@ module Growth
       {
         verdict: verdict_for(follower_pass, engagement_pass, cohort_valid),
         reason: reason_for(follower_pass, engagement_pass, cohort_valid, cohort) +
-                removal_clause(removal),
+                removal_clause(removal) + discovery_clause(discovery),
         followers: { value: followers, ceiling: FOLLOWER_CEILING, pass: follower_pass },
         engagement: {
           max_pillar: top && top[:name], max: max_eng, floor: PILLAR_ENGAGEMENT_FLOOR,
@@ -90,7 +91,8 @@ module Growth
           cohort: cohort, cohort_valid: cohort_valid, min_cohort: MIN_COHORT_POSTS
         },
         pillars: pillars,
-        removal: removal
+        removal: removal,
+        discovery: discovery
       }
     end
 
@@ -159,6 +161,60 @@ module Growth
         gone_uncollected: pool.where(insights_updated_at: nil)
                               .where.not(insights_unavailable_at: nil).count
       }
+    end
+
+    # The account-level DISCOVERY attribution, from the same platform counter the
+    # pre-registered pivot turns on (`growth_snapshots.non_follower_reach`, read
+    # with `breakdown=follow_type`). It sits in this read because it decides what
+    # a failing read MEANS: the gate's pivot candidate is distribution/reach, and
+    # its mechanism is publish -> discovery -> follows, so a `gate_fires` verdict
+    # beside a measured-zero non-follower reach is the pre-registered pivot firing
+    # by construction -- while the same verdict beside a non-zero one is a content
+    # question. `removal_accounting` covers the cohort's erasure only, so without
+    # this a reader has to remember to query another table to tell the two apart.
+    #
+    # NULL means NEVER MEASURED and is reported as such (see Growth::Snapshot: a
+    # NULL collapsed to 0 would manufacture the "no discovery at all" verdict this
+    # column exists to support).
+    def discovery_accounting
+      snap = @goal.snapshots.where.not(non_follower_reach: nil).order(taken_at: :desc).first
+      unless snap
+        return { measured: false, taken_at: nil, follower_reach: nil,
+                 non_follower_reach: nil, reach_total: nil, profile_views: nil }
+      end
+
+      { measured: true, taken_at: snap.taken_at.utc.iso8601,
+        follower_reach: snap.follower_reach, non_follower_reach: snap.non_follower_reach,
+        reach_total: snap.reach_total, profile_views: snap.profile_views }
+    end
+
+    # PURE: the discovery clause, or '' when the split has never been measured.
+    #
+    # Measured 2026-09-25: after 33 measured snapshots of a hard zero, the newest
+    # two read non_follower_reach = 1 against follower = 6. The pivot's own
+    # pre-registered metric is `> 0`, so it is now ALREADY satisfied BEFORE the arm
+    # that exists to produce it is armed -- which makes a post-arm read of `> 0`
+    # unable to distinguish the arm's effect from this ambient value. That is a
+    # property of the metric, not of the arm, so it is reported here rather than
+    # left for the arm's own read to discover.
+    def discovery_clause(discovery)
+      return '' unless discovery[:measured]
+
+      nfr = discovery[:non_follower_reach].to_i
+      total = discovery[:reach_total]
+      where = "the newest measured snapshot (#{discovery[:taken_at]})"
+      if nfr.positive?
+        " DISCOVERY (platform's own follow_type breakdown): non-follower reach = #{nfr} " \
+          "of #{total} on #{where} -- discovery is no longer a hard zero, so the pivot " \
+          'candidate\'s pre-registered metric (> 0) is ALREADY satisfied before the arm; ' \
+          'an un-baselined re-read of it after arming cannot separate the arm from this ' \
+          'ambient value.'
+      else
+        " DISCOVERY (platform's own follow_type breakdown): non-follower reach = 0 " \
+          "of #{total} on #{where} -- nothing outside the follower list is being shown " \
+          'these posts, so a failing engagement leg above is a DISTRIBUTION ceiling and ' \
+          'not a content signal (the gate\'s own pivot candidate).'
+      end
     end
 
     # PURE: the erasure clause, or '' when nothing this leg reads is gone.

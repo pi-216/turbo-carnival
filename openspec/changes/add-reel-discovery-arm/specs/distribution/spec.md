@@ -82,8 +82,16 @@ engagement signal, so reading engagement there re-derives a structurally flat ze
 
 #### Scenario: Arm measured
 - **WHEN** the arm's effect is assessed
-- **THEN** the read is `growth_snapshots.non_follower_reach`, where any value greater than zero
-  is the first evidence that discovery happened
+- **THEN** the read is `growth_snapshots.non_follower_reach` compared against the BASELINE recorded
+  at arm time (the pre-arm window's non-follower reach and its share of total reach) — NOT against
+  zero, because the counter had already moved off a 33-snapshot hard zero before the arm existed
+  (measured 2026-09-25: non-follower=1 of 7, follower=6, profile_views=0) and a bare `> 0` can no
+  longer distinguish the arm's effect from that ambient value
+
+#### Scenario: Ambient value reported beside the arm's
+- **WHEN** the arm's window is read
+- **THEN** the pre-arm baseline is reported beside the post-arm value, so a `> 0` result is never
+  cited as the arm working
 
 #### Scenario: Reach attribution unavailable
 - **WHEN** the platform answers without a follow_type breakdown

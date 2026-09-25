@@ -54,9 +54,18 @@
       Reason: `cohort_size` joins `photo` and requires collected insights inside the review
       window, so a new format published into the window confounds the pre-registered cohort.
 - [ ] 5.2 First publish is a single reel, watched end to end (container FINISHED -> publish ->
-      insights), then compare `growth_snapshots.non_follower_reach` against the standing 0.
+      insights), then compare `growth_snapshots.non_follower_reach` against the **baseline recorded
+      at arm time**, not against zero — see 6.2 and the Metric section.
 
 ## 6. Pre-arm re-verification (re-run before arming; record the numbers)
+- [x] 6.2 BASELINE recorded 2026-09-25T06:30Z, before arming: of the 35 measured snapshots since
+      2026-09-24T05:36Z, 33 read `non_follower_reach = 0` and the newest two read `1`
+      (follower=6, total=7, `profile_views=0`). So the arm's original criterion (`> 0`) is already
+      satisfied pre-arm and cannot be the arm's evidence; the pre-arm baseline it must EXCEED is
+      non-follower reach 1 of ~7 per snapshot. Re-measure at arm time — this number is the one the
+      arm is judged against, so a stale baseline invalidates the read.
+      `Growth::GateRead` now emits the same split (`discovery=` + a DISCOVERY clause) on every
+      read.
 - [x] 6.1 `bin/reel_rail_smoke.sh` re-run 2026-09-24 by the ops pass, BEFORE the read rather
       than on the day: PASS — 2 343 443 bytes, `h264 1080x1920 yuv420p`, duration 8.000 s,
       IPTC mark readable from the file, served over the LIVE tunnel as `video/mp4` with

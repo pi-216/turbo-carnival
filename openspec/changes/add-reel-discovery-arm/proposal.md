@@ -54,10 +54,22 @@ publishing rail, which is the ARM step and is sequenced after the 2026-10-05 rea
 
 ## Metric and sequencing
 
-- The arm's success metric is the already-collected `growth_snapshots.non_follower_reach`:
-  `> 0` means discovery happened. Engagement is deliberately NOT the metric — an account with no
-  discovery cannot produce an engagement signal, and reading engagement here would re-derive
-  the same flat zero.
+- The arm's success metric is the already-collected `growth_snapshots.non_follower_reach`.
+  Engagement is deliberately NOT the metric — an account with no discovery cannot produce an
+  engagement signal, and reading engagement here would re-derive the same flat zero.
+- **The metric must be read against a BASELINE, not against zero (measured 2026-09-25).** The
+  original criterion was "`> 0` means discovery happened", and that was sound while the counter
+  sat at a hard zero (33 of the first 35 measured snapshots). It no longer is: the newest two
+  snapshots read `non_follower_reach = 1` against `follower = 6` / `total = 7`
+  (`profile_views = 0`), so **the criterion is satisfied before the arm exists**. A post-arm read
+  of `> 0` therefore cannot distinguish the arm's effect from this ambient value, and citing
+  `> 0` as the arm working would be a false positive that no other signal contradicts. The
+  baseline is recorded at arm time (the pre-arm window's non-follower reach and its share of
+  total reach) and the arm is judged on non-follower reach EXCEEDING that baseline over the
+  post-arm window, with the ambient value reported beside it.
+- `Growth::GateRead` now emits the split itself (`discovery=` plus a DISCOVERY clause in
+  `reason`), so the read that will judge the growth thesis at 2026-10-05 carries the same number
+  this arm is judged on, instead of leaving a reader to query another table.
 - **Sequencing constraint (recorded before any publish):** the arm is NOT armed on the rail
   until after the 2026-10-05 13:00Z gate read. `Growth::GateRead#cohort_size` counts posts in
   the review window that join a `photo` and carry collected insights, so publishing a new

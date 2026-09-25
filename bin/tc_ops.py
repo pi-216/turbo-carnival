@@ -177,6 +177,17 @@ GATE_PILLAR_FLOOR = 3.0
 # accounting in the read, and its line in the emitted output.
 GATE_REMOVAL_ACCOUNTING_RE = re.compile(r"def\s+removal_accounting\b")
 GATE_REMOVAL_PRINT_RE = re.compile(r"cohort_removed\s*=")
+# ...and the read must report WHERE the reach came from, because the gate's own
+# pivot candidate is distribution/reach. Measured 2026-09-25: the platform's
+# follow_type breakdown moved off a 33-snapshot hard zero to non-follower=1 of 7
+# (follower=6, profile_views=0), so the pivot's pre-registered metric (`> 0`) is
+# now satisfied BEFORE the arm that exists to produce it is armed. A read that
+# does not carry the split lets a failing engagement leg be cited as a content
+# result when it may be a distribution ceiling -- and lets the arm's own `> 0`
+# result be read as the arm working. Two tokens again: the accounting in the read
+# and its line in the emitted output, either of which deletes independently.
+GATE_DISCOVERY_ACCOUNTING_RE = re.compile(r"def\s+discovery_accounting\b")
+GATE_DISCOVERY_PRINT_RE = re.compile(r"discovery\s*=")
 # The engagement leg of that gate is a MEASUREMENT only if the review window
 # holds MIN_COHORT_POSTS posts whose PHOTO was rendered at/after the content-mix
 # intervention (Growth::GateRead.cohort_size: a post rendered before it cannot
@@ -2544,6 +2555,21 @@ def weekly_gate_wired_verdict(rake_src, gate_src):
                     "before it (they leave the cohort silently, shrinking it toward "
                     ":extend, which reads as 'not enough data yet'). Both shapes make "
                     "`gate=` a verdict on the deletions, not on the levers")
+        # ...and WHERE the reach came from, because the gate's own pivot candidate
+        # is distribution/reach: the same `gate=` output means the pivot by
+        # construction beside a measured-zero non-follower reach, and a content
+        # question beside a non-zero one.
+        if not GATE_DISCOVERY_ACCOUNTING_RE.search(gate_src):
+            return ("warn",
+                    "Growth::GateRead no longer reports WHERE the account's reach came "
+                    "from: the platform's follow_type breakdown (follower vs non-follower) "
+                    "is the only counter that separates 'our followers see every post' from "
+                    "'strangers find us', and it is the counter the gate's own pivot "
+                    "candidate (distribution/reach) turns on -- measured 2026-09-25 at "
+                    "non-follower=1 of 7, i.e. the pivot's pre-registered metric (> 0) is "
+                    "already satisfied before the arm was armed. Without it a failing "
+                    "engagement leg reads as a content result when it may be a "
+                    "distribution ceiling")
     if not GATE_REMOVAL_PRINT_RE.search(rake_src):
         return ("warn",
                 "the pre-registered gate LINE no longer PRINTS the cohort's removal "
@@ -2551,6 +2577,12 @@ def weekly_gate_wired_verdict(rake_src, gate_src):
                 "compute it, but the 09-28/10-05 lines are what a reader and the "
                 "GO/PIVOT/KILL decision actually see, and an erasure a reader cannot "
                 "see is an erasure that decides the gate")
+    if not GATE_DISCOVERY_PRINT_RE.search(rake_src):
+        return ("warn",
+                "the pre-registered gate LINE no longer PRINTS the account's discovery "
+                "split (discovery=): the pivot candidate is distribution/reach, so the "
+                "line that emits the verdict is what a reader has to be able to read "
+                "without querying another table")
     return None
 
 
@@ -9212,18 +9244,27 @@ def cmd_selftest(_argv):
     # The read must also ACCOUNT for the platform's removals of its own cohort, and
     # the emitted line must PRINT them: the two halves delete independently, so a
     # revert of either has to read as a warn rather than as a green board.
-    gate_ok_full = gate_ok_leg + "  def removal_accounting(inputs = nil)\n"
+    gate_ok_full = gate_ok_leg + "  def removal_accounting(inputs = nil)\n" \
+        "  def discovery_accounting\n"
+    # ...and the second half of that reporting: the platform's follow_type split,
+    # which is the only counter separating "our followers see every post" from
+    # "strangers find us" -- the counter the gate's pivot candidate turns on.
+    gate_no_discovery = gate_ok_leg + "  def removal_accounting(inputs = nil)\n"
     # Removal accounting present, cohort leg REVERTED -- the case that must still
     # warn (a removal clause must not mask the leg rule).
     gate_no_leg = gate_ok + "  def removal_accounting(inputs = nil)\n"
     review_wired = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
-                    "    puts \"cohort_removed=#{rm[:in_cohort]}\"\n")
-    review_wired_no_removal = "  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
+                    "    puts \"cohort_removed=#{rm[:in_cohort]}\"\n"
+                    "    puts 'discovery=' + d[:measured].to_s\n")
+    review_wired_no_removal = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
+                               "    puts 'discovery=' + d[:measured].to_s\n")
+    review_wired_no_discovery = ("  task :weekly_review do\n    print_gate_read.call(goal)\n  end\n"
+                                 "    puts \"cohort_removed=#{rm[:in_cohort]}\"\n")
     review_dark = ("  task :weekly_review do\n    puts review.verdict\n  end\n")
     gate_cases = [
         ("wired", review_wired, gate_ok_full, None),
         ("wired-inline", "  task :weekly_review do\n    Growth::GateRead.new(goal: goal).call\n  end\n"
-         "    puts \"cohort_removed=1\"\n", gate_ok_full, None),
+         "    puts \"cohort_removed=1\"\n    puts 'discovery=UNMEASURED'\n", gate_ok_full, None),
         ("review-dropped-the-gate", review_dark, gate_ok_full, "warn"),
         ("task-renamed", "  task :weekly_something_else do\n    print_gate_read.call(goal)\n  end\n",
          gate_ok_full, "warn"),
@@ -9232,6 +9273,8 @@ def cmd_selftest(_argv):
         ("leg-back-on-the-window", review_wired, gate_no_leg, "warn"),
         ("removal-accounting-dropped", review_wired, gate_ok_leg, "warn"),
         ("removal-line-dropped", review_wired_no_removal, gate_ok_full, "warn"),
+        ("discovery-accounting-dropped", review_wired, gate_no_discovery, "warn"),
+        ("discovery-line-dropped", review_wired_no_discovery, gate_ok_full, "warn"),
         ("rake-unreadable", "", gate_ok_full, "warn"),
         ("gate-src-unreadable", review_wired, "", None),
     ]

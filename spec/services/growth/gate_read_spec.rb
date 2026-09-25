@@ -174,4 +174,43 @@ RSpec.describe Growth::GateRead do
                                 in_cohort: 0, gone_uncollected: 0)
     expect(read[:reason]).not_to include('CONFOUND')
   end
+
+  # The gate's own pivot candidate is distribution/reach, and the platform's
+  # follow_type breakdown is the only counter that separates "our followers see
+  # every post" from "strangers find us" -- the same class of confound as the
+  # erasure, from the other direction: without it a failing engagement leg reads
+  # as a content result when it may be a distribution ceiling.
+  it 'carries the account-level discovery split, and calls a measured zero a ceiling' do
+    valid_cohort(engagement: 0.0)
+    goal.snapshots.create!(followers: 158, taken_at: 1.hour.ago, follower_reach: 6,
+                           non_follower_reach: 0, reach_total: 6, profile_views: 0)
+
+    expect(read[:discovery][:measured]).to be(true)
+    expect(read[:discovery][:non_follower_reach]).to eq(0)
+    expect(read[:reason]).to include('DISTRIBUTION ceiling')
+  end
+
+  # Measured 2026-09-25: the split moved off a 33-snapshot hard zero to
+  # non-follower=1 of 7. The pivot's own metric is `> 0`, so it is satisfied
+  # BEFORE the arm exists -- and a read that does not say so invites reading the
+  # arm's own `> 0` result as the arm working.
+  it 'says so when the pivot metric is already non-zero before the arm' do
+    valid_cohort(engagement: 0.0)
+    goal.snapshots.create!(followers: 158, taken_at: 1.hour.ago, follower_reach: 6,
+                           non_follower_reach: 1, reach_total: 7, profile_views: 0)
+
+    expect(read[:discovery][:non_follower_reach]).to eq(1)
+    expect(read[:reason]).to include('ALREADY satisfied')
+  end
+
+  # NULL is "never measured", deliberately not a zero: a broken call must not be
+  # able to read as "no discovery at all".
+  it 'reports an UNMEASURED split as unmeasured, never as a zero' do
+    valid_cohort(engagement: 1.0)
+    goal.snapshots.create!(followers: 158, taken_at: 1.hour.ago)
+
+    expect(read[:discovery][:measured]).to be(false)
+    expect(read[:discovery][:non_follower_reach]).to be_nil
+    expect(read[:reason]).not_to include('DISCOVERY')
+  end
 end
