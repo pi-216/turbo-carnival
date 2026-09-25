@@ -2,17 +2,22 @@
   "key": "own-queue-blockade",
   "title": "our queued entry is at the FIFO head while the 4090 is idle and no claim is ours",
   "severity": "warn",
-  "evidence": "id=comfyui-1789930863-2431031 queued 565 min ago, head of the derived queue, gpu=idle, ours=no \u2014 nothing polls it until the next harness tick, so the card idles",
-  "status": "auto-closed",
+  "evidence": "id=comfyui-1790319628-3794729-1 queued 52 min ago, head of the derived queue, gpu=idle, ours=no \u2014 nothing polls it until the next harness tick, so the card idles",
+  "status": "closed",
   "first_seen": "2026-09-21T00:25:51-0400",
-  "last_seen": "2026-09-21T00:25:51-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-25T03:52:18-0400",
+  "seen_count": 4,
   "source": "probe",
   "notes": [
     {
       "ts": "2026-09-21T00:32:19-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-25T03:53:17-0400",
+      "note": "DECIDED + FIXED (root cause, verified). The refusal was treated as unresolvable-in-tick when the entry holding the FIFO was a RUNNING job. poll answers not_my_turn for any queued record with requested_at <= ours, and the scheduler's claim() never flips jobs/<id>.json, so a running job keeps its queue slot for its whole life. Measured 2026-09-25 07:00:28Z: prx-tg-eidolon requested 5 s before us, claimed immediately and released failed 5m14s later; ensure gave up in 0 s, the 4090 sat idle for the remaining 55 min of the hour and our head entry also blocked that co-tenant from re-requesting. FIX: blocker_kind (file read of jobs/*.json + state.json; offline surface 'blockerkind <job-id>') splits the two shapes; ensure now WAITS OUT a RUNNING blocker (re-poll every POLL_INTERVAL to TC_ENSURE_DEADLINE, default 360 s, under the caller's ~420 s ceiling) and still returns 2 at once for a STALE one (the 2026-09-21 13-h shape). Our FIFO place is kept either way. VERIFIED: comfyui_harness_test.sh ALL PASS (14 new assertions: running/stale/none discrimination + ensure end-to-end against a stubbed poll -- stale polls once, running re-polls >=3 times, logs the wait and names blocker=running); tc_ops selftest 821/0 with fifo_blocker_kind cross-checked against the harness over one fixture; probe 0 critical / 5 warn; checks-audit 65 checks, 0 raised. Commits ab456d6, c3f6a96. RESIDUE, stated not deferred: a tick refused by a STALE blocker or by vram still waits for the next tick (hourly cadence), and the stale-foreign case now has its own detector (fifo-blocked-by-foreign-entry, route=tim) instead of being invisible."
     }
   ],
-  "closed_at": "2026-09-21T00:32:19-0400"
+  "closed_at": "2026-09-25T03:53:17-0400",
+  "route": "agent"
 }
