@@ -1,0 +1,24 @@
+{
+  "key": "discovery-attribution-unmeasured",
+  "title": "the measurement behind the discovery pivot is stale or no longer adds up",
+  "severity": "warn",
+  "evidence": "newest account-level reach attribution 25.9h ago: non-follower=0 follower=1 total=1 -- the newest account-level reach attribution is 25.9h old (bound 6h). Producer: Growth::MetricsCollector#fetch_reach_attribution, hourly via growth:snapshot_followers, BEST-EFFORT by design (a failed insights call is logged once and stored as NULL). The pivot's justification -- that non-follower reach is a measured zero, so no content lever can move followers -- is only as good as this row: stale, it is a claim about the past; a missing or non-reconciling breakdown makes it a MISSING DIMENSION rather than a measured zero.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-27T17:36:10-0400",
+  "last_seen": "2026-09-29T09:35:07-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-28T01:31:10-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T13:36:09-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "closed_at": "2026-09-29T13:36:09-0400"
+}

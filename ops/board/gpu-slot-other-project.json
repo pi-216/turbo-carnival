@@ -1,18 +1,14 @@
 {
   "key": "gpu-slot-other-project",
-  "title": "4090 held by another project (prx-tg-pixel-posttrain-v4) with our job(s) queued behind it",
+  "title": "4090 held by another project (prx-tg-eidolon-identity-renderer-v22) with our job(s) queued behind it",
   "severity": "info",
-  "evidence": "we hold no claim; held 1.9h; our queue entries=1",
+  "evidence": "we hold no claim; held 2.5h; our queue entries=1",
   "status": "auto-closed",
   "first_seen": "2026-09-19T14:26:35-0400",
-  "last_seen": "2026-09-21T22:25:56-0400",
-  "seen_count": 67,
+  "last_seen": "2026-09-26T12:00:08-0400",
+  "seen_count": 68,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-21T17:33:50-0400",
-      "note": "2026-09-21 21:4xZ ops-triage: MATERIAL for this item -- the queue now carries a FORECAST, so the cost of the foreign hold is quantified instead of felt. New in-repo: 'tc_ops.py queue' prints dry_out= (the last future publishable clock) and a new probe check queue-runway-short fires when that is inside 72h. Live reading this pass: claim=busy current_job=prx-tg-pixel-posttrain-v3 (held 10.2h), our entry comfyui-1789999255-213957-1 still next, publishable=16 but dry_out=2026-09-27T10:30:00Z -- 5.5d of runway. No action is possible while another project holds the card (unchanged), and this note exists so a later pass reads the BUDGET rather than re-deriving it: if the hold persists past ~09-24, the harness goes silent on 09-27 with no error anywhere."
-    },
     {
       "ts": "2026-09-21T19:36:45-0400",
       "note": "2026-09-21 23:36Z ops-triage: standing condition, unchanged (4090 held by prx-tg-pixel-posttrain-v3 for 11.0h, our entry comfyui-1789999255-213957-1 next in the derived queue, requested 14:00:55Z; queue runway publishable=16, dry_out 2026-09-27, so posting is not yet at risk). MATERIAL for what the freed slot will now render: the content mix changed this pass (Fashion 35 / Lifestyle 25 / Food 25 / Wellness 15 over 4 current pillars instead of 10 pillars at 10 each). Two consequences worth watching when the claim frees: (a) the render mix should now actually shift toward Fashion/Lifestyle/Food rather than being a uniform draw \u2014 that is the first real test of the reweighting experiment, so read the next few rendered pillars before judging it; (b) the NSFW-rejection fallback pool is now 4 pillars, not 10, and CadenceEngine only hard-stalls when every candidate is exhausted \u2014 so watch for a 'nsfw_rejected; all pillars exhausted' cadence_blocked that the wider pool used to absorb. Nothing to do now; no action on the foreign claim (it is not ours to touch)."
@@ -32,8 +28,12 @@
     {
       "ts": "2026-09-21T22:52:59-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-26T14:58:37-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-09-21T22:52:59-0400",
+  "closed_at": "2026-09-26T14:58:37-0400",
   "route": "agent"
 }

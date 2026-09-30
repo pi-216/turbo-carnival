@@ -2,17 +2,21 @@
   "key": "cron-job-stalled",
   "title": "a scheduled job of this profile stopped firing (or fails on every run)",
   "severity": "warn",
-  "evidence": "1 job(s) did NOT fire when due: tc-growth-harness-brain 360m past its slot (last ran 2026-09-24T14:09:40.031732-04:00). 1 job(s) fire and FAIL every run: tc-weekly-persona-review 3 consecutive failure(s), last_status='error', last_error=RuntimeError: Skipped to prevent unintended spend: global inference config drifted. Both are producer states the consumer side cannot tell from a healthy quiet job, so read the producer's own error channel before anything else: cron/executions.db for an error row against that job id, then its output file under cron/output/<job-id>/ for an exception raised inside the task. Recovery for a stall is in-repo -- force-run the job, then confirm the NEXT slot's run actually lands; a job that keeps missing its slot after a force-run is the documented Hermes scheduler gap, whose fallback is a systemd user timer (`systemctl --user enable --now <name>.timer`, OnCalendar=*:0/5) running the same command. A whole-fleet stall is invisible here by construction -- no run means no probe.",
-  "status": "auto-closed",
+  "evidence": "3 job(s) fire and FAIL every run: tc-growth-harness-brain 8 consecutive failure(s), last_status='error', last_error=RuntimeError: Connection error.; tc-overnight-watchdog 4 consecutive failure(s), last_status='error', last_error=Restart-safe cron worker dispatch failed: cron external worker exited before ownership acknowledgement (exit 1); worker ; tc-ops-triage 43 consecutive failure(s), last_status='error', last_error=RuntimeError: Connection error.. Both are producer states the consumer side cannot tell from a healthy quiet job, so read the producer's own error channel before anything else: cron/executions.db for an error row against that job id, then its output file under cron/output/<job-id>/ for an exception raised inside the task. Recovery for a stall is in-repo -- force-run the job, then confirm the NEXT slot's run actually lands; a job that keeps missing its slot after a force-run is the documented Hermes scheduler gap, whose fallback is a systemd user timer (`systemctl --user enable --now <name>.timer`, OnCalendar=*:0/5) running the same command. A whole-fleet stall is invisible here by construction -- no run means no probe.",
+  "status": "open",
   "first_seen": "2026-09-24T14:29:44-0400",
-  "last_seen": "2026-09-24T14:29:44-0400",
-  "seen_count": 1,
+  "last_seen": "2026-09-29T13:36:09-0400",
+  "seen_count": 16,
   "source": "probe",
   "route": "agent",
   "notes": [
     {
       "ts": "2026-09-24T14:29:55-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T22:06:44-0400",
+      "note": "2026-09-29 17:4xZ ops-triage: root cause diagnosed and VERIFIED RECOVERED; no in-repo fix available or warranted. Two distinct producer faults, both transient: (1) 'RuntimeError: Connection error' on brain+triage = the shared max395 Qwen3.8-27B endpoint (custom:max395) degraded 09-27..09-29 (genome #24 shared-endpoint cascade; the earlier 'rejected as too large' at 8k-97k tokens was the same). Verified this pass with a REAL completion against the :8080 endpoint: HTTP 200, 71 tokens in 8.9s -> it is serving again. (2) 'ModuleNotFoundError: No module named ruamel' on watchdog+corpus-backup = the Hermes 0.21.4->0.21.5 version bump severed the site-packages .pth bridge (genome update-window bridge severance). Verified the CURRENT venv (161a25e5...) imports ruamel 0.18.16 fine -> the bridge was re-established; the dispatch path is healthy (this run dispatched). Neither fault lives in this repo: the endpoint is fleet-shared and the bridge is Hermes-internal, so there is no root-cause edit to make here. The probe is doing its job -- it fired, named the producer states, and it self-closes as failure_streak resets (this run landing ok resets triage to 0; brain next 16:00, watchdog next 22:10). Render loop also re-verified back: 2 photos in 24h, our 4090 claim busy. No force-run needed (endpoint serving + bridge present), no restart of any service."
     }
   ],
   "route_source": "check",
