@@ -1,20 +1,24 @@
 {
   "key": "interrupted-cron-run-left-uncommitted-work",
-  "title": "a turbo-carnival cron run was interrupted 2.1h ago and its work is still uncommitted",
+  "title": "a turbo-carnival cron run was interrupted 1.3h ago and its work is still uncommitted",
   "severity": "warn",
-  "evidence": "2 interrupted execution(s) in the last 24h; newest: job 9c05f60f5fef started 2026-09-29T09:25:40.155071-04:00, ended 2026-09-29T11:29:39.387684-04:00 (Owner process is still alive but the claim outlived the derived stale bound; treated as wedged (#115692). The process wa). Uncommitted for 73.6h: 13 path(s), oldest ops/board/cron-worker-oom-killed.json \u2014 read the tree, then commit or revert the salvaged work. An interrupted run's report was never delivered either, so what it found is only in its output file (cron/output/<job-id>/, status `unknown`).",
+  "evidence": "12 interrupted execution(s) in the last 24h; newest: job 9c05f60f5fef started 2026-10-05T13:25:43.049438-04:00, ended 2026-10-05T16:29:42.118474-04:00 (Owner process is still alive but the claim outlived the derived stale bound; treated as wedged (#115692). The process wa). Uncommitted for 135.6h: 29 path(s), oldest lib/ai/ollama_client.rb \u2014 read the tree, then commit or revert the salvaged work. An interrupted run's report was never delivered either, so what it found is only in its output file (cron/output/<job-id>/, status `unknown`).",
   "status": "open",
   "first_seen": "2026-09-24T18:25:26-0400",
-  "last_seen": "2026-09-29T13:36:09-0400",
-  "seen_count": 4,
+  "last_seen": "2026-10-05T17:47:09-0400",
+  "seen_count": 35,
   "source": "probe",
   "route": "agent",
   "notes": [
     {
       "ts": "2026-09-24T18:33:26-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T22:18:20-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "route_source": "check",
-  "closed_at": "2026-09-24T18:33:26-0400"
+  "closed_at": "2026-09-29T22:18:20-0400"
 }

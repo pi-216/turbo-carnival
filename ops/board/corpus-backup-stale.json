@@ -1,0 +1,24 @@
+{
+  "key": "corpus-backup-stale",
+  "title": "newest corpus snapshot is 83h old (> 48h): the nightly corpus backup looks like it stopped ticking",
+  "severity": "warn",
+  "evidence": "newest corpus snapshot is 83h old (> 48h): the nightly corpus backup looks like it stopped ticking; newest slot /home/tim/source/activity/turbo-carnival/corpus-backup/snapshots/fri (mtime 2026-09-30T18:57:20Z); run `bin/corpus_backup.sh` and check the cron job tc-corpus-backup is still firing (its own log is the cron output, and `bin/corpus_backup.sh --verify-only` re-checks the newest slot against the database).",
+  "status": "auto-closed",
+  "first_seen": "2026-09-29T22:18:20-0400",
+  "last_seen": "2026-10-04T01:40:09-0400",
+  "seen_count": 14,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-30T10:48:04-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-04T06:16:52-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "closed_at": "2026-10-04T06:16:52-0400"
+}

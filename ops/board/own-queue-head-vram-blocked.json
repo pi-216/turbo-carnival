@@ -2,11 +2,11 @@
   "key": "own-queue-head-vram-blocked",
   "title": "our entry holds the FIFO head but the card cannot fit it \u2014 a co-tenant holds VRAM outside the scheduler",
   "severity": "warn",
-  "evidence": "id=comfyui-1789930863-2431031 queued 572 min ago, head of the derived queue, gpu=idle, ours=no; free=18.5GiB < reservation 21.0GiB, so `poll` refuses vram_insufficient and polling harder cannot grant it; outside-scheduler holders: 2857312 labeler_spa.py 4.5GiB",
+  "evidence": "id=comfyui-1791031198-3443315-2 queued 105 min ago, head of the derived queue, gpu=idle, ours=no; free=8.3GiB < reservation 16.0GiB, so `poll` refuses vram_insufficient and polling harder cannot grant it; outside-scheduler holders: 53727 labeler_spa.py 4.5GiB (supervised unit), 2299424 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.6GiB (supervised unit), 3370045 uvicorn 5.6GiB (operator-interactive session)",
   "status": "auto-closed",
   "first_seen": "2026-09-21T00:32:16-0400",
-  "last_seen": "2026-09-21T00:32:57-0400",
-  "seen_count": 2,
+  "last_seen": "2026-10-03T10:24:39-0400",
+  "seen_count": 3,
   "source": "probe",
   "notes": [
     {
@@ -16,7 +16,12 @@
     {
       "ts": "2026-09-21T01:25:58-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-03T13:33:02-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-09-21T01:25:58-0400"
+  "closed_at": "2026-10-03T13:33:02-0400",
+  "route": "agent"
 }

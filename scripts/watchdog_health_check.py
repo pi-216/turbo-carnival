@@ -5,7 +5,7 @@ import urllib.request
 
 CHECKS = [
     ("ComfyUI localhost:8188", "http://localhost:8188/system_stats"),
-    ("Ollama max395.localdomain:11434", "http://max395.localdomain:11434/api/version"),
+    ("Ollama game.localdomain:11434", "http://game.localdomain:11434/api/version"),
     ("Tunnel carnival.pi216.ai/up", "https://carnival.pi216.ai/up"),
 ]
 

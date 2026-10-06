@@ -145,11 +145,13 @@ The system SHALL extract rich context from photo, persona, and cluster data for 
 - **AND** include in prompt as phrases to avoid
 
 ### Requirement: Ollama Client Integration
-The system SHALL integrate with remote Ollama service running on 192.168.86.137 for AI inference.
+The system SHALL integrate with the remote Ollama service for AI inference. The endpoint is a configuration constant (`AI::OllamaClient::ENDPOINT` / `tc_ops.py CAPTION_ENDPOINT`), overridable via the `TC_CAPTION_ENDPOINT` env var for the probe.
+
+Note 2026-09-29: the caption Ollama moved from 192.168.86.137 (max395) to 192.168.86.49 (game, the 4090 box) per operator directive; same NFS model store.
 
 #### Scenario: Initialize Ollama client
 - **WHEN** caption generation is requested
-- **THEN** connect to Ollama API endpoint at 192.168.86.137
+- **THEN** connect to the configured Ollama API endpoint
 - **AND** verify Gemma3:27b model is available
 - **AND** configure timeout for model loading (60+ seconds on first call)
 - **AND** configure retry settings

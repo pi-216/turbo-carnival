@@ -9,15 +9,18 @@ module AI
     class TimeoutError < Error; end
     class ModelNotFoundError < Error; end
 
-    ENDPOINT = "http://192.168.86.137:11434"
+    # Tim directive 2026-09-29: the caption Ollama runs on game (the 4090 box
+    # this app itself runs on), not max395. Same NFS model store, but ~2-3x
+    # faster reads, so even the 27B cold-loads inside the 300s budget.
+    ENDPOINT = "http://192.168.86.49:11434"
     DEFAULT_MODEL = "gemma3:27b"
     DEFAULT_TIMEOUT = 180 # Vision (image) inference on 27B can take 60-120s+
 
     # `keep_alive` (seconds, or -1 to pin forever) is sent with every request.
     # Without it Ollama unloads the model 5 minutes after the last call, so a
     # post created more than 5 minutes after the previous one pays a COLD load
-    # again -- and on max395 a cold load is the failure this whole ladder exists
-    # to route around. Sending it keeps the model the caption path actually uses
+    # again -- and on the caption host a cold load is the failure this whole
+    # ladder exists to route around. Sending it keeps the model the caption path actually uses
     # resident, so the next post answers in seconds.
     def initialize(endpoint: ENDPOINT, model: DEFAULT_MODEL, timeout: DEFAULT_TIMEOUT,
                    keep_alive: nil)
@@ -94,8 +97,9 @@ module AI
     # Names of the models currently RESIDENT in Ollama's memory (/api/ps).
     #
     # A resident model answers in seconds; one that is not has to be read from
-    # disk first. On max395 the model store is NFS (~40 MB/s), so a 27B cold
-    # load cannot finish inside Ollama's ~300s llama-server start timeout.
+    # disk first. The model store is NFS on every host that has run Ollama for
+    # us (measured ~40-50 MB/s on max395, ~110 MB/s on game), so a 27B cold
+    # load can exceed Ollama's ~300s llama-server start timeout on the slow box.
     # Callers use this to choose a model that can actually answer rather than
     # waiting out the full client timeout and failing.
     #

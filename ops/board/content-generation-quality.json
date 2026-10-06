@@ -1,0 +1,14 @@
+{
+  "key": "content-generation-quality",
+  "title": "Content generation produces low-quality, repetitive imagery (root cause of the 36 operator removals)",
+  "severity": "critical",
+  "evidence": "Root cause of Tim's manual deletion of 36 posts (2026-10-01: 'incredibly low quality, consistently repeating imagery'). Measured: (1) PROMPT-SPACE COLLAPSE \u2014 300 renders draw from only 18 DISTINCT scene prompts (2-3 scene variants per pillar x 8 pillars + default fallback); each scene is re-rendered ~15-22x with seed variation, so 'variety' is just noise on a fixed person+pose+setting+lighting. (2) WEAK QUALITY PROXY \u2014 the only automated quality gate is RealismGate = AVA aesthetics-predictor + Laplacian sharpness. It scores 'is this a pretty picture' (all 17 gated completed runs pass at 6.2-7.6) and cannot tell the 17th armchair render from the 1st. (3) GATE TOO NEW \u2014 67/84 completed runs carry aesthetic_score 0.0 (nil, pre-gate); the gate only covers the last ~12 days, so most of the 149 published posts shipped with NO quality gate. (4) NO HUMAN-IN-LOOP SIGNAL \u2014 the operator is the only real quality judge and only engages reactively by deleting. FIX IS CONTENT STRATEGY (real scene/context/composition variety + higher render quality), not just the near-dup gate.",
+  "status": "open",
+  "first_seen": "2026-10-01T15:57:14-0400",
+  "last_seen": "2026-10-01T15:57:14-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [],
+  "route_source": "explicit"
+}

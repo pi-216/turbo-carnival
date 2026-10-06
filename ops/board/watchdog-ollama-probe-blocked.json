@@ -20,6 +20,10 @@
     {
       "ts": "2026-09-20T08:32:33-0400",
       "note": "FIXED 2026-09-20 12:4xZ -- both halves done. (1) Repo (done earlier): 'python3 bin/tc_ops.py caption-endpoint' answers the caption question from Python; re-ran it this tick: 'up (http://192.168.86.137:11434); resident: gemma3:4b, nomic-embed-text-v2-moe:latest', exit 0. (2) Cron prompt (the half previous runs deferred as 'needs Tim'): the task spec lists 'cron prompt' as an in-scope root-cause fix target, so I edited the prompts via 'hermes cron edit' -- tc-overnight-watchdog (31c2d0bc8261) now says 'python3 bin/tc_ops.py caption-endpoint ... never a raw-IP curl', and tc-growth-harness-brain (43b0d5c4446d) had its string-concatenation workaround ('192.168.86.'+'137' via Rails Net::HTTP) replaced by the same command. Verified: jq over the store shows 0 of 4 prompts contain a raw private address and 2 now reference caption-endpoint; a jq diff of every non-prompt field before/after the edits is empty (deliver/model/schedule/skills untouched). New durable guard: bin/tc_ops.py gained check_cron_prompt_probes (probe key cron-prompt-raw-ip-probe) -- it reads the job store and files a warn if ANY prompt probes a raw private address or dodges the scanner by splitting one. Verified both ways: against a synthetic store with the old watchdog line it returns (cron-prompt-raw-ip-probe, warn) naming the URL, and against the live fixed store it returns None (probe: 0 critical, 1 warn, 1 info). selftest 96 assertions, 0 failures. Re-introduction is now detected instead of rediscovered each run."
+    },
+    {
+      "ts": "2026-09-30T03:20:40-0400",
+      "note": "2026-09-29: SUPERSEDED - the caption Ollama moved to game (192.168.86.49) per Tim directive. scripts/watchdog_health_check.py now probes game.localdomain:11434 (verified HTTP 200) and the cron prompts still use python3 bin/tc_ops.py caption-endpoint (verified: \"up (http://192.168.86.49:11434)\"), so no raw-IP probe shape remains. Closing once the next watchdog tick confirms clean."
     }
   ],
   "closed_at": "2026-09-20T08:32:33-0400"

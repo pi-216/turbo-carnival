@@ -44,6 +44,11 @@
 # Python bytecode from bin/ ops tooling
 __pycache__/
 
+# Stray SQLite artifact a crashed tick leaves at the CWD-relative .hermes/ path
+# (the live execution DB the ops tooling reads is cron/executions.db, not this
+# one). Runtime state, never source -- keep it out of git status.
+/.hermes/executions.db
+
 # Nightly corpus backup (bin/corpus_backup.sh). Machine-local DATA, not source:
 # a second copy of the Sarah render corpus on this box's local NVMe, so a NAS
 # volume loss cannot take the only copy with it. Large and never committed.

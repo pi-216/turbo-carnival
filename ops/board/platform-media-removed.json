@@ -1,12 +1,12 @@
 {
   "key": "platform-media-removed",
-  "title": "the account lost 25 media in a BOUNDED event inside the last 26h (now 203); the inventory has held for 3.4h",
+  "title": "37 post(s) of ours are no longer on the account",
   "severity": "warn",
-  "evidence": "platform media_count=203 (0.4h ago) -- down 25 between two consecutive snapshots inside the last 26h. Publishing can only INCREASE media_count, so this many media were removed (or archived) on the platform side. This app believes it has published 153 post(s) with a provider id, and nothing local is re-checked after publish: a removed post still counts as posted in the queue runway, the 14-day acceptance counter and the per-pillar engagement read. Per-post re-read (`bin/rake instagram:media_inventory`, 203 media listed): 36 of our 153 published post(s) are ABSENT from the account; gone post ids: 136,133,134,135,138,139,140,141,142,143,148,307. Removals are NOT ongoing: the inventory has held at 203 across the last 5 consecutive snapshot(s), spanning 3.4h, so this is a bounded event rather than active suppression. A gone media answers GET /{media-id}?fields=id with HTTP 400, code 100, subcode 33, while a live one answers 200 -- that is how the set above was established. Producer: Growth::MetricsCollector#fetch_media_count, hourly via growth:snapshot_followers, best effort by design (a failed call stores NULL, never 0); per-post via bin/rake instagram:media_inventory (read-only).",
+  "evidence": "This app believes it has published 170 post(s) with a provider id, and nothing local is re-checked after publish: a removed post still counts as posted in the queue runway, the 14-day acceptance counter and the per-pillar engagement read. Per-post re-read (`bin/rake instagram:media_inventory`, 219 media listed): 37 of our 170 published post(s) are ABSENT from the account, 1 of them new since the last measurement; gone post ids: 136,133,134,135,138,139,140,141,142,143,148,307. Removals are NOT ongoing: the inventory has held at 218 across the last 4 consecutive snapshot(s), spanning 18.3h, so this is a bounded event rather than active suppression. A gone media answers GET /{media-id}?fields=id with HTTP 400, code 100, subcode 33, while a live one answers 200 -- that is how the set above was established. Producer: Growth::MetricsCollector#fetch_media_count, hourly via growth:snapshot_followers, best effort by design (a failed call stores NULL, never 0); per-post via bin/rake instagram:media_inventory (read-only).",
   "status": "auto-closed",
   "first_seen": "2026-09-24T17:25:20-0400",
-  "last_seen": "2026-09-25T09:26:05-0400",
-  "seen_count": 39,
+  "last_seen": "2026-10-01T07:19:01-0400",
+  "seen_count": 40,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -25,8 +25,12 @@
     {
       "ts": "2026-09-26T12:00:56-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-01T09:37:44-0400",
+      "note": "condition no longer reproduces"
     }
   ],
   "route_source": "check",
-  "closed_at": "2026-09-26T12:00:56-0400"
+  "closed_at": "2026-10-01T09:37:44-0400"
 }

@@ -10,7 +10,7 @@ Full-stack web interface for creating Instagram posts with AI-powered caption ge
 
 #### 1. Backend Services ✅
 - **Ollama Client** (`lib/ai/ollama_client.rb`)
-  - Remote AI inference at 192.168.86.137:11434
+  - Remote AI inference at the configured Ollama endpoint (moved to 192.168.86.49 "game" on 2026-09-29; was 192.168.86.137 "max395")
   - Gemma3:27b model with 90-second timeout
   - Full error handling
   
@@ -104,7 +104,7 @@ lib/ai/
 ### Configuration
 
 **Ollama Server**:
-- Endpoint: http://192.168.86.137:11434
+- Endpoint: http://192.168.86.49:11434 (game box; was http://192.168.86.137:11434 on max395 until 2026-09-29)
 - Model: gemma3:27b (17GB)
 - Timeout: 90 seconds
 - Temperature: 0.8 (creative)

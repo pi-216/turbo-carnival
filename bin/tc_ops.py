@@ -267,7 +267,10 @@ ENGAGEMENT_MIN_POSTS = int(os.environ.get("TC_ENGAGEMENT_MIN_POSTS", "10"))
 # paying a cold load; the WARM-UP below is the only honest way to answer "can a
 # cold load complete", because that is the failure mode that shipped the
 # placeholder (see check_caption_path_cold).
-CAPTION_ENDPOINT = "http://192.168.86.137:11434"
+# Caption Ollama host. Tim directive 2026-09-29: it runs on game (this box,
+# the 4090 host), not max395. Same NFS model store, ~2-3x faster reads, so a
+# 27B cold load now fits the ~300s budget even on a cold cache.
+CAPTION_ENDPOINT = os.environ.get("TC_CAPTION_ENDPOINT", "http://192.168.86.49:11434").strip() or "http://192.168.86.49:11434"
 CAPTION_FALLBACK_MODEL = os.environ.get("CAPTION_FALLBACK_MODEL", "gemma3:4b").strip() or "gemma3:4b"
 # The caption path's own budget before Ollama kills a slow load (~300s), kept
 # slightly under it so a load that would be killed server-side is reported as a
@@ -4349,7 +4352,7 @@ def check_caption_path_cold():
         f"a cold caption load on max395 did not finish in {CAPTION_WARM_BUDGET_S}s: "
         "the next post ships the placeholder",
         "warn",
-        f"no caption model was resident (/api/ps on 192.168.86.137 = []) and the "
+        f"no caption model was resident (/api/ps on {CAPTION_ENDPOINT} = []) and the "
         f"warm-up of {CAPTION_FALLBACK_MODEL} failed after {secs:.1f}s: {err}. "
         "CaptionGeneration::ModelConfig walks its ladder to the fallback and then to "
         "the placeholder, so any post created before the load succeeds carries 'Fresh "
@@ -11254,10 +11257,16 @@ def cmd_selftest(_argv):
     # silent, there is nothing to salvage; (c) the row of the tick running NOW (no
     # finished_at) must never count as interrupted, or the probe matches itself;
     # (d) a row outside the window, and a terminal row, are history.
+    # The `unknown` incident row must sit INSIDE the 24h window for the
+    # fire-case, so anchor it to _now (2h ago) rather than a hardcoded date:
+    # a fixed 09-24 stamp silently ages out of INTERRUPTED_RUN_WINDOW_H once
+    # calendar time passes 24h past it (measured 2026-10-01: the row fell out
+    # on 09-25 and both fire-case asserts broke with no code change).
     _now = time.time()
+    _now_dt = datetime.datetime.fromtimestamp(_now, tz=datetime.timezone.utc)
     _unk = {"job_id": "9c05f60f5fef", "status": "unknown",
-            "started_at": "2026-09-24T09:25:05-04:00",
-            "finished_at": "2026-09-24T09:40:35-04:00",
+            "started_at": (_now_dt - datetime.timedelta(hours=2)).isoformat(),
+            "finished_at": (_now_dt - datetime.timedelta(hours=1)).isoformat(),
             "error": "Scheduler restarted after this execution's owner exited"}
     _live = dict(_unk, status="running", finished_at=None)
     _ling = [("bin/tc_ops.py", 3600), ("ops/board/x.json", 300)]

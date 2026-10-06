@@ -1,8 +1,8 @@
 {
-  "measured_at": "2026-09-29T17:36:09Z",
-  "platform_listed": 215,
-  "ours_published": 165,
-  "missing_count": 36,
+  "measured_at": "2026-10-05T21:47:08Z",
+  "platform_listed": 232,
+  "ours_published": 183,
+  "missing_count": 37,
   "missing_posts": [
     "133",
     "134",
@@ -39,7 +39,8 @@
     "328",
     "329",
     "330",
-    "334"
+    "334",
+    "356"
   ],
   "newly_missing": 0
 }

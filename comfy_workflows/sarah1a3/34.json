@@ -280,7 +280,7 @@
   },
   "68": {
     "inputs": {
-      "url": "http://192.168.86.137:11434",
+      "url": "http://192.168.86.49:11434",
       "model": "gemma3:27b",
       "keep_alive": 0,
       "keep_alive_unit": "minutes"
