@@ -2,11 +2,11 @@
   "key": "caption-placeholder-queued",
   "title": "1 unpublished post(s) still carry the placeholder caption and will publish with it",
   "severity": "warn",
-  "evidence": "queued placeholders: 372 due 10-04 09:00; these are artifacts of the caption outage that wrote them; caption path now: ollama on max395 is unreachable (/api/ps probe failed); the publisher repairs them before it sends (bin/scheduled_posting.sh runs captions:refresh_placeholders APPLY=1 ahead of scheduling:post_scheduled), so this clears at the next publishing tick -- a row that survives a tick means the captioner itself is down",
-  "status": "closed",
+  "evidence": "queued placeholders: 399 due 10-12 10:30; these are artifacts of the caption outage that wrote them; caption path now: ollama on max395 is unreachable (/api/ps probe failed); the publisher repairs them before it sends (bin/scheduled_posting.sh runs captions:refresh_placeholders APPLY=1 ahead of scheduling:post_scheduled), so this clears at the next publishing tick -- a row that survives a tick means the captioner itself is down",
+  "status": "open",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-09-29T22:18:11-0400",
-  "seen_count": 9,
+  "last_seen": "2026-10-08T12:37:09-0400",
+  "seen_count": 10,
   "source": "probe",
   "notes": [
     {

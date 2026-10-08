@@ -1,0 +1,14 @@
+{
+  "key": "reel-arm-unarmed",
+  "title": "the pre-registered pivot to a discovery surface is decided and built but not armed",
+  "severity": "warn",
+  "evidence": "the pre-registered pivot to a discovery surface is still UNARMED after the read it was sequenced after: Growth::ReelBuilder and Instagram::Client#create_reel exist, but no production code calls them, so nothing is publishing to a surface that has non-follower reach. Machinery present: reel_builder.rb; production callers found: none; newest measured non_follower_reach: 0; arm was sequenced after the 2026-10-05 13:00Z gate read so the pre-registered cohort was not confounded",
+  "status": "open",
+  "first_seen": "2026-10-08T12:03:35-0400",
+  "last_seen": "2026-10-08T12:37:15-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [],
+  "route_source": "check"
+}
