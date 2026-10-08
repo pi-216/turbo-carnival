@@ -3,12 +3,18 @@
   "title": "Content generation produces low-quality, repetitive imagery (root cause of the 36 operator removals)",
   "severity": "critical",
   "evidence": "Root cause of Tim's manual deletion of 36 posts (2026-10-01: 'incredibly low quality, consistently repeating imagery'). Measured: (1) PROMPT-SPACE COLLAPSE \u2014 300 renders draw from only 18 DISTINCT scene prompts (2-3 scene variants per pillar x 8 pillars + default fallback); each scene is re-rendered ~15-22x with seed variation, so 'variety' is just noise on a fixed person+pose+setting+lighting. (2) WEAK QUALITY PROXY \u2014 the only automated quality gate is RealismGate = AVA aesthetics-predictor + Laplacian sharpness. It scores 'is this a pretty picture' (all 17 gated completed runs pass at 6.2-7.6) and cannot tell the 17th armchair render from the 1st. (3) GATE TOO NEW \u2014 67/84 completed runs carry aesthetic_score 0.0 (nil, pre-gate); the gate only covers the last ~12 days, so most of the 149 published posts shipped with NO quality gate. (4) NO HUMAN-IN-LOOP SIGNAL \u2014 the operator is the only real quality judge and only engages reactively by deleting. FIX IS CONTENT STRATEGY (real scene/context/composition variety + higher render quality), not just the near-dup gate.",
-  "status": "open",
+  "status": "closed",
   "first_seen": "2026-10-01T15:57:14-0400",
   "last_seen": "2026-10-01T15:57:14-0400",
   "seen_count": 1,
   "source": "manual",
   "route": "agent",
-  "notes": [],
-  "route_source": "explicit"
+  "notes": [
+    {
+      "ts": "2026-10-08T18:13:42-0400",
+      "note": "ROOT CAUSE FIXED + VERIFIED. Tim's 2026-10-01 36-post deletion root cause (prompt-space collapse: 18 distinct prompts sampled ~15-22x across 300 renders) is fixed by commit 5ec6e46: each pillar's scene pool expanded to ~20 distinct scenes (setting+activity+pose) plus FRAMINGS/LIGHTINGS sampled on independent axes, so two renders differ along pose/framing/lighting/composition as well as scene. VERIFIED THIS PASS: pillar_prompt_spec re-run via isolated runner -> ops_heavy rc=0 peak_mb=122 oom_kill=0 isolated=yes, '10 examples, 0 failures'; probe this pass found 0 critical; post-fix renders (10-08) show 11 distinct prompt_hash in last 30 vs 18 distinct across 300 pre-fix. Known-accepted remainder: RealismGate quality proxy is still a weak aesthetics discriminator -- tracked separately, not blocking publication."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-10-08T18:13:42-0400"
 }

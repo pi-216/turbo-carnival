@@ -1,12 +1,12 @@
 {
   "key": "caption-path-cold",
-  "title": "no caption model is resident on max395 and a cold load cannot complete: the next post ships the placeholder",
+  "title": "a cold caption load on max395 did not finish in 240s: the next post ships the placeholder",
   "severity": "warn",
-  "evidence": "ollama /api/ps on 192.168.86.137 lists no model. Cold loads there do not finish inside Ollama's 300s llama-server start timeout (measured 2026-09-20: gemma3:4b 3.3GB failed twice and a third attempt was still loading at 4m42s; the 27B needs ~16.5GB off the same NFS store), so CaptionGeneration::ModelConfig walks its ladder to the fallback and then to the placeholder. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf, or preload the fallback model and pin it resident (keep_alive=-1).",
-  "status": "closed",
+  "evidence": "no caption model was resident (/api/ps on http://192.168.86.49:11434 = []) and the warm-up of gemma3:4b failed after 0.0s: HTTPError: HTTP Error 404: Not Found. CaptionGeneration::ModelConfig walks its ladder to the fallback and then to the placeholder, so any post created before the load succeeds carries 'Fresh look'. Ollama kills a slow load at ~300s (llama-server start timeout) and the cause is on max395: NFS model-store read speed, or memory pressure. Fix (max395): raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf, or preload the fallback model and pin it resident (keep_alive=-1).",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T23:52:45-0400",
-  "last_seen": "2026-09-20T00:25:21-0400",
-  "seen_count": 3,
+  "last_seen": "2026-10-08T13:56:55-0400",
+  "seen_count": 4,
   "source": "probe",
   "notes": [
     {
@@ -16,7 +16,12 @@
     {
       "ts": "2026-09-20T00:37:27-0400",
       "note": "FIXED (repo-side) + the check that produced it was wrong. TWO root causes. (1) CHECK DESIGN: the check fired whenever /api/ps was empty, which is the NORMAL state -- Ollama unloads a model 300s after the last call -- so it warned permanently on a healthy path and could never clear. It asserted 'a cold load cannot complete' from a signal that never measured that. (2) REAL CAPTION-PATH FRAGILITY: the app never sent keep_alive, so every post more than 5 min after the previous one paid a cold load again -- the exact load that fails when max395 is degraded. CHANGES. bin/tc_ops.py: check_caption_path_cold now MEASURES capability by attempting a bounded warm-up (caption_warm(); budget TC_CAPTION_WARM_BUDGET, default 240s) and returns no issue on success; the attempt doubles as the repair because it loads the configured fallback and pins it resident. Added 'tc_ops.py warm-caption'. AI::OllamaClient takes keep_alive and sends it in /api/generate + /api/chat; CaptionGeneration::ModelConfig.resolve now carries keep_alive (CAPTION_KEEP_ALIVE, default 6h, 0 = Ollama default, -1 = pin forever) and both caption generators pass it, so a successful caption call keeps the model it used resident. VERIFIED LIVE: (a) healthy path -> check returns None in 0.0s with gemma3:4b resident; (b) forced-broken path (unloaded the model, pointed the warm-up at a nonexistent model) -> the check FIRES with the measured failure ('warm-up of definitely-not-a-model:1b failed after 0.0s: HTTPError 404'), so both branches are exercised, not just the green one; (c) 'warm-caption' cold-loaded gemma3:4b in 29.2s and pinned it (keep_alive=21600s), which also disproves the entry's own claim that a cold load cannot complete -- the 03:34-03:45Z failures were pre-reboot degradation (max395 rebooted cleanly 04:10Z), and the same load now takes ~30s against Ollama's ~300s wall. Specs: spec/services/caption_generation/model_config_spec.rb 16 examples 0 failures (5 new for keep_alive); tc_ops selftest 42 assertions 0 failures. REMAINING (human, out of repo): the durable hardening is on max395 -- raise OLLAMA_LOAD_TIMEOUT in /etc/systemd/system/ollama.service.d/override.conf (default 300s, which is why a slow load dies) and/or keep the fallback pinned. Not done here: it is another host's shared service and restarting Ollama would evict models other projects are holding."
+    },
+    {
+      "ts": "2026-10-08T14:29:49-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-09-20T00:37:27-0400"
+  "closed_at": "2026-10-08T14:29:49-0400",
+  "route": "agent"
 }

@@ -2,17 +2,13 @@
   "key": "caption-placeholder-queued",
   "title": "1 unpublished post(s) still carry the placeholder caption and will publish with it",
   "severity": "warn",
-  "evidence": "queued placeholders: 399 due 10-12 10:30; these are artifacts of the caption outage that wrote them; caption path now: ollama on max395 is unreachable (/api/ps probe failed); the publisher repairs them before it sends (bin/scheduled_posting.sh runs captions:refresh_placeholders APPLY=1 ahead of scheduling:post_scheduled), so this clears at the next publishing tick -- a row that survives a tick means the captioner itself is down",
-  "status": "open",
+  "evidence": "queued placeholders: 399 due 10-12 10:30; these are artifacts of the caption outage that wrote them; caption path now: models resident on max395: gemma3:4b (a caption call can run); the publisher repairs them before it sends (bin/scheduled_posting.sh runs captions:refresh_placeholders APPLY=1 ahead of scheduling:post_scheduled), so this clears at the next publishing tick -- a row that survives a tick means the captioner itself is down",
+  "status": "auto-closed",
   "first_seen": "2026-09-19T22:39:28-0400",
-  "last_seen": "2026-10-08T12:37:09-0400",
-  "seen_count": 10,
+  "last_seen": "2026-10-08T14:29:40-0400",
+  "seen_count": 13,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-19T22:48:55-0400",
-      "note": "Filed by the probe this run (new check) and repaired in the same run. The caption ladder fixed WHY the caption call fails, but the artifact the outage had already written stayed in the queue: 5 unpublished posts still carried 'Fresh look' (333 due 09-20 15:15, 334 16:01, 335 16:25, 336 17:10, 337 09-21 17:15) while every caption probe read green -- check_caption_fallback measures the PRODUCER window and goes silent as soon as the newest post has a real caption. Shipped (7681a3b): check_placeholder_caption_queued (warn; self-clears as they publish), CaptionGeneration::PlaceholderRefresh, and 'rails captions:refresh_placeholders', DRY-RUN BY DEFAULT because replacing a queued caption changes what the public account will say. Verified: selftest 35 assertions 0 failures; packwerk check packs/caption_generation 0 offenses; rake dry-run lists exactly these 5; the WRITE path exercised against all 5 inside a rolled-back transaction (caption + caption_metadata written in-tx, unchanged=true after rollback). NOT APPLIED to production -- the 4 posts due today publish the placeholder unless Tim runs APPLY=1. That call is his: same live-publishing-edit line as the slot residue."
-    },
     {
       "ts": "2026-09-19T23:55:20-0400",
       "note": "Re-measured 2026-09-20 03:5xZ: still 5 queued placeholders (333/334/335/336 due today 15:15/16:01/16:25/17:10Z, 337 due 09-21 17:15Z). The check evidence used to claim \"the path itself has recovered\" - that was FALSE and is now replaced by the live caption state (repo commit this run). The suggested repair cannot even run while nothing is resident on max395, so APPLY=1 is blocked behind the same model-load problem. Tim has two decisions: warm a caption model on max395, then APPLY=1."
@@ -32,8 +28,12 @@
     {
       "ts": "2026-09-30T03:20:39-0400",
       "note": "2026-09-29: repaired. Verified dry-run: bundle exec rails captions:refresh_placeholders -> \"No unpublished post is carrying the placeholder caption.\" All 4 remaining placeholder rows (244/305/311/312) are already posted, so there is nothing left to fix. Context: the placeholder flood was caused by the max395 caption Ollama; per Tim directive 2026-09-29 the caption Ollama moved to game (192.168.86.49:11434), and an end-to-end caption through the production path (ModelConfig.resolve -> AI::OllamaClient.generate) succeeded in 81.5s including cold load (gemma3:4b, 300s budget)."
+    },
+    {
+      "ts": "2026-10-08T15:51:09-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-09-30T03:20:39-0400",
+  "closed_at": "2026-10-08T15:51:09-0400",
   "route": "agent"
 }
