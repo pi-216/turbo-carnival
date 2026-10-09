@@ -5,15 +5,19 @@
   "evidence": "the pre-registered pivot to a discovery surface is still UNARMED after the read it was sequenced after: Growth::ReelBuilder and Instagram::Client#create_reel exist, but no production code calls them, so nothing is publishing to a surface that has non-follower reach. Machinery present: reel_builder.rb; production callers found: none; newest measured non_follower_reach: 0; arm was sequenced after the 2026-10-05 13:00Z gate read so the pre-registered cohort was not confounded",
   "status": "open",
   "first_seen": "2026-10-08T12:03:35-0400",
-  "last_seen": "2026-10-08T17:18:56-0400",
-  "seen_count": 9,
+  "last_seen": "2026-10-09T04:30:23-0400",
+  "seen_count": 11,
   "source": "probe",
-  "route": "agent",
+  "route": "tim",
   "notes": [
     {
       "ts": "2026-10-08T18:15:19-0400",
       "note": "DECISION: ARM the pivot. Evidence this pass: pivot decided + committed (5b446f1); ReelBuilder rail fully built + verified (smoke test); sequencing constraint SATISFIED (the 2026-10-05 gate read has happened); live gate verdict :continue (pivot NOT fired -- but the arm is sequenced after the read regardless of verdict); discovery non_follower_reach=0 of 2 (hard zero -- distribution ceiling confirmed, no content lever can move it, the reel is the ONE lever that can); fresh renders available (photo 395 @10-08 19:32); GPU free (18GB) but the arm needs NO GPU (CPU-only ffmpeg). EXECUTION HELD: the first reel publish is an external write to Instagram (first-ever video on the account, strategic pivot, single deliberate publish watched end-to-end). Per Tim's standing directive (external writes require explicit confirmation), the first PUBLISH is held pending confirmation -- this is NOT a deferred decision (the arm decision is made and recorded here), it is a held execution of an external write. On confirmation the publish is one step: the rail is built + verified. Baseline for task 5.2 (nfr) will be re-measured at actual publish, not now (currently nfr=0)."
+    },
+    {
+      "ts": "2026-10-09T05:03:14-0400",
+      "note": "ROUTED to tim (enablement, per standing directive: external writes need explicit confirmation). The arm DECISION is made + recorded here (ARM the pivot); the only thing between decided and done is confirmation of the FIRST reel publish -- an external write to Instagram (first-ever video on the account, strategic pivot, single deliberate publish watched end-to-end). Rail is built + verified; on your yes the publish is one step, then measured against the recorded nfr=0 baseline. This is a held execution of an external write, not a deferred decision."
     }
   ],
-  "route_source": "check"
+  "route_source": "explicit"
 }
