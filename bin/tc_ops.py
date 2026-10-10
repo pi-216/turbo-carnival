@@ -4440,6 +4440,17 @@ def classify_holder(parent_comm, cgroup):
     pc = (parent_comm or "").strip().lower()
     if "tmux" in cg or pc in ("fish", "bash", "sh", "zsh", "dash"):
         return "operator"
+    # The hermes-webui.service is the OPERATOR's interactive WebUI daemon: ComfyUI
+    # launched from the WebUI lands here (parent = hermes-webui/server.py), and it
+    # is a PROVEN human session the harness ownership rule forbids touching. It
+    # must be classified BEFORE the generic "hermes" -> agent rule, or the
+    # operator's interactive instance is mis-labelled `agent` and
+    # check_comfyui_vram_unclaimed files an agent decision for a session no agent
+    # may act on (measured 2026-10-10: pid 1625701, cgroup=hermes-webui.service,
+    # owner=foreign, mis-filed as holder=agent). The harness's own instance lives
+    # in a comfyui-svc-* unit, so it never matches this rule.
+    if "hermes-webui" in cg:
+        return "operator"
     if "hermes" in cg:
         return "agent"
     if pc == "systemd" or cg.endswith(".service") or ".service/" in cg:

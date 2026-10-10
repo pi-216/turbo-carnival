@@ -72,6 +72,24 @@ if [ "$HASHTAG_CODE" -ne 0 ]; then
     log "WARN: hashtag backfill exited $HASHTAG_CODE — publishing anyway"
 fi
 
+# Capture the follower-count + reach-attribution snapshot HOURLY (2026-10-10).
+# The discovery pivot's justification -- that non-follower reach is a measured
+# zero, so no content lever can move followers -- is only as good as the newest
+# row, and the growth-brain (which snapshots every 12h) lets that measurement go
+# stale for up to 12h, so ops flagged discovery-attribution-unmeasured whenever
+# the newest attribution passed 6h. The hourly posting driver already runs
+# reliably from the user crontab, so snapshot here at the same cadence the check
+# documents (hourly via growth:snapshot_followers). BEST-EFFORT by design: a
+# failed insights call is logged once and stored NULL, and the ops check
+# (discovery-attribution-unmeasured) keeps the condition open.
+# Deliberately NON-FATAL -- a metrics capture failure must never stall publishing.
+log "Capturing follower/reach snapshot..."
+bundle exec rails growth:snapshot_followers 2>&1 | tee -a "$LOG_FILE"
+SNAPSHOT_CODE=${PIPESTATUS[0]}
+if [ "$SNAPSHOT_CODE" -ne 0 ]; then
+    log "WARN: snapshot_followers exited $SNAPSHOT_CODE — publishing anyway"
+fi
+
 # Recover PAID-FOR renders that no post was ever made from (2026-09-20). The
 # growth tick's recovery path lives inside CadenceEngine#sync, and the tick skips
 # the whole cadence step when it cannot acquire the 4090 -- so the one recovery

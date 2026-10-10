@@ -2,11 +2,11 @@
   "key": "discovery-attribution-unmeasured",
   "title": "the measurement behind the discovery pivot is stale or no longer adds up",
   "severity": "warn",
-  "evidence": "newest account-level reach attribution 9.3h ago: non-follower=0 follower=2 total=2 -- the newest account-level reach attribution is 9.3h old (bound 6h). Producer: Growth::MetricsCollector#fetch_reach_attribution, hourly via growth:snapshot_followers, BEST-EFFORT by design (a failed insights call is logged once and stored as NULL). The pivot's justification -- that non-follower reach is a measured zero, so no content lever can move followers -- is only as good as this row: stale, it is a claim about the past; a missing or non-reconciling breakdown makes it a MISSING DIMENSION rather than a measured zero.",
-  "status": "auto-closed",
+  "evidence": "newest account-level reach attribution 11.3h ago: non-follower=0 follower=4 total=4 -- the newest account-level reach attribution is 11.3h old (bound 6h). Producer: Growth::MetricsCollector#fetch_reach_attribution, hourly via growth:snapshot_followers, BEST-EFFORT by design (a failed insights call is logged once and stored as NULL). The pivot's justification -- that non-follower reach is a measured zero, so no content lever can move followers -- is only as good as this row: stale, it is a claim about the past; a missing or non-reconciling breakdown makes it a MISSING DIMENSION rather than a measured zero.",
+  "status": "closed",
   "first_seen": "2026-09-27T17:36:10-0400",
-  "last_seen": "2026-10-09T00:41:16-0400",
-  "seen_count": 6,
+  "last_seen": "2026-10-10T01:03:06-0400",
+  "seen_count": 7,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -29,8 +29,12 @@
     {
       "ts": "2026-10-09T04:30:25-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-10T02:07:22-0400",
+      "note": "FIXED root cause: producer cadence mismatch. The growth-brain snapshots every 12h, so reach attribution went stale up to 12h and tripped the 6h bound. Added growth:snapshot_followers to bin/scheduled_posting.sh (hourly posting driver, user crontab) as a NON-FATAL step following the existing PIPESTATUS-WARN pattern, matching the check's documented hourly cadence. VERIFIED: ran growth:snapshot_followers live -> 'Snapshot recorded: 159 followers'; newest growth_snapshots row id 1181 taken_at 2026-10-10 06:02:48 with reach attribution populated non_follower=0 follower=5 total=5 (fresh, reconciles). Check now sees <1h-old attribution and stops firing; measurement stays fresh hourly."
     }
   ],
   "route_source": "check",
-  "closed_at": "2026-10-09T04:30:25-0400"
+  "closed_at": "2026-10-10T02:07:22-0400"
 }
