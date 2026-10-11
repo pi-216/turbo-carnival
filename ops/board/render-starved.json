@@ -1,18 +1,14 @@
 {
   "key": "render-starved",
-  "title": "no photo in 12h while the render request was refused 4x",
+  "title": "no photo in 12h while the render request was refused 1x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=4 sched_job=none; free=0.2GiB vs ask 16GiB; outside-scheduler holders: 53727 labeler_spa.py 4.5GiB (supervised unit), 3370045 uvicorn 7.3GiB (operator-interactive session), 412523 sha256-e796792eba26c4d3b04b0ac5adb01a453dd9ec2dfd83b6c59cbf6fe5f30b0f68 11.0GiB (supervised unit) -- free 0.2GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 3% busy over 10s (holder resident but idle)",
+  "evidence": "photos_12h=0 refusals_12h=1 sched_job=none; free=18.4GiB vs ask 17GiB; outside-scheduler holders: 1568383 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB",
   "status": "auto-closed",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-10-03T17:44:11-0400",
-  "seen_count": 109,
+  "last_seen": "2026-10-11T00:14:55-0400",
+  "seen_count": 110,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-23T19:36:53-0400",
-      "note": "2026-09-23 23:4xZ ops-triage: ASK UNCHANGED. Holder re-measured: the :8188 instance is IDLE, not mid-batch -- 6 samples over 10s read 0-1% util / 26 W while holding 18.9 GiB of cached models, and the growth brain measured 22.2 GiB FREE at 22:02Z with ensure STILL refusing, so the refusal basis is the launch ARGS and nothing about VRAM (re-confirmed). The containment tail is now verifiably armed by two independent drivers: Growth::AbandonedRenderWorker sits in the live Sidekiq ScheduledSet (next 23:36:47Z) and bin/scheduled_posting.sh runs the same task APPLY=1 hourly from crontab. Library UNTOUCHED (0 library_fallback decisions, 0 library-fallback posts ever -- the 18:27Z spend in the dev log was a rolled-back dry run), 51 servable unposted candidates, budget 3 posts/call, trigger crosses at 72h runway ~09-26 10:30Z (runway now 130.9h)."
-    },
     {
       "ts": "2026-09-23T20:37:55-0400",
       "note": "2026-09-24 00:3xZ ops-triage: ASK UNCHANGED (only the operator can clear the launch-args gate) and the DEADLINE is now on the board beside it. The consequence of this hold was previously unquantified; it is now measured: the GPU-free library holds 8 spendable photos = 2.7d, so if nothing renders publishing goes SILENT 2026-10-02T02:30Z and there is no content source left after it -- see the new publish-silence-forecast item, which carries that date in its ask. Re-measured live this pass: the holder is idle at 24 W while holding 18.0 GiB (it loaded models between 22:02Z and now), so it is in use, not stranded. Nothing touched, no claim requested, no render attempted."
@@ -32,9 +28,13 @@
     {
       "ts": "2026-10-03T21:49:23-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-11T01:59:34-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-10-03T21:49:23-0400",
+  "closed_at": "2026-10-11T01:59:34-0400",
   "route": "agent",
   "ask": "",
   "route_source": "check"

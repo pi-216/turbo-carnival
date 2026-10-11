@@ -17,6 +17,10 @@
     {
       "ts": "2026-10-09T05:03:14-0400",
       "note": "EVIDENCE REFRESHED 2026-10-09: now 279 commits ahead of origin (was 243 on 09-24); origin/main tip still 977c427 (2026-08-24 10:05 EDT) -- CI has not evaluated a single commit in ~6.5 weeks and the local tree is the only copy. Ask unchanged: one yes/no -- push main to origin (PUBLIC repo, starts CI on a month+ of history), or keep local authoritative (this work has no off-site copy, CI stays dark). Recommendation: push; both failing CI jobs are diagnosed and locally verified green."
+    },
+    {
+      "ts": "2026-10-11T02:27:15-0400",
+      "note": "DECISION: pushing 279 commits to the PUBLIC origin + restarting CI is an external write/public-exposure call only Tim can make; public+CI-dark accepted meanwhile."
     }
   ],
   "route_source": "explicit"
