@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 namespace :instagram do
-  desc 'Read-only: list the account media ids and diff them against our published posts'
+  desc "Read-only: list the account media ids and diff them against our published posts"
   task media_inventory: :environment do
     # WHY THIS EXISTS
     # `scheduling_posts.provider_post_id` is written ONCE at publish time and never
@@ -28,12 +28,12 @@ namespace :instagram do
     # line for bin/tc_ops.py and one human line.
     #
     #   bin/rails instagram:media_inventory
-    require 'faraday'
+    require "faraday"
 
     cred = Rails.application.credentials
     token = cred.dig(:instagram, :access_token)
     account = cred.dig(:instagram, :account_id)
-    abort 'MEDIA_INVENTORY unreadable=credentials' if token.blank? || account.blank?
+    abort "MEDIA_INVENTORY unreadable=credentials" if token.blank? || account.blank?
 
     conn = Faraday.new(url: Instagram::Client::BASE_URL) do |c|
       c.request :url_encoded
@@ -43,22 +43,22 @@ namespace :instagram do
 
     listed = []
     url = "#{account}/media"
-    params = { fields: 'id,timestamp,media_type', limit: 100, access_token: token }
+    params = { fields: "id,timestamp,media_type", limit: 100, access_token: token }
     12.times do # bounded: 1,200 media is far beyond any account this app runs
       resp = conn.get(url, params)
       # A non-200 is UNMEASURED, never "nothing missing": the caller must be able to
       # tell a broken read from a clean one, so this aborts rather than printing 0.
       abort "MEDIA_INVENTORY unreadable=http_#{resp.status}" unless resp.success?
 
-      (resp.body['data'] || []).each { |m| listed << m['id'] }
-      nxt = resp.body.dig('paging', 'next')
+      (resp.body["data"] || []).each { |m| listed << m["id"] }
+      nxt = resp.body.dig("paging", "next")
       break unless nxt
 
       params = URI.decode_www_form(URI.parse(nxt).query.to_s).to_h
     end
 
     ours = Scheduling::Post
-           .where(status: 'posted')
+           .where(status: "posted")
            .where.not(provider_post_id: nil)
            .order(:posted_at)
            .pluck(:id, :provider_post_id, :posted_at)

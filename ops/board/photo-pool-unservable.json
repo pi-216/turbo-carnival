@@ -1,18 +1,27 @@
 {
   "key": "photo-pool-unservable",
-  "title": "only 51 servable unposted photo(s) left -- the corpus is draining",
+  "title": "only 0 servable unposted photo(s) left -- the corpus is draining",
   "severity": "warn",
-  "evidence": "pool=51 union=51 unposted=51 (floor 9999); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
-  "status": "auto-closed",
+  "evidence": "pool=0 union=0 unposted=0 (floor 10); 44 photos have a path and no post row but 0 pass the NSFW/sharpness gates, so the render library lever is exhausted; the 4090 is idle (5,420/24,564 MiB used, no claim) so a FRESH render is available; queue runway ~2.3d, dry_out 2026-10-14T10:30Z; a REELS post carries photo_id NULL so the reel arm consumes no pool photo",
+  "status": "open",
   "first_seen": "2026-09-20T06:36:46-0400",
-  "last_seen": "2026-09-20T06:36:46-0400",
-  "seen_count": 1,
+  "last_seen": "2026-10-12T03:14:45-0400",
+  "seen_count": 3,
   "source": "probe",
   "notes": [
     {
       "ts": "2026-09-20T06:36:48-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-12T03:14:33-0400",
+      "note": "progress"
+    },
+    {
+      "ts": "2026-10-12T03:14:33-0400",
+      "note": "RE-OPENED 2026-10-12 (first seen 2026-09-20, auto-closed then): union=0 below the floor of 10 -- the spendable render library is exhausted. NOT the arm: a REELS post carries photo_id NULL (post 408 has none), so the reel rail consumes no pool photo. Measured: 44 photos have a path and no post row, but 0 are spendable through the NSFW/sharpness gates; the 4090 is idle (5,420/24,564 MiB used, no scheduler claim), so a FRESH render is available and is the only content lever left. Queue runway ~2.3d, dry_out 2026-10-14T10:30Z. Treated as a FORECAST rather than a defect: past dry-out the rail goes silent with no error of its own, so the actionable step is a render before the last clock, re-checked with tc_ops.py queue."
     }
   ],
-  "closed_at": "2026-09-20T06:36:48-0400"
+  "closed_at": "2026-10-12T03:14:33-0400",
+  "route": "agent"
 }

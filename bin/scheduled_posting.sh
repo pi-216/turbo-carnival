@@ -223,9 +223,30 @@ if [ "$NEAR_DUP_CODE" -ne 0 ]; then
     log "WARN: near-duplicate gate exited $NEAR_DUP_CODE — publishing anyway"
 fi
 
+# Publish due REELS posts -- the DISCOVERY ARM's rail (2026-10-12).
+#
+# WHY IT IS HERE. The still rail above deliberately EXCLUDES reel rows
+# (reel_path NOT NULL) and only counts them, because everything it does resolves
+# `post.photo` while a reel post carries no photo by design. So without this
+# call a reel post is created and then never published: the pivot would stay
+# declared-but-inert with its asset, container, serving and record steps all
+# built and verified. The publisher is the only in-repo hook that runs on a
+# schedule regardless of the GPU gate, which is where the reel rail belongs for
+# the same reason the repairs above live here.
+#
+# Bounded to LIMIT=1 per tick on purpose (the arm's first publish is ONE reel
+# watched end to end), so a mistake in the asset step cannot become a burst of
+# external writes. Deliberately NON-FATAL (same pattern as the repairs above):
+# a reel-rail failure must never stall the still rail that already ran.
 bundle exec rails scheduling:post_scheduled 2>&1 | tee -a "$LOG_FILE"
-
 EXIT_CODE=${PIPESTATUS[0]}
+
+log "Publishing due REELS posts (discovery arm)..."
+LIMIT=1 bundle exec rails scheduling:post_reels 2>&1 | tee -a "$LOG_FILE"
+REEL_CODE=${PIPESTATUS[0]}
+if [ "$REEL_CODE" -ne 0 ]; then
+    log "WARN: reel rail exited $REEL_CODE — continuing"
+fi
 
 if [ $EXIT_CODE -eq 0 ]; then
     log "Completed successfully"
