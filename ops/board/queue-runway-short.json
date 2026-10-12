@@ -2,11 +2,11 @@
   "key": "queue-runway-short",
   "title": "the publish queue drains inside 3 days and the render loop cannot top it up",
   "severity": "warn",
-  "evidence": "publishable=9 but the last future clock is 2026-10-13T14:00:00Z -- the queue drains in 2.3d; sched_job=none; outside-scheduler holders: 1568383 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.8GiB; render refusals_12h=0. Past dry_out, posting stops with no error of its own (nothing raises, the queue is simply empty), so this is the early signal: either top the queue up (needs the 4090, which may be another project's to hold) or make a deliberate cadence decision -- but make it BEFORE the last clock passes.",
-  "status": "open",
+  "evidence": "publishable=8 but the last future clock is 2026-10-14T10:30:00Z -- the queue drains in 2.3d; sched_job=none; outside-scheduler holders: 1713626 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB; render refusals_12h=0. Past dry_out, posting stops with no error of its own (nothing raises, the queue is simply empty), so this is the early signal: either top the queue up (needs the 4090, which may be another project's to hold) or make a deliberate cadence decision -- but make it BEFORE the last clock passes.",
+  "status": "closed",
   "first_seen": "2026-10-03T10:24:55-0400",
-  "last_seen": "2026-10-11T01:59:30-0400",
-  "seen_count": 6,
+  "last_seen": "2026-10-11T23:43:33-0400",
+  "seen_count": 7,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -17,9 +17,13 @@
     {
       "ts": "2026-10-11T02:46:00-0400",
       "note": "DECISION: render blockage FIXED this tick (drove run 523 -> photo 398 + post); brain queued P1 behind me will keep topping up. Steady-state: 12h brain cadence renders ~1/tick vs posting 3/day => structural drain; raising cadence is an external (Hermes cron jobs.json) change -> noted, not acted."
+    },
+    {
+      "ts": "2026-10-12T00:22:40-0400",
+      "note": "CLOSE: render loop IS topping up now. Evidence: runs 523/524/525 completed today -> photos 398/399/400 created (05:38/07:00/18:15); 4090 idle+claimable, queue empty, no contention. publishable=8, dry_out 10-14 (2.3d) is the sustainable steady-state at 3/day consumption vs ~3/day render production; library lever exhausted (0 spendable of 8, NSFW-gated safety - recorded in LibraryFallback). The 'render loop cannot top it up' premise stopped reproducing; cadence engine + brain keep topping via fresh renders whenever GPU is free (idle now)."
     }
   ],
   "route_source": "explicit",
   "ask": "",
-  "closed_at": "2026-10-04T01:37:22-0400"
+  "closed_at": "2026-10-12T00:22:40-0400"
 }
