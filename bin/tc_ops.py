@@ -7418,6 +7418,19 @@ def check_queue_runway():
     v = queue_runway_verdict(pub, parts[3], now)
     if not v:
         return None
+    # The condition's own title is "the publish queue drains inside RUNWAY_ALERT_H
+    # WHILE NOTHING TOPS IT UP", but the forecast alone never checks the second half.
+    # At steady-state max cadence (renders land at ~3/day matching the 3/day
+    # consumption) the dry_out clock stays inside 72h permanently even though the
+    # queue is NOT draining -- each render pushes the last clock out. That read as a
+    # permanent false-positive that re-filed `queue-runway-short` on every probe tick.
+    # Gate on the same discriminator check_publish_silence already uses ("renders are
+    # landing; the queue check owns the runway"): fire only when a full day has passed
+    # with NO photo accepted, i.e. nothing is actually topping the queue up.
+    renders_24h = psql("select count(*) from photos where created_at > "
+                       "(now() at time zone 'UTC') - interval '24 hours'")
+    if renders_24h is not None and int(renders_24h) > 0:
+        return None                 # renders are landing; the queue is being topped
     job = ((sched_state().get("gpus") or {}).get(GPU) or {}).get("current_job")
     # Name the OUTSIDE-scheduler holder too. `holder` reads the scheduler's own
     # state.json, which reports current_job=null while a no-claim process sits on
