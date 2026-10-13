@@ -34,16 +34,17 @@ class MediaController < ApplicationController
     end
 
     file = photo.servable_file_path
+    return head :not_found unless file
 
-    unless file
-      head :not_found
-      return
-    end
-
-    send_file file,
-              type: "image/png",
-              disposition: "inline",
-              cache_control: "public, max-age=86400"
+    # Brakeman flags send_file on a DB-stored path (SendFile/Medium 3.x): the
+    # resolved value could be served from anywhere. servable_file_path can only
+    # return the photo's own ComfyUI-output path or a MIRROR_ROOT-resolved
+    # candidate, so prove the result stays inside those roots before serving.
+    send_file_from_allowed_root(file,
+                                allowed_roots: photo_serving_roots,
+                                type: "image/png",
+                                disposition: "inline",
+                                cache_control: "public, max-age=86400")
   end
 
   # Serves a REELS post's MP4 -- the `video_url` Instagram fetches for the
@@ -67,14 +68,29 @@ class MediaController < ApplicationController
     post = Scheduling::Post.find_by(id: params[:id])
 
     file = post&.reel_path
-    unless file.present? && File.file?(file)
-      head :not_found
-      return
-    end
+    return head :not_found unless file.present?
 
-    send_file file,
-              type: "video/mp4",
-              disposition: "inline",
-              cache_control: "public, max-age=86400"
+    # reel_path is minted by Growth::ReelArm into Rails.root/storage/reels/ --
+    # the only root this rail writes to. Prove the DB value stays inside it
+    # before send_file (Brakeman SendFile/Medium 3.x).
+    send_file_from_allowed_root(file,
+                                allowed_roots: [ Rails.root.join("storage/reels") ],
+                                type: "video/mp4",
+                                disposition: "inline",
+                                cache_control: "public, max-age=86400")
+  end
+
+  private
+
+  # Roots a Photo's servable_file_path can legitimately return: its own
+  # ComfyUI-output path, or a MIRROR_ROOT-resolved candidate. COMFYUI_MIRROR_ROOT
+  # is read at request time so it can be pointed at a tempdir in tests.
+  def photo_serving_roots
+    [
+      ENV["COMFYUI_MIRROR_ROOT"],
+      "/mnt/nas-ai-models/comfyui-output",
+      "/mnt/essdee/ComfyUI",
+      "/mnt/fscache/essdee/ComfyUI"
+    ].compact
   end
 end
