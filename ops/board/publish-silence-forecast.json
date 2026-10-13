@@ -2,13 +2,13 @@
   "key": "publish-silence-forecast",
   "title": "if the render loop stays blocked, publishing goes silent and nothing is left to publish",
   "severity": "warn",
-  "evidence": "the GPU-free library holds 0 spendable photo(s) of 8 measured, 8 already spent; at 3/day that buys 0.0d past the last scheduled clock 2026-10-13T10:30:00Z (queue alone drains in 2.3d), so publishing goes SILENT 2026-10-13T10:30:00Z -- in 2.3d -- and after that date there is NO content source left (library spent, renders blocked); depth measured 2026-09-24T00:32:43Z by bin/library_depth.py; that measurement is 17.2d old (> 7d) -- re-run bin/library_depth.py; 36 photo(s) landed since it, so the depth is UNDERSTATED -- re-run bin/library_depth.py; outside-scheduler holders: 1568383 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB",
-  "status": "auto-closed",
+  "evidence": "the GPU-free library holds 0 spendable photo(s) of 8 measured, 8 already spent; at 3/day that buys 0.0d past the last scheduled clock 2026-10-14T14:00:00Z (queue alone drains in 1.2d), so publishing goes SILENT 2026-10-14T14:00:00Z -- in 1.2d -- and after that date there is NO content source left (library spent, renders blocked); depth measured 2026-09-24T00:32:43Z by bin/library_depth.py; that measurement is 19.3d old (> 7d) -- re-run bin/library_depth.py; 40 photo(s) landed since it, so the depth is UNDERSTATED -- re-run bin/library_depth.py; outside-scheduler holders: 625972 main.py 16.4GiB (operator-interactive session), 1467077 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.6GiB; the card is held by the OPERATOR's own interactive session, so the action is the one `render-starved` already names -- what this item adds is the DATE it has to happen by",
+  "status": "open",
   "first_seen": "2026-09-23T20:36:04-0400",
-  "last_seen": "2026-10-11T00:14:55-0400",
-  "seen_count": 24,
+  "last_seen": "2026-10-13T04:26:19-0400",
+  "seen_count": 25,
   "source": "probe",
-  "route": "agent",
+  "route": "tim",
   "notes": [
     {
       "ts": "2026-09-23T21:31:49-0400",
@@ -35,7 +35,7 @@
       "note": "condition no longer reproduces"
     }
   ],
-  "ask": "",
+  "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders. THIS ITEM PUTS A DATE ON IT: if nothing renders, publishing goes silent 2026-10-14T14:00:00Z (1.2d away) and the library is then empty -- there is no other content source, so that date is the deadline, not a warning.",
   "route_source": "check",
   "closed_at": "2026-10-11T01:59:34-0400"
 }

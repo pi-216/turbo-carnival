@@ -2,11 +2,11 @@
   "key": "photo-pool-unservable",
   "title": "only 0 servable unposted photo(s) left -- the corpus is draining",
   "severity": "warn",
-  "evidence": "pool=0 union=0 unposted=0 (floor 10); 44 photos have a path and no post row but 0 pass the NSFW/sharpness gates, so the render library lever is exhausted; the 4090 is idle (5,420/24,564 MiB used, no claim) so a FRESH render is available; queue runway ~2.3d, dry_out 2026-10-14T10:30Z; a REELS post carries photo_id NULL so the reel arm consumes no pool photo",
+  "evidence": "pool=0 union=0 unposted=0 (floor 10); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
   "status": "open",
   "first_seen": "2026-09-20T06:36:46-0400",
-  "last_seen": "2026-10-12T03:14:45-0400",
-  "seen_count": 3,
+  "last_seen": "2026-10-13T04:26:07-0400",
+  "seen_count": 5,
   "source": "probe",
   "notes": [
     {

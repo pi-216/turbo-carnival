@@ -2,11 +2,11 @@
   "key": "render-starved",
   "title": "no photo in 12h while the render request was refused 1x",
   "severity": "warn",
-  "evidence": "photos_12h=0 refusals_12h=1 sched_job=none; free=18.4GiB vs ask 17GiB; outside-scheduler holders: 1568383 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB",
-  "status": "auto-closed",
+  "evidence": "photos_12h=0 refusals_12h=1 sched_job=none; the :8188 instance (pid 625972, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); free=1.8GiB vs ask 16GiB; outside-scheduler holders: 625972 main.py 16.4GiB (operator-interactive session), 1467077 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.6GiB -- free 1.8GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 0% busy over 10s; the :8188 instance is idle (last prompt 5.0h ago) -- resident residue, not work. TWO things must be true before the harness can render through that session, and only the operator can make either true. (1) LAUNCH ARGS: an instance carrying the SAME `--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of yielded to, so the loop resumes as soon as that session has room; without the flag every tick refuses on the launch args even when the card is otherwise empty. (2) THE CARD ITSELF: the flag alone is NOT sufficient while the instance HOLDS its models -- an adopted instance still has to clear the scheduler's fit floor, and a resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses `vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid 3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at free=6413MiB -- nothing rendered). Note that freeing its model cache clears only (2) and never (1): while the instance is up and FLAGLESS, `ensure` returns 2 on the launch args BEFORE it ever asks the scheduler for a claim, so no amount of freed VRAM starts a render through it. (If you would rather keep the card for your own session, say so once: the launch line stops being re-raised and the drought is recorded as accepted policy, the zero-output item staying open as its cost.) CLOSING it is the fix and the next tick renders; freeing its model cache is not, because a flagless instance is refused before any claim.",
+  "status": "open",
   "first_seen": "2026-09-20T02:25:20-0400",
-  "last_seen": "2026-10-11T00:14:55-0400",
-  "seen_count": 110,
+  "last_seen": "2026-10-13T04:26:19-0400",
+  "seen_count": 112,
   "source": "probe",
   "notes": [
     {
@@ -35,7 +35,7 @@
     }
   ],
   "closed_at": "2026-10-11T01:59:34-0400",
-  "route": "agent",
-  "ask": "",
+  "route": "tim",
+  "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders.",
   "route_source": "check"
 }
