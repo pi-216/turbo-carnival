@@ -3,16 +3,12 @@
   "title": "no photo in 12h while the render request was refused 1x",
   "severity": "warn",
   "evidence": "photos_12h=0 refusals_12h=1 sched_job=none; the :8188 instance (pid 625972, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); free=1.8GiB vs ask 16GiB; outside-scheduler holders: 625972 main.py 16.4GiB (operator-interactive session), 1467077 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.6GiB -- free 1.8GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 0% busy over 10s; the :8188 instance is idle (last prompt 5.0h ago) -- resident residue, not work. TWO things must be true before the harness can render through that session, and only the operator can make either true. (1) LAUNCH ARGS: an instance carrying the SAME `--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of yielded to, so the loop resumes as soon as that session has room; without the flag every tick refuses on the launch args even when the card is otherwise empty. (2) THE CARD ITSELF: the flag alone is NOT sufficient while the instance HOLDS its models -- an adopted instance still has to clear the scheduler's fit floor, and a resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses `vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid 3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at free=6413MiB -- nothing rendered). Note that freeing its model cache clears only (2) and never (1): while the instance is up and FLAGLESS, `ensure` returns 2 on the launch args BEFORE it ever asks the scheduler for a claim, so no amount of freed VRAM starts a render through it. (If you would rather keep the card for your own session, say so once: the launch line stops being re-raised and the drought is recorded as accepted policy, the zero-output item staying open as its cost.) CLOSING it is the fix and the next tick renders; freeing its model cache is not, because a flagless instance is refused before any claim.",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-20T02:25:20-0400",
   "last_seen": "2026-10-13T04:26:19-0400",
   "seen_count": 112,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-23T20:37:55-0400",
-      "note": "2026-09-24 00:3xZ ops-triage: ASK UNCHANGED (only the operator can clear the launch-args gate) and the DEADLINE is now on the board beside it. The consequence of this hold was previously unquantified; it is now measured: the GPU-free library holds 8 spendable photos = 2.7d, so if nothing renders publishing goes SILENT 2026-10-02T02:30Z and there is no content source left after it -- see the new publish-silence-forecast item, which carries that date in its ask. Re-measured live this pass: the holder is idle at 24 W while holding 18.0 GiB (it loaded models between 22:02Z and now), so it is in use, not stranded. Nothing touched, no claim requested, no render attempted."
-    },
     {
       "ts": "2026-09-23T21:31:49-0400",
       "note": "2026-09-24 01:4xZ ops-triage: THE EXTERNAL CAUSE ENDED -- this item is no longer blocked-on-slot and no human action is outstanding. Measured this pass: the operator's flagless :8188 session is GONE (no comfyui process at all; `ss -ltn` shows 8188 NOT listening; nvidia-smi 488 MiB used / 23593 MiB free, holders only nautilus 55 MiB + xdg-desktop-portal-gnome 12 MiB). `bin/comfyui_harness.sh status` -> claim=idle job=none ours=no comfyui=down, so the launch-ARGS gate that produced all 12 refusals is no longer armed. `growth:render_need[Sarah]` -> shortfall=4 target=21 existing=17 need=yes claim=idle comfy=down. The growth-brain tick takes the acquire branch and renders (next_run 02:00Z, last_status ok, cron ticker heartbeat 19s old). This pass launched NOTHING: the growth tick is the authoritative driver and a second one would race its state. ALSO FIXED (repo): the route was FROZEN at filing while the ask was re-derived from the same predicate, so this item sat in the human queue with ask='' once his session cleared -- an escalation with no action. `file_issue` now refreshes a CHECK-computed route and never moves an EXPLICIT one (route_source); this item is now route=agent and Tim's queue is down to the one genuine ask."
@@ -32,9 +28,13 @@
     {
       "ts": "2026-10-11T01:59:34-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-10-11T01:59:34-0400",
+  "closed_at": "2026-10-13T23:56:13-0400",
   "route": "tim",
   "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders.",
   "route_source": "check"

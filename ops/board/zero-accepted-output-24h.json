@@ -3,17 +3,13 @@
   "title": "No photo produced in 24h (pipeline running but accepting nothing)",
   "severity": "critical",
   "evidence": "photos created in last 24h = 0",
-  "status": "open",
+  "status": "auto-closed",
   "first_seen": "2026-09-23T03:25:25-0400",
   "last_seen": "2026-10-13T04:26:06-0400",
   "seen_count": 64,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-23T22:25:22-0400",
-      "note": "condition no longer reproduces"
-    },
     {
       "ts": "2026-09-26T17:32:39-0400",
       "note": "condition no longer reproduces"
@@ -33,7 +29,11 @@
     {
       "ts": "2026-10-13T05:08:48-0400",
       "note": "DECISION blocked-on-operator-slot, 2026-10-13 04:3xZ. Root cause NOT in-repo: the operator's flagless interactive ComfyUI (pid 625972, up since Mon Oct 12 19:43:58, currently idle 24.93W/0% holding 16.8GiB, free only 1.8GB) holds the card; the harness refuses on the ARGS before any claim (fail-closed). Tim said 10-12 no blockers, but the card is STILL held now. Same root cause as render-starved/publish-silence-forecast (already routed tim, correct ask: CLOSE the :8188 session or record the drought as accepted policy). No new event; all 4 agent items auto-close when renders resume. In-repo fix (Brakeman send_file) verified + committed this pass."
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
     }
   ],
-  "closed_at": "2026-10-11T01:59:34-0400"
+  "closed_at": "2026-10-13T23:56:13-0400"
 }
