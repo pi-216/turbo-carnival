@@ -5,19 +5,11 @@
   "evidence": "photos created in last 24h = 0",
   "status": "open",
   "first_seen": "2026-09-23T03:25:25-0400",
-  "last_seen": "2026-10-16T00:38:30-0400",
-  "seen_count": 65,
+  "last_seen": "2026-10-16T08:01:36-0400",
+  "seen_count": 68,
   "source": "probe",
   "route": "agent",
   "notes": [
-    {
-      "ts": "2026-09-29T13:36:09-0400",
-      "note": "condition no longer reproduces"
-    },
-    {
-      "ts": "2026-10-03T21:49:23-0400",
-      "note": "condition no longer reproduces"
-    },
     {
       "ts": "2026-10-11T01:59:34-0400",
       "note": "condition no longer reproduces"
@@ -33,6 +25,14 @@
     {
       "ts": "2026-10-16T04:09:25-0400",
       "note": "Root cause: brain (render driver) cannot start -- max395 ds4 inference server saturated (KV 511G/512G, RAM 103Gi/119Gi), completions time out; see brain-gateway-failed routed tim. No photo accepted in 24h because no render was attempted; not a repo-side quality-gate issue."
+    },
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "SECONDARY: even with brain gateway fixed, render would still fail vram_insufficient (image_embed+ollama co-tenants, render-starved). No agent-owned lever: caption needs ollama during claim hold, image_embed is foreign. Driven by tim enablement (brain-gateway-failed + photo-pool-unservable)."
+    },
+    {
+      "ts": "2026-10-16T08:08:37-0400",
+      "note": "SUPERSEDE secondary: image_embed GONE; the GPU-side render block is now the foreign ComfyUI pid 3087480 (reserve=missing) ARGS refusal. PRIMARY root cause unchanged: brain-gateway-failed (brain cannot start, ds4 saturated). No photo accepted because no render attempted; not a repo quality-gate issue."
     }
   ],
   "closed_at": "2026-10-13T23:56:13-0400",

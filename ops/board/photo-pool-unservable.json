@@ -5,14 +5,10 @@
   "evidence": "pool=0 union=0 unposted=0 (floor 10); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
   "status": "open",
   "first_seen": "2026-09-20T06:36:46-0400",
-  "last_seen": "2026-10-16T00:38:31-0400",
-  "seen_count": 9,
+  "last_seen": "2026-10-16T08:01:37-0400",
+  "seen_count": 12,
   "source": "probe",
   "notes": [
-    {
-      "ts": "2026-09-20T06:36:48-0400",
-      "note": "condition no longer reproduces"
-    },
     {
       "ts": "2026-10-12T03:14:33-0400",
       "note": "progress"
@@ -28,6 +24,14 @@
     {
       "ts": "2026-10-16T03:44:40-0400",
       "note": "ASK UPDATED: the foreign-ComfyUI enablement (yield card / restart with --reserve-vram) is RESOLVED -- that instance (pid 1085282) is now down. Pool still drained (union=0) because the brain/render driver cannot start: max395 ds4 inference server saturated (KV 511G/512G, RAM 103Gi/119Gi) -> see brain-gateway-failed. Pool can only be refilled once inference capacity frees and a fresh render lands."
+    },
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "SECOND independent blocker confirmed: even after brain-gateway is fixed, the 4090 render claim is denied vram_insufficient (free 12.4GiB < 16GiB ask) -- foreign operator image_embed uvicorn 1453958 (5.9GiB) + our ollama caption model (4.8GiB) co-tenant the card. Caption needs ollama during the claim hold; image_embed is foreign (not ours to kill). Ask Tim: stop/move image_embed (pid 1453958, /home/tim/source/activity/image_embed, port 8001) to free >=16GiB."
+    },
+    {
+      "ts": "2026-10-16T08:08:37-0400",
+      "note": "SUPERSEDE: image_embed (1453958) GONE. CURRENT GPU ask: foreign operator ComfyUI pid 3087480 (tmux, 07:18, reserve=missing) blocks the render claim on ARGS -- restart with --reserve-vram or yield the card. Pool drained union=0; PRIMARY blocker remains brain-gateway-failed (brain cannot start: max395 ds4 saturated)."
     }
   ],
   "closed_at": "2026-10-12T03:14:33-0400",

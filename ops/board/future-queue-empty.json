@@ -1,0 +1,19 @@
+{
+  "key": "future-queue-empty",
+  "title": "no post is queued to publish: the producer has stopped",
+  "severity": "warn",
+  "evidence": "future draft/scheduled rows = 0 (target ~21); newest published=2026-10-16 09:00:38.954328. Nothing is due yet, so check_publish_liveness stays green while the account counts down to silence -- the 2026-09-10 -> 09-17 outage looked exactly like this for days before the gap itself was measurable.",
+  "status": "open",
+  "first_seen": "2026-10-16T06:00:46-0400",
+  "last_seen": "2026-10-16T08:01:49-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "QUEUE EMPTY now (publishable=0, dry_out=none) -- producer stopped because pool drained + no render can land; held=3 age-gate holds are deliberate, never touched."
+    }
+  ],
+  "route_source": "check"
+}

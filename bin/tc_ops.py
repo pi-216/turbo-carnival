@@ -7510,6 +7510,20 @@ def check_publish_silence():
     parts = row.split("|")
     if len(parts) != 4:
         return None
+    dry_out_iso = parts[3]
+    if not dry_out_iso:
+        # QUEUE ALREADY EMPTY (no future clock; QUEUE_SQL returns '' here). The
+        # queue contributes ZERO runway, so silence is driven by the library alone
+        # starting NOW -- this is MAXIMALLY reproducing, not "no longer reproduces".
+        # Without this branch _utc_dt('') -> None made the forecast return None,
+        # which the probe auto-closed as "condition no longer reproduces" exactly
+        # backwards (measured 2026-10-16: publishable=0, dry_out=none -> auto-close).
+        publishable = parts[0]
+        try:
+            if publishable is not None and int(publishable) <= 0:
+                dry_out_iso = now
+        except (TypeError, ValueError):
+            pass
     spent_since = psql("select count(*) from scheduling_posts where "
                        "strategy_name = 'library-fallback' and created_at > "
                        f"'{measured_at}'")
@@ -7517,11 +7531,11 @@ def check_publish_silence():
                        "(now() at time zone 'UTC') - interval '24 hours'")
     new_photos = psql(f"select count(*) from photos where created_at > '{measured_at}'")
     v = library_silence_verdict(rep.get("spendable"), spent_since,
-                                rep.get("cadence_per_day"), parts[3], now)
+                                rep.get("cadence_per_day"), dry_out_iso, now)
     if not v:
         return None
     fc = library_silence_forecast(rep.get("spendable"), spent_since,
-                                  rep.get("cadence_per_day"), parts[3], now) or {}
+                                  rep.get("cadence_per_day"), dry_out_iso, now) or {}
     if renders_24h is not None and int(renders_24h) > 0:
         return None                 # renders are landing; the queue check owns the runway
     extra = f"; depth measured {measured_at} by bin/library_depth.py"

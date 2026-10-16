@@ -13,6 +13,10 @@
     {
       "ts": "2026-10-16T03:35:16-0400",
       "note": "Enablement: only Tim can clear the shared max395 ds4-server KV cache (511G/512G) or restart ds4-server / free its RAM (103Gi/119Gi used) to grant new inference slots; clearing is destructive to other projects' resident sessions so turbo-carnival cannot do it from here."
+    },
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "VERIFIED live: shared gateway journalctl shows repeated 'Auxiliary title_generation: request to http://192.168.86.137:8000/v1/ timed out' today (03:21,04:45,05:57,06:06,06:26,06:57Z) -- ds4 inference server saturated, cannot grant a new brain slot. Still reproducing; correctly routed tim (only Tim can clear shared KV cache/RAM, destructive to other projects' resident sessions)."
     }
   ],
   "route_source": "explicit"
