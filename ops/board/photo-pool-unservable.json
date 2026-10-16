@@ -5,8 +5,8 @@
   "evidence": "pool=0 union=0 unposted=0 (floor 10); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
   "status": "open",
   "first_seen": "2026-09-20T06:36:46-0400",
-  "last_seen": "2026-10-14T00:13:35-0400",
-  "seen_count": 7,
+  "last_seen": "2026-10-16T00:38:31-0400",
+  "seen_count": 9,
   "source": "probe",
   "notes": [
     {
@@ -24,6 +24,10 @@
     {
       "ts": "2026-10-14T00:12:57-0400",
       "note": "Only the operator can unblock rendering: your foreign ComfyUI (pid 1085282, tmux scope, started Tue Oct 13 22:17:41, reserve=missing) holds 18.9 GB resident at 1% util on the 4090 with NO scheduler claim (scheduler reads idle = false-idle double-book; only ~1.3 GB free). The spendable photo pool is drained (union=0, floor 10) and posting goes silent 2026-10-15T09:00Z (1.2d) with no error. turbo-carnival cannot kill your workload and its reserve-gate fail-closes on the un-reserved instance, so no render fits. Yield the card, or restart ComfyUI with --reserve-vram, and the harness will top up the pool."
+    },
+    {
+      "ts": "2026-10-16T03:44:40-0400",
+      "note": "ASK UPDATED: the foreign-ComfyUI enablement (yield card / restart with --reserve-vram) is RESOLVED -- that instance (pid 1085282) is now down. Pool still drained (union=0) because the brain/render driver cannot start: max395 ds4 inference server saturated (KV 511G/512G, RAM 103Gi/119Gi) -> see brain-gateway-failed. Pool can only be refilled once inference capacity frees and a fresh render lands."
     }
   ],
   "closed_at": "2026-10-12T03:14:33-0400",

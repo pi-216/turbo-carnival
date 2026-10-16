@@ -2,11 +2,11 @@
   "key": "queue-runway-short",
   "title": "the publish queue drains inside 3 days and the render loop cannot top it up",
   "severity": "warn",
-  "evidence": "publishable=6 but the last future clock is 2026-10-14T14:00:00Z -- the queue drains in 1.2d; sched_job=none; outside-scheduler holders: 625972 main.py 16.4GiB (operator-interactive session), 1467077 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.6GiB; render refusals_12h=1; the card is held by the OPERATOR's own interactive session -- no in-repo action can free it, so this is filed as enablement (a GPU-policy call on a session no agent may touch) TWO things must be true before the harness can render through that session, and only the operator can make either true. (1) LAUNCH ARGS: an instance carrying the SAME `--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of yielded to, so the loop resumes as soon as that session has room; without the flag every tick refuses on the launch args even when the card is otherwise empty. (2) THE CARD ITSELF: the flag alone is NOT sufficient while the instance HOLDS its models -- an adopted instance still has to clear the scheduler's fit floor, and a resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses `vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid 3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at free=6413MiB -- nothing rendered). Note that freeing its model cache clears only (2) and never (1): while the instance is up and FLAGLESS, `ensure` returns 2 on the launch args BEFORE it ever asks the scheduler for a claim, so no amount of freed VRAM starts a render through it. (If you would rather keep the card for your own session, say so once: the launch line stops being re-raised and the drought is recorded as accepted policy, the zero-output item staying open as its cost.) CLOSING it is the fix and the next tick renders; freeing its model cache is not, because a flagless instance is refused before any claim.. Past dry_out, posting stops with no error of its own (nothing raises, the queue is simply empty), so this is the early signal: either top the queue up (needs the 4090, which may be another project's to hold) or make a deliberate cadence decision -- but make it BEFORE the last clock passes.",
-  "status": "auto-closed",
+  "evidence": "publishable=1 but the last future clock is 2026-10-16T09:00:00Z -- the queue drains in 0.2d; sched_job=none; outside-scheduler holders: 1453958 uvicorn 5.6GiB (operator-interactive session), 1667355 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB; render refusals_12h=0; the card is held by the OPERATOR's own interactive session -- no in-repo action can free it, so this is filed as enablement (a GPU-policy call on a session no agent may touch). Past dry_out, posting stops with no error of its own (nothing raises, the queue is simply empty), so this is the early signal: either top the queue up (needs the 4090, which may be another project's to hold) or make a deliberate cadence decision -- but make it BEFORE the last clock passes.",
+  "status": "open",
   "first_seen": "2026-10-03T10:24:55-0400",
-  "last_seen": "2026-10-13T04:26:19-0400",
-  "seen_count": 8,
+  "last_seen": "2026-10-16T00:38:34-0400",
+  "seen_count": 9,
   "source": "probe",
   "route": "agent",
   "notes": [
@@ -28,6 +28,6 @@
     }
   ],
   "route_source": "explicit",
-  "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders.",
+  "ask": "",
   "closed_at": "2026-10-13T23:56:13-0400"
 }
