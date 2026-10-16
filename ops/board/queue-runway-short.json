@@ -25,6 +25,10 @@
     {
       "ts": "2026-10-13T23:56:13-0400",
       "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T05:23:28-0400",
+      "note": "Same root cause as brain-gateway-failed: queue drains <3d because the render loop cannot top it up -- brain (render driver) cannot start (max395 ds4 inference saturated, KV 511G/512G RAM 103Gi/119Gi). No repo-side fix; blocked on Tim enablement."
     }
   ],
   "route_source": "explicit",
