@@ -171,8 +171,10 @@ their tickets not yet cut._
 
 ## 8. Open questions
 
-- **Repo ownership vs board ownership.** The board is org-owned (pi-216) but the repo is
-  `timlawrenz/turbo-carnival`. Works today; move the repo into the org for consistency, or leave it?
+- ~~**Repo ownership vs board ownership.**~~ **Resolved 2026-10-18: the repo moved to
+  `pi-216/turbo-carnival`.** Board owner and repo owner are now the same account, so
+  `config/autonomous/pipeline.yml` is back to the house's single-`owner` shape (it briefly needed a
+  split `board_owner`/`repo` pair while a personal repo fed an org board).
 - **Where the index is regenerated.** A rake task in the app, or a standalone script in `bin/`?
   (Lean `bin/` — it must run without booting Rails.)
 - **W2 item granularity.** One plan item per experiment (E5, E6, …), or one item for the lane with
