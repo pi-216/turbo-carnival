@@ -1,6 +1,9 @@
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
+> **Status:** SUPERSEDED — the OpenSpec managed block — OpenSpec is dropped; replaced under PROJECT_PLAN.md W1.3
+> Do not act on this document.
+
 These instructions are for AI assistants working in this project.
 
 Always open `@/openspec/AGENTS.md` when the request:

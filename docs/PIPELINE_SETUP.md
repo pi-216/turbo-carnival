@@ -1,5 +1,7 @@
 # Pipeline Setup Guide
 
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild
+
 This guide shows you how to create and run image generation pipelines.
 
 ## Quick Start

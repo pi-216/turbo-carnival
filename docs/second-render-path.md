@@ -1,5 +1,7 @@
 # Second render path — max395 (strix) ComfyUI on ROCm
 
+> **Status:** REFERENCE — the max395 path — a how-to, not a commitment
+
 **Status: install VERIFIED; the PRODUCTION WORKFLOW DOES NOT FIT — memory-blocked (not just
 unwired).** Measured 2026-09-23 20:3xZ: the workflow needs **~40 GB of host RAM** and max395 has
 **34 GB available** at current co-tenant load, so this host cannot render the pipeline as

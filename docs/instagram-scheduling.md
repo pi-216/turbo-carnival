@@ -1,5 +1,7 @@
 # Instagram Scheduling Setup
 
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild
+
 ## Overview
 
 The scheduling pack enables automated posting to Instagram through the Instagram Graph API. Posts can be scheduled for immediate posting or queued for automated posting via cron jobs.

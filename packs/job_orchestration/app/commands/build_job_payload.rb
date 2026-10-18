@@ -62,6 +62,16 @@ class BuildJobPayload < GLCommand::Callable
   def replace_template_variables(workflow_json)
     variables = build_variable_map
 
+    # CHECKPOINT SCOPE (fail-closed, but not a taste gate): a workflow that
+    # parameterises its base model must name one the founder approved. Resolved
+    # here -- the single choke point every render passes through -- so a blank
+    # value becomes the known-good baseline instead of shipping the literal
+    # string "{{checkpoint}}" to ComfyUI as a filename, and an unapproved value
+    # stops before a multi-minute model load.
+    if workflow_json.include?('{{checkpoint}}')
+      variables['checkpoint'] = PipelineCheckpointAllowlist.resolve!(variables['checkpoint'])
+    end
+
     variables.each do |key, value|
       # Properly escape the value as a JSON string literal
       escaped_value = value.to_s.to_json[1..-2]

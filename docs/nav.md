@@ -1,5 +1,7 @@
 # TurboCarnival Left-Hand Navigation
 
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild
+
 ## Persona Selection
 - Select Persona
   - [List of Personas] (personas#index)

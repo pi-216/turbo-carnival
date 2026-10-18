@@ -1,5 +1,8 @@
 # Post Creation Interface - Implementation Progress
 
+> **Status:** HISTORICAL — an implementation-progress log, not a spec
+> A record of what happened, not instructions.
+
 ## Status: ✅ COMPLETE & TESTED
 
 ### Summary

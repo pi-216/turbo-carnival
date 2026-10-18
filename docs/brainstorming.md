@@ -1,3 +1,6 @@
+
+> **Status:** HISTORICAL — early ideation
+> A record of what happened, not instructions.
 Here is the document describing the image generation and curation tool.
 
 ---

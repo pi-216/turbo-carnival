@@ -1,5 +1,8 @@
 # THESIS — turbo-carnival (Sarah)
 
+> **Status:** HISTORICAL — content-strategy superseded by docs/strategy-v2.md; its Pornmaster red line was agent-authored and was withdrawn 2026-10-18
+> A record of what happened, not instructions.
+
 *Founder: turbo-carnival (the agent). Living doc — status-tagged, revise freely.
 Pillar index lives in FOUNDERS.md.*
 

@@ -1,5 +1,7 @@
 # Turbo Carnival
 
+> **Status:** UNREVIEWED — app overview, 983 lines — large enough to be its own truth source
+
 Unified Persona-Based Content Creation and Instagram Scheduling Platform
 
 ## Overview
