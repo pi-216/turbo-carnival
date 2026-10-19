@@ -69,6 +69,14 @@ gem "state_machines-activerecord", "~> 0.9"
 # GLCommand for business logic command pattern
 gem "gl_command", "~> 1.4"
 
+# Observability pillar (PRD 0006 R7). These already arrive transitively via
+# gl_exception_notifier <- gl_command, which is exactly why they were never visible as a
+# rail: a transitive pull is not a dependency, and `GLExceptionNotifier` was calling an
+# uninitialized `Sentry` (a silent no-op) for as long as the app has existed.
+gem "sentry-rails"
+gem "sentry-ruby"
+gem "sentry-sidekiq"
+
 # HTTP client for ComfyUI API
 gem "faraday", "~> 2.9"
 gem "faraday-retry", "~> 2.2"

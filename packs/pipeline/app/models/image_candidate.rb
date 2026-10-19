@@ -38,6 +38,7 @@ class ImageCandidate < ApplicationRecord
   scope :winners, -> { where(winner: true) }
   scope :not_winners, -> { where(winner: false) }
 
+  # @return [true] the winner was recorded; a failure raises out of the transaction.
   def mark_as_winner!
     transaction do
       # Unmark other candidates in the same run
@@ -49,6 +50,15 @@ class ImageCandidate < ApplicationRecord
       # Create Photo record if run belongs to a content pillar
       create_photo_record if pipeline_run&.content_pillar_id.present?
     end
+
+    # The transaction's value is whatever its last expression returned, and that expression is
+    # `create_photo_record` -- which returns nil on every path that creates no row (no pillar on
+    # the run, no image_path, a photo that already exists). This used to be the method's return
+    # by accident, so `AutoSelectWinners` (`photo = candidate.mark_as_winner!`) silently counted
+    # ZERO winners for a run with no content pillar even though every winner was marked, and
+    # dropped their photos from the run's totals. The outcome is reported explicitly instead:
+    # the transaction either completed or raised.
+    true
   end
 
   def unmark_as_winner!
