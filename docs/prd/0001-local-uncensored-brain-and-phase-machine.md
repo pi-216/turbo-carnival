@@ -123,6 +123,7 @@ Scenario: a render and a review never overlap the brain
 | | |
 |---|---|
 | the model named by the founder | `/home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — **22,082,529,760 B**, verified present |
+| **staged artefact (destination)** | `/mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — staged by #23, **sha256 read back and matched** (`4856b645…2118b10`); recorded as data in `config/autonomous/brain.yml` |
 | NAS LLM area (exists) | `/mnt/nas-ai-models/LLM/` → `gguf/` holds 12+ GGUFs |
 | **uncensored** sibling on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) — a *different tune* (HauhauCS "Aggressive"), declares `vision` + `mtp` |
 | **vanilla** siblings on the NAS | `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) — verified `general.name = Qwen3.8-27B` (Unsloth), **not uncensored**. These are the hedging model this PRD exists to replace and are **not** candidates for this seat |
@@ -131,9 +132,11 @@ Scenario: a render and a review never overlap the brain
 | `/mnt/models` | ComfyUI `local_hot`; holds checkpoints/loras/unet/vae/clip only — **no LLM area** |
 | llama.cpp | `/home/tim/source/activity/llama.cpp`, HEAD `4df29be4f` (2026-08-16), build 10454, CUDA libs built; `build/bin/llama-server` present |
 
-**The founder's request is "better from the NAS somewhere or `/mnt/models`".** The exact named file is *not*
-on the NAS today — the NAS holds siblings — so staging is a real step, and which artefact ends up canonical
-is an open question (below).
+**The founder's request is "better from the NAS somewhere or `/mnt/models`".** The exact named file was *not*
+on the NAS — the NAS held siblings — so staging was a real step. **It is staged** (#23): the artefact now sits
+at `/mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`, its sha256 verified against the source,
+and the path is recorded as data in `config/autonomous/brain.yml`. The canonical artefact was decided by the
+founder on 2026-10-19 (open question 1, below).
 
 ## Metrics / definition of done
 

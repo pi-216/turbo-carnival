@@ -1,0 +1,32 @@
+# config/autonomous/brain.yml
+#
+# The local uncensored brain (PRD 0001) — recorded as DATA, not a memory.
+# A next agent must not re-derive the artefact or its serving parameters by trial.
+#
+# PRD   : docs/prd/0001-local-uncensored-brain-and-phase-machine.md
+# Plan  : docs/PROJECT_PLAN.md#w11-local-brain-and-phase-machine
+# Seat  : the Thinker/planner role. Canonical artefact per the founder ruling of
+#         2026-10-19 (PRD 0001 open question 1, commit 7ffcffe).
+#
+# Every value below names where it came from, so it can be re-verified — never assumed.
+# This file is the single home for the seat's data: the harness (#24) reads it and the
+# serving parameters (#26) are added under `serving`, not in a second file.
+
+artefact:
+  # Staged to shared storage by ticket #23 (W1.1). Add-only: nothing was overwritten.
+  path: /mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
+  size_bytes: 22082529760
+  sha256: 4856b645f603d0570a0c9336ebe7ea355473eb586f7811b0afd21aa2c2118b10
+  # GGUF metadata — read from the header, not from the filename (the name is a claim).
+  general_name: "Abl 27b" # abliterated
+  architecture: qwen35 # 64 blocks, full_attention_interval=4 (16 KV layers), ctx train 262144
+  # Verify by hash, never by size: the copy's sha256 was read back off the NAS and
+  # matched the source. A truncated copy reads as present; a size match proves nothing.
+  verified: sha256 match against source (ticket #23)
+  staged_at: 2026-10-19
+  source: /home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
+
+# llama.cpp serving parameters (layer split, KV-cache quantisation, context, batch) are
+# recorded by ticket #26 once MEASURED on the 4090. Deliberately empty — nothing is
+# asserted here until it has been measured and a cold start succeeds from it.
+serving: {}
