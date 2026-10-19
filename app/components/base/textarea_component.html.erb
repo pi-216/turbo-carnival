@@ -15,8 +15,7 @@
     placeholder="<%= @placeholder %>"
     class="<%= textarea_classes %>"
     <%= "required" if @required %>
-    <%= "disabled" if @disabled %>
-  ><%= @value %></textarea>
+    <%= "disabled" if @disabled %>><%= @value %></textarea>
 
   <% if @error %>
     <p class="<%= error_classes %>">

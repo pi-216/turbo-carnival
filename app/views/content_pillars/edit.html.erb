@@ -5,8 +5,8 @@
 
   <h1 class="text-3xl font-bold mb-8">Edit Content Pillar</h1>
 
-  <%= render 'form', 
-             url: persona_pillar_path(@persona, @pillar), 
+  <%= render 'form',
+             url: persona_pillar_path(@persona, @pillar),
              method: :patch,
              button_text: "Update Content Pillar" %>
 
@@ -14,8 +14,8 @@
     <%= render CardComponent.new(classes: "mt-6") do |c| %>
       <% c.with_body do %>
         <h3 class="font-semibold text-red-400 mb-2">Danger Zone</h3>
-        <%= button_to "Delete This Pillar", 
-                     persona_pillar_path(@persona, @pillar), 
+        <%= button_to "Delete This Pillar",
+                     persona_pillar_path(@persona, @pillar),
                      method: :delete,
                      data: { confirm: "Are you sure you want to delete '#{@pillar.name}'? This action cannot be undone." },
                      class: "bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded" %>
