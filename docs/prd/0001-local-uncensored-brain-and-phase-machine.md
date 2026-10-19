@@ -182,6 +182,23 @@ founder on 2026-10-19 (open question 1, below).
    2144 MiB free) are measured and recorded in `brain.yml` for a downgrade, but the seat needs neither.
 4. **Does the Reviewer get the vision projector from the start**, or is it a second PRD?
 
+## Planner cadence — founder ruling (2026-10-19)
+
+**The planner runs once a night.** The brain owns the 4090 for one bounded nightly planning window
+(plan → render → review under a single claim, per the phase machine above); it does not contend with
+the hourly cadence tick. This is the ruling the local-brain routing needed, because the seat is
+~22.3 GiB of a 24 GiB card and cannot be resident at tick time.
+
+Consequences, so the next agent does not re-derive them:
+
+- The **hourly** loop stays on the host (snapshot, cadence top-up, publish) and does **not** need the
+  brain. It calls the brain only through the in-app planner path (#27), which is pull-based and
+  returns template suggestions if the seat is down — so the day-to-day flow never waits on it.
+- The **nightly** window is where a planning prompt may be issued against the seat; it takes the
+  claim once and yields nothing between phases (PRD 0001 Director story).
+- Pointing the growth cron agent's model at the local endpoint is therefore a **nightly** job, not an
+  hourly one. Any such cron must be pinned to provider+model (an unpinned job drift-skips silently).
+
 ---
 Drift note (gherkin-specialist): record every deviation when translating this into `.feature` files.
 Anything here that cannot be observed is not an acceptance criterion — it is a wish, and the wish goes in
