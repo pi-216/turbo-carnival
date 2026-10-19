@@ -13,25 +13,39 @@ module Growth
   # cadence loop reaches the brain only through the pull-based in-app path (#27) and
   # never waits on this window.
   class NightlyPlanner
-    Result = Struct.new(:seat_up, :personas, :pillars, :suggestions, keyword_init: true) do
+    Result = Struct.new(:seat_up, :personas, :pillars, :suggestions, :skipped_personas, keyword_init: true) do
       def written?
         suggestions.positive?
       end
     end
 
-    def initialize(persona_name: nil)
+    def initialize(persona_name: nil, force: false)
       @persona_name = persona_name
+      @force = force
     end
 
     def call
       brain = brain_client
-      return Result.new(seat_up: false, personas: 0, pillars: 0, suggestions: 0) unless brain.available?
+      unless brain.available?
+        return Result.new(seat_up: false, personas: 0, pillars: 0, suggestions: 0, skipped_personas: 0)
+      end
 
-      personas = target_personas
       written = 0
       pillar_count = 0
+      planned = 0
+      skipped = 0
 
-      personas.each do |persona|
+      target_personas.each do |persona|
+        # IDEMPOTENCE — one plan per persona per night. Without this, every
+        # invocation mints a whole new plan and the ledger fills with duplicates
+        # (the 2026-10-19 incident: two manual runs wrote 4 gap analyses / 80
+        # suggestions). A re-run is a no-op unless force:.
+        if !@force && already_planned_today?(persona)
+          skipped += 1
+          Rails.logger.info("NightlyPlanner: #{persona.name} already planned today — skipping (force: true re-plans)")
+          next
+        end
+
         # Only CURRENT pillars (active, inside their date window) are planned for.
         pillars = persona.content_pillars.current.by_priority
         next if pillars.empty?
@@ -42,9 +56,11 @@ module Growth
         pillar_count += pillars.size
         pillars.each { |pillar| written += persist(gap, pillar) }
         record(persona, written, pillars.size, gap)
+        planned += 1
       end
 
-      Result.new(seat_up: true, personas: personas.size, pillars: pillar_count, suggestions: written)
+      Result.new(seat_up: true, personas: planned, pillars: pillar_count,
+                 suggestions: written, skipped_personas: skipped)
     end
 
     private
@@ -74,13 +90,34 @@ module Growth
       }.merge(brain.respond_to?(:provenance) ? brain.provenance : {})
     end
 
+    # LAYER 2 — write-time dedupe. The brain re-proposes similar clusters night
+    # after night; a proposal whose normalized title already exists for this pillar
+    # (any status) is dropped, and titles already written in THIS batch are dropped
+    # too. LAYER 3 — the prior proposals are also fed back into the prompt
+    # (existing_suggestions) so the brain avoids repeats at the source rather than
+    # only being filtered after the fact.
     def persist(gap, pillar)
+      existing = ContentSuggestion.where(content_pillar: pillar)
+      seen = existing.pluck(:title).map { |title| normalize_title(title) }
       count = 0
-      GapAnalysisAi::Suggester.suggest(pillar: pillar, persona: gap.persona).each do |suggestion|
+
+      GapAnalysisAi::Suggester.suggest(
+        pillar: pillar,
+        persona: gap.persona,
+        existing_suggestions: existing.order(created_at: :desc).limit(20)
+      ).each do |suggestion|
+        title = (suggestion[:name].presence || "#{pillar.name} idea").to_s
+        key = normalize_title(title)
+        if seen.include?(key)
+          Rails.logger.info("NightlyPlanner: dropped duplicate '#{title}' for #{pillar.name}")
+          next
+        end
+        seen << key
+
         ContentSuggestion.create!(
           gap_analysis: gap,
           content_pillar: pillar,
-          title: suggestion[:name].presence || "#{pillar.name} idea",
+          title: title,
           description: (suggestion[:description].presence || suggestion[:name]).to_s,
           prompt_data: {
             source: suggestion[:source],
@@ -92,6 +129,18 @@ module Growth
         count += 1
       end
       count
+    end
+
+    # LAYER 1 — has a brain_nightly plan already been written for this persona today?
+    def already_planned_today?(persona)
+      GapAnalysis.where(persona: persona)
+                 .where("recommendations ->> 'created_by' = ?", "brain_nightly")
+                 .where(analyzed_at: Time.current.all_day)
+                 .exists?
+    end
+
+    def normalize_title(title)
+      title.to_s.strip.downcase.gsub(/\s+/, " ")
     end
 
     def record(persona, written, pillars, gap)

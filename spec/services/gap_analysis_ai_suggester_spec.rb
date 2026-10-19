@@ -48,6 +48,32 @@ RSpec.describe GapAnalysisAi::Suggester do
     expect(suggestions.first[:name]).to eq('Rooftop Brunch')
   end
 
+  # Layer 3 (tickets #27/#64): prior proposals are fed into the prompt so the brain
+  # avoids repeating what is already on the board.
+  it 'feeds prior proposal titles and keywords into the prompt' do
+    pillar = build(:content_pillar, name: 'Food & Cooking')
+    persona = build(:persona)
+    prior = build(:content_suggestion, content_pillar: pillar,
+                  gap_analysis: build(:gap_analysis),
+                  title: 'Rooftop Brunch', description: 'already proposed',
+                  prompt_data: { 'keywords' => %w[rooftop] })
+
+    fresh = [ {
+      'name' => 'New Idea', 'description' => 'fresh', 'keywords' => %w[new], 'example_content' => 'x'
+    } ].to_json
+
+    prompt_seen = nil
+    brain = instance_double(AI::BrainClient, available?: true)
+    allow(AI::BrainClient).to receive(:new).and_return(brain)
+    allow(brain).to receive(:generate) { |user, **| prompt_seen = user; fresh }
+
+    suggestions = described_class.suggest(pillar: pillar, persona: persona, existing_suggestions: [ prior ])
+
+    expect(prompt_seen).to include('Rooftop Brunch')
+    expect(prompt_seen).to include('rooftop')
+    expect(suggestions.first[:name]).to eq('New Idea')
+  end
+
   it 'falls back to template suggestions when no planner client is configured' do
     pillar = build(:content_pillar, name: 'Food & Cooking')
     persona = build(:persona)
