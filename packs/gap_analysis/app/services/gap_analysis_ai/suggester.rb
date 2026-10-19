@@ -114,6 +114,11 @@ module GapAnalysisAi
         2. Are DIFFERENT from existing content (avoid repetition)
         3. Are authentic and natural for this persona
         4. Provide variety and freshness
+
+        The pillar set itself is NOT fixed. An existing pillar may be reweighted, retired, replaced,
+        renamed or split, and a new pillar may be added — so an idea may argue for a change to this
+        pillar's scope, or that it should go. What a pillar DEPICTS is not yours to move: wardrobe
+        intensity and the persona's age read are founder rulings (AGENTS.md, the authority ladder).
       PROMPT
 
       user_prompt = <<~PROMPT

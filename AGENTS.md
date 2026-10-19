@@ -103,9 +103,18 @@ authority boundary (it previously lived in `strategy-v3.md`, deleted 2026-10-19)
 | class | example | who decides |
 |---|---|---|
 | 1 — correctness / quality | anatomy: four limbs, exactly one hand | **the system acts** |
-| 2 — style / format / pillar | a new scene type, a new LoRA, a new base model | **the system acts**, measured |
+| 2 — style / format / pillar | a new scene type, a new LoRA, a new base model, **or the content-pillar set itself** (reweight, retire, replace, rename, split, add) | **the system acts**, measured |
 | 3 — explicitness / intensity | swimwear and beyond | **founder ruling** |
 | 4 — identity / persona | the age read, persona identity | **founder ruling** |
+
+**The content-pillar set is not a founder rail — it is class 2.** Founder ruling, 2026-10-19: *"the brain
+or experimenter should know that the existing pillars are fair game."* The five rails in `THESIS.md`
+(identity anchor, attribution spine, safety gates, decision ledger, reflection) stay locked; the **content
+pillars** — which mix of topics Sarah posts — are a lever like any other, and the brain and the experimenter
+may reweight, retire, replace, rename, split or add one. Enforcement: a pillar change goes through the same
+bounded, reversible path as every other class-2 change (`Growth::PersonaEvolution` — a single-step delta, a
+pre-registered gate, automatic revert on failure), so "fair game" can never mean an unrecorded edit. What a
+pillar *depicts* is unchanged by this: intensity is class 3, the age read is class 4.
 
 **How this reconciles with "the founder is never a gate".** Two statements that look contradictory and are
 not, because they are about different things:

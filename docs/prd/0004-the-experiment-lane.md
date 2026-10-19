@@ -44,6 +44,11 @@ Recorded verbatim where stated, because they are decisions and not preferences t
     instrument; the posting path never inherits that dependency. (2026-10-19)
 11. **The lane does not need permission to proceed.** *"You decide on the experiment."* The founder's role
     is the blinded ranking and the enablement the repo cannot supply — not approval of the design. (2026-10-18)
+12. **"The brain or experimenter should know that the existing pillars are fair game."** (2026-10-19) An
+    experiment may target an **existing** content pillar — re-scope it, replace its wardrobe, retire it — and
+    not only propose a new one. The pillar set is class 2 (`AGENTS.md` → *the authority ladder*), so *"should
+    this pillar exist at all?"* is inside the lane's remit; what a pillar **depicts** stays class 3–4 and
+    still stops for a founder ruling.
 
 ## Problem / motivation
 
@@ -110,7 +115,7 @@ experiment to expose more, and amend this list rather than letting a field be sk
 
 | role | does | does not |
 |---|---|---|
-| **Thinker** (W1.1) | proposes experiments as hypotheses — *"try a miniskirt pillar and see if people react"* | design the test, or run it |
+| **Thinker** (W1.1) | proposes experiments as hypotheses — *"try a miniskirt pillar and see if people react"*, or a change to a pillar that already exists | design the test, or run it |
 | **Researcher** (designated) | owns one experiment end-to-end: designs it, writes its PRD, generates its artifacts, evaluates, decodes, records the verdict | touch the day-to-day lane's configuration, or publish |
 | **Founder** | lends eyes; ranks blind; supplies enablement the repo cannot; **advisory input, never a gate** | approve designs, gate promotion, or be a required step |
 | **Day-to-day lane** | runs and posts, unaffected | — it may never depend on an experiment |

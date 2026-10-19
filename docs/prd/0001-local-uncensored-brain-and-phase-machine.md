@@ -199,6 +199,29 @@ Consequences, so the next agent does not re-derive them:
 - Pointing the growth cron agent's model at the local endpoint is therefore a **nightly** job, not an
   hourly one. Any such cron must be pinned to provider+model (an unpinned job drift-skips silently).
 
+## The pillar set is fair game — founder ruling (2026-10-19)
+
+**"The brain or experimenter should know that the existing pillars are fair game."** Recorded verbatim.
+
+The planner's remit is therefore **not bounded by the pillars that exist today**. It may propose a change to
+the content-pillar set itself — reweight, retire, replace, rename, split, or add one — and not only clusters
+*inside* a pillar, which is the only thing the nightly plan can emit today (`brain:plan` iterates
+`persona.content_pillars.current` and proposes per pillar; see `Growth::NightlyPlanner`).
+
+Consequences, so the next agent does not re-derive them:
+
+- **The pillar set is class 2** (`AGENTS.md` → *the authority ladder*): the system acts, measured. It is not a
+  founder rail, and the five rails in `THESIS.md` are untouched by this ruling.
+- **The change path is the existing bounded one.** `Growth::PersonaEvolution` is the only writer of a pillar's
+  `weight`/`priority`/`active`; it steps one delta within hard caps and its pre-registered gate auto-reverts a
+  change that fails at the next review. "Fair game" licenses *changing a pillar through that ledger* — never
+  an unrecorded edit, which is the shape the ledger exists to make impossible.
+- **What a pillar depicts is not in scope.** Intensity stays class 3 and the age read stays class 4: this
+  ruling moves the *mix*, never the wardrobe ladder or the persona identity.
+- **A pillar's name is not a schema.** `Growth::PillarPrompt` resolves a scene bank from the pillar name and
+  falls back to a default pool for a name it does not know, so a renamed or newly added pillar renders from
+  the default pool until its bank is added — a gap in variety, not a crash.
+
 ---
 Drift note (gherkin-specialist): record every deviation when translating this into `.feature` files.
 Anything here that cannot be observed is not an acceptance criterion — it is a wish, and the wish goes in
