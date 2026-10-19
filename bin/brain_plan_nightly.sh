@@ -16,6 +16,14 @@
 # NOTE: deliberately NO `set -u` — RVM's rvm/scripts/support dereferences an unset
 # `_system_name`, so `source rvm` aborts under `set -u` in a non-interactive shell.
 
+# CRON HAS NO USER SYSTEMD BUS. This wrapper launches the seat and the claim
+# heartbeat with `systemd-run --user` (via bin/brain_harness.sh), but a bare cron
+# job has neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS, so `systemctl --user`
+# fails with "Failed to connect to bus" and the night would be silently skipped.
+# Point them at the user's own runtime dir.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
+
 APP_DIR="/home/tim/source/activity/turbo-carnival"
 LOG_FILE="$APP_DIR/log/brain_plan_nightly.log"
 mkdir -p "$(dirname "$LOG_FILE")"
