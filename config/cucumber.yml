@@ -1,0 +1,8 @@
+<%
+rerun = File.file?('rerun.txt') ? IO.read('rerun.txt') : ""
+rerun = rerun.strip.gsub /\s/, ' '
+rerun_opts = rerun.empty? ? "--require gherkin_specs --format #{ENV['CUCUMBER_FORMAT'] || 'progress'} gherkin_specs" : "--format #{ENV['CUCUMBER_FORMAT'] || 'pretty'} #{rerun}"
+std_opts = "--require gherkin_specs --format #{ENV['CUCUMBER_FORMAT'] || 'pretty'} --publish-quiet --strict --tags 'not @wip'"
+%>
+default: <%= std_opts %> gherkin_specs
+rerun: <%= rerun_opts %> --require gherkin_specs --format rerun --out rerun.txt --strict --tags 'not @wip'
