@@ -15,7 +15,7 @@
     <%= javascript_importmap_tags %>
   </head>
 
-  <body class="bg-zinc-100 dark:bg-zinc-950 text-zinc-950 dark:text-white">
+  <body data-turbo-morph class="bg-zinc-100 dark:bg-zinc-950 text-zinc-950 dark:text-white">
     <%= render Catalyst::SidebarLayoutComponent.new do |layout| %>
       <% layout.with_sidebar do %>
         <%= render Catalyst::SidebarComponent.new do |sidebar| %>
