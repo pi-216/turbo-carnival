@@ -58,6 +58,14 @@ group :development, :test do
   gem "shoulda-matchers", "~> 8.0"
   gem "faker", "~> 3.2"
   gem "climate_control", "~> 1.2"
+
+  # BDD pipeline (PRD 0006 R5 · ticket #83): the Gherkin lane, scoped to the
+  # Rails application only (the two-layer rule). cucumber-rails wires the Rails
+  # world; gherkin_lint is the feature-file style gate. require: false keeps
+  # the app's own boot untouched.
+  gem "cucumber", require: false
+  gem "cucumber-rails", require: false
+  gem "gherkin_lint", require: false
 end
 
 # Packs for modular Rails architecture

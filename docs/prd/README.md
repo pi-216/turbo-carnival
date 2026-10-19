@@ -1,0 +1,37 @@
+# PRD index — turbo-carnival
+
+The repo's product requirements live here as numbered PRDs. Status follows the
+`docs/README.md` convention (`CURRENT` is authoritative; `HISTORICAL` /
+`SUPERSEDED` are records). Work is cut from PRDs as GitHub tickets on board
+pi-216 project 5 (`https://github.com/orgs/pi-216/projects/5`), each carrying a
+`prd:NNNN` label.
+
+| PRD | slug | status | scope |
+|---|---|---|---|
+| 0001 | local-uncensored-brain-and-phase-machine | CURRENT | the uncensored local brain + phase machine |
+| 0002 | versioned-content-config-and-experiment-db-spine | CURRENT | versioned content config + experiment DB spine |
+| 0003 | repo-conventions-and-a-verifiable-done | CURRENT | repo conventions, `bin/verify`, CI truth |
+| 0004 | the-experiment-lane | CURRENT | the experiment lane and its roles |
+| 0005 | miniskirt-pillar | CURRENT | the miniskirt content pillar |
+| 0006 | harness-conformance-to-rails-venture-template | CURRENT | parity conformance to `rails-venture-template` (W1.4) |
+
+## The two-layer Gherkin rule (PRD 0006 Q2, founder ruling 2026-10-19)
+
+Gherkin is the house **notation** for describing behaviour, and it has two
+layers — never collapse them.
+
+- **Layer 1 — Gherkin as notation (definitions).** House-wide. Every PRD
+  describes behaviour in Gherkin *notation*, whatever implements it: the Rails
+  app, the Python/ComfyUI render pipeline, the shell harness, the cron jobs. A
+  definition is **not** a test.
+- **Layer 2 — Gherkin as executable tests (Ruby/Cucumber).** Required for **the
+  Rails application only** — its HTTP surface, its UI, its commands. Behaviour
+  implemented by any other tool is defined in Gherkin and is **not** required
+  to have an executable Ruby Gherkin test; it is tested by that tooling's own
+  suite.
+
+Where the executable scenarios live: `gherkin_specs/` (see `gherkin_specs/README.md`).
+Non-Rails behaviour stays inline in the PRD permanently (Q9) — it is never
+extracted into `.feature` files and never executed in Ruby. A future agent
+reading a render-pipeline scenario in a PRD must **not** try to execute it in
+Ruby; only Rails-app scenarios become `.feature` files.
