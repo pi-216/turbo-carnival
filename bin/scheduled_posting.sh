@@ -33,6 +33,13 @@ cd "$APP_DIR" || {
 
 rvm use 3.4.1 2>&1 | tee -a "$LOG_FILE"
 
+# The Sentry pillar enables on a configured environment (`staging`/`production`), and this
+# host's production IS RAILS_ENV=development -- cron inherits no RAILS_ENV, so every task
+# below runs as development. Without SENTRY_ENVIRONMENT this hourly driver is invisible:
+# its failures are logged to a file nobody watches, and the charter gauges emitted by
+# `growth:snapshot_followers` (further down) never leave the process.
+export SENTRY_ENVIRONMENT=production
+
 RUBY_VERSION=$(ruby -v)
 log "Using Ruby: $RUBY_VERSION"
 

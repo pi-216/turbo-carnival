@@ -127,4 +127,31 @@ RSpec.describe Growth::MetricsCollector do
     expect(goal.snapshots.count).to eq(0)
     expect(Growth::Decision.last.action).to eq('skip_data')
   end
+
+  # PRD 0006 R7 · ticket #77: the snapshot is the charter's measurement, and this is the tick
+  # that has to emit it -- a stored number nobody alerts on is untracked. Asserted through the
+  # real SDK transport rather than a spy on CharterTelemetry: a spy would prove only that a
+  # call was made, not that a metric reaches the wire.
+  context 'with the Sentry pillar live' do
+    include_context 'with sentry telemetry'
+
+    it 'emits the charter gauges from the snapshot it just recorded' do
+      goal.update!(target_followers: 1000, start_followers: 0, deadline: Date.current + 100.days)
+      stub_client(followers: 160)
+
+      collector.collect
+
+      followers = emitted_metrics.find { |m| m[:name] == 'growth.followers' }
+      pace = emitted_metrics.find { |m| m[:name] == 'growth.required_per_day' }
+
+      expect(followers[:type]).to eq(:gauge)
+      expect(followers[:value]).to eq(160)
+      # (1000 - 160) followers still to find, over the 100 days the deadline leaves.
+      expect(pace[:type]).to eq(:gauge)
+      expect(pace[:value]).to be_within(0.001).of(8.4)
+      # Inventory rides the same tick -- the collector is the only hourly job the live
+      # harness runs, so a series missing here would have no scheduled home at all.
+      expect(emitted_metrics.map { |m| m[:name] }).to include('inventory.personas', 'inventory.assets')
+    end
+  end
 end

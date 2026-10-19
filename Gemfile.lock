@@ -594,6 +594,9 @@ DEPENDENCIES
   rails (~> 8.1.0)
   rspec-rails (~> 7.0)
   rubocop-rails-omakase
+  sentry-rails
+  sentry-ruby
+  sentry-sidekiq
   shoulda-matchers (~> 6.0)
   sidekiq (~> 7.0)
   solid_cable
