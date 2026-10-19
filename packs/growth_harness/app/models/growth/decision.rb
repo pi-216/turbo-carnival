@@ -14,7 +14,7 @@ module Growth
     ACTIONS = %w[escalate_cadence reduce_cadence adjust_hashtags
                  strategy_rotation take_snapshot skip_data cadence_blocked
                  strategy_exhausted pivot_applied revert_pivot
-                 comfyui_unclaimed brain_unclaimed].freeze
+                 comfyui_unclaimed brain_unclaimed vram_insufficient].freeze
 
     def to_h
       {
