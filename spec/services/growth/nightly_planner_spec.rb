@@ -35,6 +35,43 @@ RSpec.describe Growth::NightlyPlanner do
     expect(Growth::Decision.where(action: 'brain_planned').count).to eq(1)
   end
 
+  # LAYER 1 — window idempotence: one plan per persona per night.
+  it 'is idempotent for the night: a second run without force writes nothing' do
+    stub_brain(available: true)
+    described_class.new(persona_name: persona.name).call
+    before = ContentSuggestion.count
+
+    result = described_class.new(persona_name: persona.name).call
+
+    expect(result.seat_up).to be(true)
+    expect(result.skipped_personas).to eq(1)
+    expect(result.suggestions).to eq(0)
+    expect(ContentSuggestion.count).to eq(before)
+  end
+
+  it 're-plans on the same night when forced' do
+    stub_brain(available: true)
+    described_class.new(persona_name: persona.name).call
+
+    result = described_class.new(persona_name: persona.name, force: true).call
+
+    expect(result.skipped_personas).to eq(0)
+    expect(result.personas).to eq(1)
+  end
+
+  # LAYER 2 — write-time dedupe: a title already on the board is not re-added.
+  it 'drops a proposal whose title already exists for the pillar' do
+    gap = create(:gap_analysis, persona: persona, recommendations: { 'created_by' => 'other' })
+    create(:content_suggestion, gap_analysis: gap, content_pillar: pillar,
+                                title: 'Rooftop Brunch', description: 'already on the board')
+    stub_brain(available: true)
+
+    result = described_class.new(persona_name: persona.name).call
+
+    expect(result.suggestions).to eq(0)
+    expect(ContentSuggestion.where(content_pillar: pillar).count).to eq(1)
+  end
+
   it 'writes nothing and is not an error when the seat is down (fail-soft)' do
     stub_brain(available: false)
 

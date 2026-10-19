@@ -43,11 +43,16 @@ namespace :brain do
   # so this is runnable with no GPU and no claim.
   desc 'Nightly planner: propose content clusters on the LOCAL BRAIN (fail-soft if the seat is down)'
   task :plan, [ :persona_name ] => :environment do |_t, args|
-    result = Growth::NightlyPlanner.new(persona_name: args[:persona_name]).call
+    force = ENV['FORCE'] == '1'
+    result = Growth::NightlyPlanner.new(persona_name: args[:persona_name], force: force).call
 
     if result.seat_up
       puts "brain:plan DONE — personas=#{result.personas} pillars=#{result.pillars} " \
-           "suggestions=#{result.suggestions}"
+           "suggestions=#{result.suggestions} skipped=#{result.skipped_personas}"
+      if result.skipped_personas.positive?
+        puts "brain:plan: #{result.skipped_personas} persona(s) already planned today — " \
+             "idempotent no-op. Set FORCE=1 to re-plan."
+      end
     else
       puts "brain:plan SKIPPED — seat not answering: no proposals written. " \
            "Normal outcome; the hourly loop never depends on this window."

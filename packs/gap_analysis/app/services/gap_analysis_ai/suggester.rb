@@ -10,15 +10,19 @@
 # module" instead of suggestions. Keep the namespace distinct from the model.
 module GapAnalysisAi
   class Suggester
-    def self.suggest(pillar:, persona:, existing_clusters: [], existing_photos: [])
-      new(pillar: pillar, persona: persona, existing_clusters: existing_clusters, existing_photos: existing_photos).suggest
+    def self.suggest(pillar:, persona:, existing_clusters: [], existing_photos: [], existing_suggestions: [])
+      new(pillar: pillar, persona: persona, existing_clusters: existing_clusters,
+          existing_photos: existing_photos, existing_suggestions: existing_suggestions).suggest
     end
 
-    def initialize(pillar:, persona:, existing_clusters: [], existing_photos: [])
+    def initialize(pillar:, persona:, existing_clusters: [], existing_photos: [], existing_suggestions: [])
       @pillar = pillar
       @persona = persona
       @existing_clusters = existing_clusters
       @existing_photos = existing_photos
+      # Prior ContentSuggestions for this pillar. Fed into the prompt so the brain
+      # does not re-propose what is already on the board (PRD 0001 nightly planner).
+      @existing_suggestions = existing_suggestions
     end
 
     def suggest
@@ -69,10 +73,19 @@ module GapAnalysisAi
       {
         persona_name: @persona.name,
         persona_topics: persona_topics,
-        existing_cluster_keywords: @existing_clusters.flat_map { |c| c.keywords || [] }.uniq,
+        existing_cluster_keywords: existing_keywords,
+        existing_titles: @existing_suggestions.map(&:title),
         existing_photo_count: @existing_photos.size,
         recent_photo_descriptions: @existing_photos.last(10).map { |p| p.caption || 'untitled' }
       }
+    end
+
+    # Keywords the brain should treat as already-consumed, from both the cluster
+    # objects and any prior proposals' stored keywords (jsonb → string keys).
+    def existing_keywords
+      from_clusters = @existing_clusters.flat_map { |c| c.keywords || [] }
+      from_suggestions = @existing_suggestions.flat_map { |s| s.prompt_data&.dig("keywords") || [] }
+      (from_clusters + from_suggestions).uniq
     end
 
     # `caption_config` is a Personas::CaptionConfig (tone/style/voice), NOT a Hash —
@@ -109,6 +122,9 @@ module GapAnalysisAi
 
         Existing clusters in this pillar:
         #{context[:existing_cluster_keywords].any? ? context[:existing_cluster_keywords].join(', ') : 'None yet'}
+
+        Titles already proposed for this pillar (do NOT repeat these, or lightly reword them):
+        #{context[:existing_titles].any? ? context[:existing_titles].join(', ') : 'None yet'}
 
         Recent content themes:
         #{context[:recent_photo_descriptions].join("\n")}
