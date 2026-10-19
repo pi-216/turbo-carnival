@@ -53,6 +53,7 @@ exactly how this file became necessary.
 | `baseline-config.md` | the validated baseline workflow: node ids, shas, attribution table |
 | `scene-notes-bedroom-front.md` | design notes for the active scene (scene text is the prompt; notes live here) |
 | `design-system/` | ViewComponent + navigation guidelines for the app UI |
+| `prd/` | the PRDs. `0001` local brain + phase machine · `0002` versioned content config + experiment DB spine. Cut into board tickets per the plan's linkage contract |
 
 ### Reference
 

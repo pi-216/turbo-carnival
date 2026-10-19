@@ -134,7 +134,7 @@ their tickets not yet cut._
 | id | item | PRD | state |
 |---|---|---|---|
 | **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **spec in progress** |
-| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | not started |
+| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **spec written** |
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | not started |
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
