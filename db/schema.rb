@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_24_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_19_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -40,6 +40,33 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_24_140000) do
     t.bigint "blob_id", null: false
     t.string "variation_digest", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "assessments", force: :cascade do |t|
+    t.bigint "render_id", null: false
+    t.string "assessor_model", null: false
+    t.string "assessor_version", null: false
+    t.string "metric", null: false
+    t.decimal "value"
+    t.datetime "assessed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["metric"], name: "index_assessments_on_metric"
+    t.index ["render_id", "assessor_model", "assessor_version", "metric"], name: "index_assessments_on_render_and_assessor_and_metric", unique: true
+  end
+
+  create_table "assets", force: :cascade do |t|
+    t.string "sha256", null: false
+    t.string "kind", default: "image", null: false
+    t.string "path"
+    t.bigint "byte_size"
+    t.integer "width"
+    t.integer "height"
+    t.integer "duration_ms"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["path"], name: "index_assets_on_path"
+    t.index ["sha256"], name: "index_assets_on_sha256", unique: true
   end
 
   create_table "comfyui_jobs", force: :cascade do |t|
@@ -313,6 +340,52 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_24_140000) do
     t.index ["name"], name: "index_pipelines_on_name"
   end
 
+  create_table "render_loras", force: :cascade do |t|
+    t.bigint "render_id", null: false
+    t.string "layer", default: "base", null: false
+    t.string "name", null: false
+    t.decimal "strength", precision: 5, scale: 3
+    t.boolean "enabled"
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["render_id", "layer", "name"], name: "index_render_loras_on_render_id_and_layer_and_name", unique: true
+  end
+
+  create_table "render_prompt_parts", force: :cascade do |t|
+    t.bigint "render_id", null: false
+    t.string "name", null: false
+    t.text "text"
+    t.string "text_sha256"
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["render_id", "name"], name: "index_render_prompt_parts_on_render_id_and_name", unique: true
+    t.index ["text_sha256"], name: "index_render_prompt_parts_on_text_sha256"
+  end
+
+  create_table "renders", force: :cascade do |t|
+    t.bigint "asset_id"
+    t.bigint "pipeline_run_id"
+    t.bigint "seed"
+    t.string "checkpoint"
+    t.string "sampler"
+    t.string "scheduler"
+    t.integer "steps"
+    t.decimal "cfg", precision: 6, scale: 2
+    t.decimal "denoise", precision: 4, scale: 3
+    t.integer "width"
+    t.integer "height"
+    t.text "negative_prompt"
+    t.string "workflow_sha256"
+    t.string "workflow_path"
+    t.datetime "produced_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["asset_id"], name: "index_renders_on_asset_id"
+    t.index ["pipeline_run_id"], name: "index_renders_on_pipeline_run_id"
+  end
+
   create_table "scheduling_posts", force: :cascade do |t|
     t.bigint "photo_id"
     t.bigint "persona_id", null: false
@@ -359,6 +432,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_24_140000) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "assessments", "renders"
   add_foreign_key "comfyui_jobs", "image_candidates"
   add_foreign_key "comfyui_jobs", "image_candidates", column: "parent_candidate_id"
   add_foreign_key "comfyui_jobs", "pipeline_runs"
@@ -382,6 +456,10 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_24_140000) do
   add_foreign_key "pipeline_runs", "personas"
   add_foreign_key "pipeline_runs", "pipelines"
   add_foreign_key "pipeline_steps", "pipelines"
+  add_foreign_key "render_loras", "renders"
+  add_foreign_key "render_prompt_parts", "renders"
+  add_foreign_key "renders", "assets"
+  add_foreign_key "renders", "pipeline_runs"
   add_foreign_key "scheduling_posts", "content_suggestions"
   add_foreign_key "scheduling_posts", "personas"
   add_foreign_key "scheduling_posts", "photos"
