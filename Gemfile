@@ -55,7 +55,7 @@ group :development, :test do
   # Testing framework
   gem "rspec-rails", "~> 8.0"
   gem "factory_bot_rails", "~> 6.4"
-  gem "shoulda-matchers", "~> 6.0"
+  gem "shoulda-matchers", "~> 8.0"
   gem "faker", "~> 3.2"
   gem "climate_control", "~> 1.2"
 end
