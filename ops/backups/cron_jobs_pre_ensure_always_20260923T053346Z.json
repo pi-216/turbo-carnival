@@ -1,0 +1,305 @@
+{
+  "jobs": [
+    {
+      "id": "43b0d5c4446d",
+      "name": "tc-growth-harness-brain",
+      "prompt": "You are the autonomous growth-brain for the turbo-carnival Instagram follower harness (acasera profile a1.sarah.a1). Goal: grow from 151 followers to 1,000 by 2027-08-20 (~2.33 new followers/day). WORKDIR: /home/tim/source/activity/turbo-carnival.\n\nGPU POLICY (2026-09-01, Tim directive): ComfyUI runs ONLY while turbo-carnival holds a claim on the 4090 via the file-based GPU scheduler. NEVER assume ComfyUI is up. NEVER launch it outside bin/comfyui_harness.sh. The GPU is shared — release it as soon as the tick's renders are done.\n\nRUN THIS HARNESS LOOP each tick, using the Rails environment (always prefix rails commands with: cd /home/tim/source/activity/turbo-carnival && source /usr/share/rvm/scripts/rvm >/dev/null 2>&1 && rvm use 3.4.5 >/dev/null 2>&1 && bundle exec):\n\n0. GPU GATE (decide whether the GPU is needed this tick):\n   a. bin/comfyui_harness.sh status  → prints: claim=<idle|busy|claimed> job=<id> ours=<yes|no> comfyui=<up|down> owner=<ours|foreign> reserve=<ok|missing> holder=<operator|agent|unit|other>\n   b. bundle exec rails \"growth:render_need[Sarah]\"  → prints: shortfall=N target=N existing=N need=<yes|no> claim=<idle|ours|other> comfy=<up|down>\n   c. Decide:\n      - need=no  → queue already has enough scheduled posts. DO NOT touch the GPU (no ensure, no sync_cadence). Report and finish the loop.\n      - need=yes + ours=yes + comfy=up → GPU already ours: proceed to step 2 as-is.\n      - need=yes + any other state → acquire: bin/comfyui_harness.sh ensure --wait 180\n          * exit 0 (prints job_id=...) → claim acquired and ComfyUI is up (script waits for /system_stats). Proceed to step 2.\n          * exit 2 → the render is REFUSED this tick, and exit 2 has three distinct causes — read the status line above and name the right one, do not guess \"another agent holds it\": (i) reserve=missing on the live :8188 instance — the launch-args gate: the card may be FREE and ensure still refuses, because the refusal is about the instance's launch line, not VRAM (yield; a running instance's args are never ours to change, and do NOT restart it); (ii) free VRAM below the harness's fit floor (free= vs ask 16GiB); (iii) another agent holds the claim / busy. Record a decision:\n            bundle exec rails runner \"g=Growth::Goal.active.first; Growth::Decision.create!(goal: g, action: 'comfyui_unclaimed', reason: 'render_need said need but no claim acquired (harness ensure exit 2)', decided_at: Time.current) if g\"\n            Then SKIP step 2 this tick — do NOT run sync_cadence (it would only log comfyui_unclaimed + cadence_blocked rows). Report: \"render skipped — GPU held by another agent / busy; queue top-up deferred.\" Check what holds it: python3 /mnt/nas-ai-models/gpu-scheduler/gpu_scheduler.py status --gpu 4090 (mention the current_job/project).\n   d. If status showed comfyui=up while claim=idle, read the `owner=` field that `status` prints. owner=ours (its pid is in our claim state AND the record says origin=launched, i.e. WE started it) → that IS our orphan (a leak): flag it, and `ensure` self-heals it (it shuts OUR instance down when its native queue is empty, then acquires) — if you ran ensure, say it was cleaned. owner=foreign → NOT an orphan and NOT ours to kill: another session or project is using the shared install, which is normal sharing (2026-09-20 09:25 EDT: an interactive tmux render held 23 GB with claim=idle and was mid-render, and this tick's report wrongly called it an orphan/leak). Report it only as contention, and only if it actually blocks our renders — never as a leak, and never kill it. `status` now also prints `holder=<operator|agent|unit|other>`, which says WHO that instance is -- read it before writing about it, do not re-derive it from /proc. holder=operator -> the OPERATOR's own interactive session (his tmux ComfyUI): name him and the session, yield the window, and do NOT invent a \"fix on their side\" such as relaunching it with flags -- a running process's args are not ours to change and no agent may touch it. holder=unit -> another project's supervised unit: theirs to change, yield. holder=agent -> one of OUR cgroups: our launch line dropped --reserve-vram, so report the mislaunch and the repo path to fix, never the process.\n\n1. SNAPSHOT followers: run\n   bundle exec rails \"growth:snapshot_followers[Sarah]\" 2>&1 | tail -3\n   Note the reported follower count. If it errors with an OAuth/expired-token error (code 190), log that as a critical finding and STOP network-dependent steps — tell the operator the Instagram token needs refresh.\n\n2. VERIFY QUEUE TOP-UP (only if step 0 said the GPU is ours/acquired): run this command with a GENEROUS tool timeout (600s) and pass the render budget, so the producer stops BEFORE starting a render it cannot finish:\n   SYNC_BUDGET_SECONDS=360 bundle exec rails \"growth:sync_cadence[Sarah]\" 2>&1 | tail -4\n   It schedules fresh renders into the future to maintain cadence. THE BUDGET IS DELIBERATE (2026-09-21): this producer used to run unbudgeted in the FOREGROUND of this tick's tool call, so a multi-render shortfall (measured ~45 min) was SIGKILLed mid-render, leaving a run no post was ever made from. With SYNC_BUDGET_SECONDS the engine stops after the renders that fit and prints \"Budget: stopped after Ns ... shortfall N still open\" -- that is EXPECTED, not an error: the NEXT tick tops up the remainder (sync_cadence counts existing posts, so a partial run resumes safely). Do not set a budget larger than your tool timeout can hold — MEASURED 2026-09-22: this tick's foreground tool call is SIGKILLed at ~420s however large a timeout you request, so 360 is the largest budget with margin (480 lost two completed renders to a mid-render kill: run 480 was left non-terminal and neither render became a post), and never background this command -- step 4's GPU release must run after it returns. If it reports \"created: 0\", check the error text: comfyui_unclaimed = the scheduler gate blocked renders (no claim — see step 0c; do NOT diagnose as B2/Ollama); nsfw_rejected/realism_rejected = content gates (known drift behavior); anything else (caption/Ollama/image fetch) → diagnose root cause and report — do NOT blindly retry.\n\n3. ASSESS TRAJECTORY: read the goal state with:\n   bundle exec rails runner \"g=Growth::Goal.active.first; puts \\\"goal=#{g.id} followers=#{g.latest_followers} target=#{g.target_followers} days_left=#{g.days_remaining} required_per_day=#{g.required_daily_growth.round(2)}\\\"; puts \\\"on_track=#{g.on_track?} ratio=#{g.traj_ratio&.round(2)}\\\"\"\n   If on track/hold, just report. If behind trajectory, run the review brain which escalates cadence:\n   bundle exec rails \"growth:review_strategy[Sarah]\" 2>&1 | tail -3\n   (this records a Growth::Decision and only adjusts when the interval has elapsed — it respects configured limits, max 3 posts/day.)\n\n4. GPU RELEASE (mandatory at end of tick): if this tick ran ensure (or a state file exists), run:\n   bin/comfyui_harness.sh shutdown\n   This stops the heartbeat loop, SIGTERMs ComfyUI, verifies the port is closed and the GPU is idle, then releases the claim. Confirm ONE of two outcomes, and treat BOTH as success: \"clean — port closed, GPU idle\" (our own instance stopped) OR \"adopted instance (origin=adopted, pid N) left RUNNING ... expected, not ours to stop\" — that second line means the tick rendered through an instance we adopted (a foreign flagged ComfyUI), whose owner stops it, so NEVER kill it and never report it as a leak or a failed shutdown. NEVER end the tick with ComfyUI still running unless a render is mid-flight AND you are confident the next tick continues it (preferred: let the next tick re-render; the queue absorbs a skipped hour).\n\n5. HEALTH + ANOMALIES: before finishing, verify these are healthy and reason over anything unusual:\n   - Instagram token live? (the snapshot step already does this)\n   - Photo queue non-empty? python3 bin/tc_ops.py queue (repo-owned: publishable= is the queue; status_rows= overstates by the held rows, and a HELD row is a deliberate age-gate safety action — report it, never propose restoring its clock; dry_out= is the FORECAST (the last publishable clock) — a queue that drains inside ~3 days while renders cannot run is the EARLY flag, because posting stops silently on that date)\n   - Media URL reachable? curl -s -o /dev/null -w '%{http_code}' https://carnival.pi216.ai/media/photos/<first_servable_photo_id> — expect 200\n   - Ollama caption service up? python3 bin/tc_ops.py caption-endpoint — prints \"up (<endpoint>); resident: <models>\" (exit 0) or \"down (...)\" (exit 1). Expect exit 0. Do NOT hand-roll an IP probe here: the scanner blocks raw-IP/plain-HTTP curl commands, and string-concatenating the IP to dodge it is exactly the genome #13 anti-pattern. This repo command asks the same question of the same configured endpoint and cannot be blocked.\n   Any anomaly (token expired, empty queue for >2 days, media URL down, caption service down, repeated failures, our own orphaned ComfyUI = owner=ours with no claim) is the MOST IMPORTANT thing in your report. Do NOT try to fix destructive/infrastructure things (do not kill processes, do not restart services, do not modify credentials) — just report them clearly.\n\nFINISH with a concise, timestamped report (markdown). State: follower count, delta since last, goal progress, queue status, GPU status (claimed/released, any contention), trajectory status, any anomalies found, and any action you took (e.g. strategy escalate, GPU acquired/released). If everything is nominal, say so briefly.",
+      "skills": [],
+      "skill": null,
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "provider": "openrouter",
+      "provider_snapshot": null,
+      "model_snapshot": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 * * * *",
+        "display": "0 * * * *"
+      },
+      "schedule_display": "0 * * * *",
+      "repeat": {
+        "times": null,
+        "completed": 774
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-08-20T20:30:00.068798-04:00",
+      "next_run_at": "2026-09-23T02:00:00-04:00",
+      "last_run_at": "2026-09-23T01:03:04.129653-04:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "deliver": "local",
+      "origin": {
+        "platform": "webui",
+        "chat_id": "b5fec27f2fa1",
+        "chat_name": null,
+        "thread_id": null,
+        "user_id": null
+      },
+      "enabled_toolsets": [
+        "terminal",
+        "file"
+      ],
+      "workdir": "/home/tim/source/activity/turbo-carnival",
+      "fire_claim": null,
+      "last_dispatch": {
+        "scheduled_at": "2026-09-23T01:00:00-04:00",
+        "dispatched_at": "2026-09-23T01:00:17.636113-04:00",
+        "lateness_seconds": 17.6,
+        "kind": "on_time"
+      }
+    },
+    {
+      "id": "8d3ac21799d5",
+      "name": "tc-weekly-persona-review",
+      "prompt": "You are the WEEKLY step-back reviewer for the turbo-carnival Instagram persona experiment (a1.sarah.a1, goal 151→1000 by 2027-08-20). This runs once per week. WORKDIR: /home/tim/source/activity/turbo-carnival.\n\nYOUR JOB — take a step back and revisit the ENTIRE picture, and let the persona grow:\n\n1. RUN THE WEEKLY REVIEW engine:\n   cd /home/tim/source/activity/turbo-carnival && source /usr/share/rvm/scripts/rvm >/dev/null 2>&1 && rvm use 3.4.5 >/dev/null 2>&1 && bundle exec rails \"growth:weekly_review[Sarah]\" 2>&1 | tail -40\n   This audits: follower trajectory vs goal, per-pillar engagement from real post insights, and applies BOUNDED, REVERSIBLE persona evolution (reweights content pillars toward what works, adjusts caption tone/style, tweaks hashtag volume). Every change is logged in a growth_reviews row (applied_changes) for audit/reversal.\n\n2. READ THE AUDIT and reason over it:\n   - Is the trajectory on/behind/ahead? What moved the needle this week?\n   - Which pillars actually engage vs. which flop? Should we double down or retire?\n   - Is the persona / identity direction correct, or should she evolve (grow up, change aesthetic, new voice)? You have the right to recommend persona evolution beyond the mechanical reweighting — e.g. propose a new content pillar or reframe the identity — but ANY mutation must go through the Growth::PersonaEvolution path so it is bounded and reversible.\n\n2b. READ THE PRE-REGISTERED GATE. The review output now ENDS with a \"pre-registered gate (GO/PIVOT/KILL criterion)\" section, because the criterion names THIS review as the moment it is read. Report that `gate=` line VERBATIM in your Weekly Review -- it is the locked criterion for this experiment: followers < 170 AND no pillar above 3% average engagement. Read it as the decision it is, not as another knob:\n   - gate=extend -> the engagement leg is NOT yet a measurement (too few post-intervention posts with collected insights; the 09-21 content-mix/caption levers publish through a ~7-day queue). The pre-committed handling is to RE-READ at the next review. Do not act on it, and do not tune another lever to move it.\n   - gate=gate_fires -> a GO/PIVOT/KILL decision is REQUIRED at this review, on a cohort that could actually observe the intervention. Recommend exactly one, with the numbers: GO (keep producing -- defensible only if reach moves), PIVOT (change the DISTRIBUTION channel: a post reaching ~3 people is not a content-quality signal, so no pillar/hashtag/caption lever can move it), KILL (retire or re-target target_followers/deadline).\n   - gate=go / gate=continue -> state it and carry on.\n   NEVER change FOLLOWER_CEILING / PILLAR_ENGAGEMENT_FLOOR: they are pre-registered, and `python3 bin/tc_ops.py probe` files a board item if they drift. If the gate line is missing from the output, run `bundle exec rails \"growth:gate[Sarah]\"` and report that instead -- and say the wiring is broken.\n\n3. SANITY CHECK the harness health:\n   - Instagram token live? (bundle exec rails \"growth:snapshot_followers[Sarah]\" exit)\n   - Media URL reachable? curl -s -o /dev/null -w '%{http_code}' https://carnival.pi216.ai/media/photos/<first_servable_photo_id>\n   - Cadence queue not empty: python3 bin/tc_ops.py queue (publishable= is the queue; a held row is a deliberate age-gate safety action, not a defect to repair; dry_out= is the FORECAST (last publishable clock, days of runway left) — a drain inside ~3 days is a finding, because posting stops silently on that date)\n   - GPU/ComfyUI (scheduler pattern since 2026-09-01): bin/comfyui_harness.sh status — ComfyUI down while claim=idle/other is EXPECTED (GPU released or owned by another agent); comfyui=up with claim=idle and owner=ours is OUR orphan (an anomaly to report) — owner=ours now requires the claim record to say origin=launched, so an instance merely ADOPTED under a claim reads as owner=foreign and is not ours to stop; comfyui=up with owner=foreign is normal sharing — an interactive session or another project running the shared install with no claim — so report it as contention at most, never as a leak, and never kill it. Check log/comfyui_harness.log for repeated \"NOT claimed\" (GPU contention crowding out renders) and for clean shutdowns.\n   - Any OOM/retry storms in log/development.log (or run `python3 bin/tc_ops.py log-health` for every live log)? Any week-long queue starvation from comfyui_unclaimed?\n   Report anything that needs human attention.\n\n4. DELIVER a concise markdown \"Weekly Review\" that states: verdict, follower count + delta, trajectory status, top/bottom pillars with engagement, what the persona brain changed this week (with before/after), the pre-registered gate line (`gate=...` with its reason) verbatim, and 2-4 concrete recommendations for the next 7 days. This is the experiment's weekly ledger — be honest about what worked and what didn't. Do NOT fabricate numbers; if data is thin, say so.",
+      "skills": [],
+      "skill": null,
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "provider": "openrouter",
+      "provider_snapshot": null,
+      "model_snapshot": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * 1",
+        "display": "0 9 * * 1"
+      },
+      "schedule_display": "0 9 * * 1",
+      "repeat": {
+        "times": null,
+        "completed": 5
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-08-20T21:30:41.250946-04:00",
+      "next_run_at": "2026-09-28T09:00:00-04:00",
+      "last_run_at": "2026-09-21T09:05:34.371539-04:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "deliver": "local",
+      "origin": {
+        "platform": "webui",
+        "chat_id": "b5fec27f2fa1",
+        "chat_name": null,
+        "thread_id": null,
+        "user_id": null
+      },
+      "enabled_toolsets": [
+        "terminal",
+        "file"
+      ],
+      "workdir": "/home/tim/source/activity/turbo-carnival",
+      "fire_claim": null,
+      "last_dispatch": {
+        "scheduled_at": "2026-09-21T09:00:00-04:00",
+        "dispatched_at": "2026-09-21T09:00:28.308070-04:00",
+        "lateness_seconds": 28.3,
+        "kind": "on_time"
+      }
+    },
+    {
+      "id": "31c2d0bc8261",
+      "name": "tc-overnight-watchdog",
+      "prompt": "You are the OVERNIGHT WATCHDOG for the turbo-carnival Instagram growth harness (a1.sarah.a1, goal 151→1000 by 2027-08-20). This runs ~every 4 hours through the night while the operator sleeps. WORKDIR: /home/tim/source/activity/turbo-carnival. LOG: append one timestamped status block to /home/tim/source/activity/turbo-carnival/log/overnight_watchdog.log.\n\nMANDATORY: Your final response must ALSO be appended to that log via a terminal heredoc/cat >> command, or written to it with a file tool. Keep the log append concise (a few lines). If EVERYTHING is nominal you may end your final response with [SILENT], but STILL append the short status line to the log.\n\nRUN this battery and CHECK each thing:\n\n1. INSTAGRAM TOKEN live: bundle exec rails \"growth:snapshot_followers[Sarah]\" 2>&1 | tail -1 (prefix with cd /home/tim/source/activity/turbo-carnival && source /usr/share/rvm/scripts/rvm >/dev/null 2>&1 && rvm use 3.4.5 >/dev/null 2>&1 && bundle). Expect \"Snapshot recorded: N followers\". If it shows error code 190 / OAuth / expired → CRITICAL, flag prominently (operator must re-auth in the morning).\n\n2. QUEUE not starved: python3 bin/tc_ops.py queue (repo-owned; prints publishable= / status_rows= / held=). Read PUBLISHABLE as the queue. Do NOT count by status (status:['draft','scheduled']) — that count overstates by every age-gate hold, and a held row is a DELIBERATE safety action, not a defect: never advise restoring its clock or reclassifying it, because that publishes a render the age gate read as a minor on a public adult account (measured 2026-09-21 on post 345). If publishable is 0 for 2+ consecutive runs, flag. Also read dry_out= (the FORECAST: the last publishable clock and the days of runway left) — a dry_out inside ~3 days while renders are blocked is the EARLY flag; posting goes silent on that date with no error raised anywhere. Do NOT create posts yourself unless clearly needed and safe — prefer reporting.\n\n3. MEDIA reachable: pick the first servable photo and curl -s -o /dev/null -w '%{http_code}' https://carnival.pi216.ai/media/photos/<id>. Expect 200. Also verify at least the scheduled posts reference servable photos.\n\n4. SERVICES up (read-only checks only, DO NOT restart):\n   - GPU/ComfyUI (scheduler-aware since 2026-09-01): run bin/comfyui_harness.sh status FIRST. It prints claim=<idle|busy|claimed> job=<id> ours=<yes|no> comfyui=<up|down>.\n       * claim=ours (or busy/claimed + ours=yes) → ComfyUI SHOULD be up: curl -s -m5 http://localhost:8188/system_stats — expect json. Down while claimed = ANOMALY (claim held but server dead) — flag it.\n       * claim=idle, or claim=busy/claimed with ours=no → ComfyUI down is EXPECTED (GPU released after the hourly tick, or owned by another agent — this is the new scheduler pattern). Do NOT flag a down ComfyUI in this state.\n       * comfyui=up while claim=idle: read the owner= field that `status` prints. owner=ours → OUR orphaned instance (a leak): it holds 22+GB of a shared card with no claim, so the next claimant is refused or OOMs against it and the scheduler thinks the GPU is free (double-book risk). LOUDEST finding of the run — put it at the top of the log entry. Read-only: do NOT kill it yourself; the hourly brain's ensure self-heals OUR instance once its native queue is empty. owner=foreign → NOT a leak and NOT ours to kill: an interactive session or another project is using the shared install with no scheduler claim, which is normal sharing (measured 2026-09-20 09:25 EDT: a live tmux render held 23 GB mid-render while claim=idle). Report one informational line naming pid/cgroup, and only escalate if it actually blocks OUR renders.\n       * comfyui=up while claim=busy/claimed and ours=no → NORMAL SHARING, NOT a leak. Another project holds the claim and is running the shared ComfyUI install (the harness prints owner=foreign for it). The scheduler does NOT think the GPU is idle. Report it as one informational line naming job=<id>; never call it a leak or a CRITICAL.\n       * Also tail -10 log/comfyui_harness.log — repeated \"NOT claimed within\" lines = GPU contention crowding out renders; mention it.\n   - Ollama caption model: python3 bin/tc_ops.py caption-endpoint — prints \"up (<endpoint>); resident: <models>\" (exit 0) or \"down (...)\" (exit 1). Use THIS command, never a raw-IP curl: the tool scanner blocks private-network/plain-HTTP curl commands, so the curl form only ever produced an improvised SSH fallback (genome #13). Expect exit 0.\n   - Tunnel: curl -s -m8 -o /dev/null -w '%{http_code}' https://carnival.pi216.ai/up — expect 200\n   - systemctl --user is-active turbo-carnival-puma hermes-gateway-turbo-carnival 2>/dev/null\n   - the two cron jobs exist: hermes cron list should show tc-growth-harness-brain (hourly) and tc-weekly-persona-review\n\n5. RECENT ERRORS: run `python3 bin/tc_ops.py log-health` and tail -40 log/development.log — look for OOM storms (repeated 'out of memory'), recurring token 190, caption failures, or comfyui_unclaimed rows (a few while another agent owns the GPU are FINE and expected; a pattern where the queue stays starved for days = flag). A single OOM that succeeds on retry is FINE (known behavior). Multiple failures = flag.\n\nRULES: read-only + report ONLY. Do NOT restart services, kill processes, delete data, or modify credentials. You are the observer/alarm, not the fixer. If you find something critical, that MUST be the loudest part of the log entry.\n\nAPPEND to log, then output your findings as final response (or [SILENT] if fully nominal).",
+      "skills": [],
+      "skill": null,
+      "model": "deepseek/deepseek-v4.1-flash",
+      "provider": "openrouter",
+      "provider_snapshot": null,
+      "model_snapshot": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 240,
+        "display": "every 240m"
+      },
+      "schedule_display": "every 240m",
+      "repeat": {
+        "times": null,
+        "completed": 196
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-08-20T21:51:43.959002-04:00",
+      "next_run_at": "2026-09-23T01:43:51.104949-04:00",
+      "last_run_at": "2026-09-22T21:43:51.104949-04:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "deliver": "local",
+      "origin": {
+        "platform": "webui",
+        "chat_id": "b5fec27f2fa1",
+        "chat_name": null,
+        "thread_id": null,
+        "user_id": null
+      },
+      "enabled_toolsets": [
+        "terminal",
+        "file"
+      ],
+      "workdir": "/home/tim/source/activity/turbo-carnival",
+      "fire_claim": null,
+      "last_dispatch": {
+        "scheduled_at": "2026-09-22T21:40:27.528124-04:00",
+        "dispatched_at": "2026-09-22T21:41:17.636656-04:00",
+        "lateness_seconds": 50.1,
+        "kind": "on_time"
+      }
+    },
+    {
+      "id": "9c05f60f5fef",
+      "name": "tc-ops-triage",
+      "prompt": "You are the turbo-carnival ops triage agent. WORKDIR: /home/tim/source/activity/turbo-carnival\n\nPURPOSE: close the loop between DETECTING problems and FIXING them. You own the fix loop AND the business decisions. Nobody else reads these reports: this profile delivers `local`, so the only surfaces are ops/NEEDS_HUMAN.md (generated, committed) and the board.\n\nDECISION AUTHORITY (read first)\n- You are the operating agent for this project. Business and product decisions are YOURS to make and record: cadence, persona identity and intended age, caption path, growth strategy, which lever to build, whether to accept a containment, whether to wait for a GPU slot. Decide, execute, verify, close.\n- Do NOT close by filing an item as waiting on a human decision, and do NOT hand back a menu of options. That deferral is the failure this loop exists to end: the board spent its first two days filing business decisions as waiting on Tim, so every hourly pass re-derived the same item, appended a note, and closed nothing.\n- Escalate to Tim ONLY for ENABLEMENT you cannot perform from here: a file outside this repo, a credential or token, a platform/channel setting, a GPU policy, or a physical hardware action. Route those `tim` so they are the only thing pushed to him:\n  `python3 bin/tc_ops.py route <key> --route tim -n \"<why only a human can do it>\"`\n- A missing FACT you cannot obtain is the third case: name the fact you need. Do not offer a menu.\n\nSTEPS\n1. Run the prober: `python3 bin/tc_ops.py probe` (generous timeout -- it blocks up to 240s when no caption model is resident, because that check MEASURES a cold load by attempting one). It files/refreshes issues on ops/board/ and auto-closes ones whose condition stopped reproducing.\n2. Skim the newest outputs of this profile monitoring jobs for problems reported but never actioned. File anything real.\n3. `python3 bin/tc_ops.py list` -- every line shows its route.\n4. For EACH open issue: DECIDE and FIX it, or record precisely why you cannot.\n   - Fix the ROOT CAUSE in the repo (harness, scripts, cron prompt, Rails task). A green board that silently re-breaks is worse than an open issue.\n   - Verify every fix with real evidence (command output, DB query, re-run of the prober). Never claim a fix you did not observe.\n   - Close it: `python3 bin/tc_ops.py close <key> --note \"<the decision + what you changed + how you verified>\"`.\n   - If a fix needs the 4090 and we hold no claim, do NOT run renders and do NOT wait: record it as blocked-on-slot and move on. That is NOT a Tim ask.\n   - If an issue is a known-accepted condition, close it with that reasoning instead of leaving it open forever.\n   - Commit repo changes with a message explaining the root cause.\n5. Report tersely: what you DECIDED and FIXED (with the verifying evidence), what remains open and why, and -- kept separate -- only the genuine ENABLEMENT asks for Tim. `python3 bin/tc_ops.py escalations` prints exactly that list and nothing else.\n\nHARD CONSTRAINTS\n- NEVER kill, stop, or interfere with another project GPU jobs, scheduler queue entries, or training runs. If the 4090 is held by another project that is normal -- leave it alone.\n- Never hand-edit the scheduler state.json or another project job files.\n- Do not restart the Hermes gateway or system services without a clear, stated reason.\n- Stay inside this repo for ACTIONS. If a problem is outside its scope, file it on the board with severity info and route it `tim` rather than acting outside the project.\n- Terse, evidence-first. Do not narrate tool use.",
+      "skills": [
+        "gpu-resource-scheduler"
+      ],
+      "skill": "gpu-resource-scheduler",
+      "model": null,
+      "provider": null,
+      "provider_snapshot": "openrouter",
+      "model_snapshot": "deepseek/deepseek-v4.1-flash",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": [
+        "self"
+      ],
+      "schedule": {
+        "kind": "cron",
+        "expr": "25 * * * *",
+        "display": "25 * * * *"
+      },
+      "schedule_display": "25 * * * *",
+      "repeat": {
+        "times": null,
+        "completed": 84
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-09-19T11:37:02.204521-04:00",
+      "next_run_at": "2026-09-23T02:25:00-04:00",
+      "last_run_at": "2026-09-23T00:37:08.438997-04:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "last_delivery_unverified": null,
+      "failure_streak": 0,
+      "deliver": "local",
+      "origin": {
+        "platform": "webui",
+        "chat_id": "b42cbe0fbc72",
+        "chat_name": null,
+        "thread_id": null,
+        "user_id": null,
+        "scope_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "/home/tim/source/activity/turbo-carnival",
+      "last_dispatch": {
+        "scheduled_at": "2026-09-23T01:25:00-04:00",
+        "dispatched_at": "2026-09-23T01:25:17.637748-04:00",
+        "lateness_seconds": 17.6,
+        "kind": "on_time"
+      },
+      "fire_claim": {
+        "at": "2026-09-23T01:33:18.151954-04:00",
+        "by": "game:3337595:bbdfeae59ed443fa8dd0b1b1d2e60b09"
+      }
+    },
+    {
+      "id": "bae1bd85ec35",
+      "name": "tc-corpus-backup",
+      "prompt": "Nightly off-NAS backup of the Sarah render corpus. WORKDIR: /home/tim/source/activity/turbo-carnival\n\nWHY: /mnt/nas-ai-models/comfyui-output is the only copy of every photo this account has posted or could post. /home/tim/backup.sh mirrors it as a DANGLING symlink onto the SAME NAS volume, so it protects nothing while looking like it does. The second copy lives inside this repo at corpus-backup/ (gitignored, local NVMe, a different machine and device from the NAS).\n\nTIMING -- READ FIRST: the run walks the whole tree over NFS and takes roughly 10-20 minutes even when nothing changed, and the FIRST run copies the whole tree (hours). Never run it in the foreground on a budget you might blow. Launch it with terminal(background=True, notify=True) and wait on it with the process tool. A tick that ends before the copy finishes is NOT a failure -- the next tick must start with `bin/corpus_backup.sh --verify-only` and treat a complete verified slot as success.\n\nSTEPS\n1. Launch `bin/corpus_backup.sh` in the background and wait for it. It rsyncs the corpus (-L, real bytes not a symlink) into todays weekday slot as a hardlink snapshot, then verifies that every resolvable photos.path in the database is present in the copy -- a missing file FAILS the run.\n2. If it fails or the copy is incomplete, diagnose from its output: NAS not mounted (`mount | grep nas-ai-models`), destination disk full (`df -h` on the repo volume), psql unreachable, or an rsync error. Fix the root cause if it is inside this repo; if it is outside, file it on the ops board with `bin/tc_ops.py file` and route it tim.\n3. Report tersely: the slot path, snapshot size, the verified/missing counts, and any anomaly (disk pressure, NAS unmounted, a rising missing count, an unexplained size jump). One line when everything is healthy. Do not re-report a healthy backup in prose.\n\nCONSTRAINTS\n- corpus-backup/ is inside the repo but GITIGNORED: never commit it and never delete snapshots by hand. Seven weekday slots ARE the retention policy -- rsync replaces a slot when it is reused, so there is no prune step to run.\n- /mnt/nas-ai-models is a read-only source. Do not modify it and do not touch any other project.\n- Do not read the copied images; verify by count and path, not by eyeballing bytes.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "provider_snapshot": "openrouter",
+      "model_snapshot": "deepseek/deepseek-v4.1-flash",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "15 3 * * *",
+        "display": "15 3 * * *"
+      },
+      "schedule_display": "15 3 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-09-21T11:22:54.700313-04:00",
+      "next_run_at": "2026-09-23T03:15:00-04:00",
+      "last_run_at": "2026-09-22T03:19:19.667292-04:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "last_delivery_unverified": null,
+      "failure_streak": 0,
+      "deliver": "local",
+      "origin": {
+        "platform": "webui",
+        "chat_id": "5b5dd90c83b6",
+        "chat_name": null,
+        "thread_id": null,
+        "user_id": null,
+        "scope_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "/home/tim/source/activity/turbo-carnival",
+      "last_dispatch": {
+        "scheduled_at": "2026-09-22T03:15:00-04:00",
+        "dispatched_at": "2026-09-22T03:15:42.012692-04:00",
+        "lateness_seconds": 42.0,
+        "kind": "on_time"
+      },
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-09-23T01:33:18.152628-04:00"
+}

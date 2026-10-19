@@ -44,4 +44,3 @@ run1 = pipeline.pipeline_runs.create!(
     run_name: "yoga session"
   }
 )
-

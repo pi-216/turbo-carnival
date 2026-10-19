@@ -1,0 +1,19 @@
+{
+  "key": "withheld-renders-publicly-served",
+  "title": "Withheld renders stayed publicly downloadable: /media/photos/<id> served any photo id, purged ones included",
+  "severity": "warn",
+  "evidence": "MediaController#photo served bytes for ANY photo id and the ids are sequential behind the Cloudflare tunnel, so /media/photos/1..N is enumerable. A post purged by the NSFW gate deletes only the POST row: 13 such purges (action=nsfw_purge, scores 0.93-0.9999) left the Photo row and its bytes intact. Measured 2026-09-23 through the tunnel: GET /media/photos/241 -> 200 and /media/photos/228 -> 200 (both purged), plus 38 further renders of the persona that never became a post at all (51 unlinked Sarah photos: 28 from the 2026-05-28 batch, 10 from 2026-08, 13 purged; 51/51 resolve to a file on disk).",
+  "status": "closed",
+  "first_seen": "2026-09-23T08:40:51-0400",
+  "last_seen": "2026-09-23T08:40:51-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-23T08:40:59-0400",
+      "note": "FIXED in 60dd50b: MediaController#photo now serves a photo only while a post still references it (404 otherwise). The rule is one-sided on purpose -- the publishing path always builds the URL from a post that already exists (Scheduling::Commands::GeneratePublicPhotoUrl, from schedule_post.rb / scheduled_posting.rake) and captioning base64s the local file, so no publish can be broken, while a render no post references has no publishing consumer to lose. VERIFIED: spec/requests/media_spec.rb new (4 examples incl. the purged-post case), full spec/requests + spec/models = 67 examples / 0 failures; live through the tunnel after the fix -- 241/228 (purged) and 124/308 (unlinked) now 404, while 345/330 (publishable) and 9 (posted) still 200, and GeneratePublicPhotoUrl still returns https://carnival.pi216.ai/media/photos/345 for the next scheduled post (clock 17:35Z). DECISION recorded with it: the 51 unlinked Sarah renders are NOT a spare-content reserve that could cover the render outage -- 13 are NSFW-purged (that is why they have no post) and the other 38 are from a superseded render era (28 from the 2026-05-28 bulk batch, 10 strays from 2026-08), so publishing them would put unvetted/off-era imagery on the public feed. No GPU-free supply lever exists; the queue's own runway (dry_out) is the constraint."
+    }
+  ],
+  "closed_at": "2026-09-23T08:40:59-0400"
+}

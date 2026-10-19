@@ -1,0 +1,31 @@
+{
+  "key": "growth-salvage-loop-arm",
+  "title": "One worker-process start arms the new GPU-free render-recovery loop",
+  "severity": "info",
+  "evidence": "The loop cannot arm itself. The sidekiq process for this app booted 2026-09-19 13:23, before the new\nworker directory existed, so its autoloader cannot resolve Growth::AbandonedRenderWorker -- the journal\nshows \"NameError: uninitialized constant Growth::AbandonedRenderWorker\" on every attempt (its dead-set\nentry was cleared by hand). The startup re-arm in config/initializers/sidekiq.rb only runs at process\nstart.\n\nThe ask is exactly one command on the box:\n\n    systemctl --user restart turbo-carnival-sidekiq\n\n(or set approvals.cron_mode: approve in the Hermes config so this cron can run it).\n\nNothing to build and nothing to decide: the code is committed (5b9c0d9) and spec-verified\n(17 examples green). Until it is armed, abandoned-render recovery falls back to the GPU-acquiring tick,\nwhich now no longer loses 30 min per reconcile but still does not run during a long foreign GPU hold.",
+  "status": "closed",
+  "first_seen": "2026-09-21T23:48:52-0400",
+  "last_seen": "2026-09-21T23:48:52-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-09-21T23:48:53-0400",
+      "note": "Only a human can do this: the worker-process start is blocked for cron runs by the approval policy. One action arms a loop that turns already-rendered images into posts with no GPU (measured 13h+ of paid-for renders left unposted during a foreign GPU hold)."
+    },
+    {
+      "ts": "2026-09-22T00:38:43-0400",
+      "note": "2026-09-22 04:3xZ ops-triage: DECIDED AND FIXED -- the loop is armed WITHOUT a human action, so this enablement ask is withdrawn. ROOT CAUSE (measured, not inferred): the worker class lived in packs/growth_harness/app/workers, a directory created 2026-09-21 23:31, AFTER the running sidekiq booted (09-19 13:23). A pack app/* root that did not exist at boot is never in that process's Zeitwerk roots -- roots are globbed once, and Zeitwerk's reload re-scans the REGISTERED roots but never adds one (zeitwerk-2.8.3 loader.rb:241-252) -- so the running worker threw NameError on every attempt. FIX (commit 16ae76d): the class moved to packs/growth_harness/app/services/growth/abandoned_render_worker.rb, whose root predates that boot; sidekiq constantizes the class INSIDE the Rails reloader (sidekiq-7.3.9 processor.rb:139-141), so the dev reloader picks the new file up on the next job. No restart, no approval, no config change. VERIFIED LIVE in the SAME process (pid 1960691, the one that could not resolve the class): journal shows class=Growth::AbandonedRenderWorker start/done at 04:32:44Z and again at 04:37:47Z with no NameError, and Sidekiq::ScheduledSet holds the self-rescheduled entry (04:42:47Z) -- i.e. it is a 5-min loop, not a one-shot. The stale dead-set entry carrying the old NameError was deleted. Specs: 105 examples / 0 failures across spec/workers/growth + spec/services/growth; rubocop clean on the moved file; the header comment records that the file location is load-bearing so a future agent does not move it back and silently re-break the loop."
+    },
+    {
+      "ts": "2026-09-22T00:50:47-0400",
+      "note": "2026-09-22 04:5xZ ops-triage: END-TO-END PROOF, same pass as the fix -- the loop recovered real work with NO GPU and no human. The 00:19 EDT growth tick's producer was SIGKILLed mid-render at the ~420s tool ceiling (run 484); the render itself completed in ComfyUI at 04:13:35Z (ImageCandidate 3196, PNG on disk, no Photo/Post). At 04:47:53Z the armed worker (pid 1960691 -- the SAME process that could not resolve the class before the fix) ran and at 04:48:33Z logged: 'salvage_recovered: run 484 - recovered an abandoned render into post 351 (photo 359); producer was killed before the post-actions ran' and 'recovered=1 {target: 21, existing: 20, shortfall: 1, post_ids=[351]}'. Queue publishable 20 -> 21 (shortfall 1 -> 0), dry_out 2026-09-28T10:30Z -> 14:00Z. This is the failure the enablement ask existed for (renders sitting unposted during a foreign GPU hold / after a producer kill) now closing itself in ~35 min."
+    },
+    {
+      "ts": "2026-09-22T00:51:43-0400",
+      "note": "2026-09-22 04:5xZ ops-triage: CORRECTION on the commit reference above -- the fix's CODE is in 1fe8404, not 16ae76d. 16ae76d carried only the file RENAME: a git add whose pathspec included a directory the move had already removed staged nothing, while the message was written as if the code were included. The behaviour verified above is unchanged (the tree contained all of it when the worker ran and recovered post 351); only the citation was wrong, and it is corrected here so the next reader finds the diff."
+    }
+  ],
+  "closed_at": "2026-09-22T00:38:43-0400"
+}

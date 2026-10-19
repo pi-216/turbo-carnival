@@ -1,0 +1,20 @@
+<button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700" onclick="document.getElementById('modal-with-footer').classList.remove('hidden')">
+  Open Modal
+</button>
+
+<%= render(component) do %>
+  <p class="text-zinc-600">
+    Are you sure you want to proceed with this action? This cannot be undone.
+  </p>
+
+  <% content_for :footer do %>
+    <div class="flex justify-end gap-3">
+      <%= render Base::ButtonComponent.new(variant: :secondary, onclick: "document.getElementById('modal-with-footer').classList.add('hidden')") do %>
+        Cancel
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :danger, onclick: "document.getElementById('modal-with-footer').classList.add('hidden')") do %>
+        Confirm
+      <% end %>
+    </div>
+  <% end %>
+<% end %>

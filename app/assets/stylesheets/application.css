@@ -1,1 +1,14 @@
-/* Tailwind is loaded via CDN in layout */
+@import "tailwindcss";
+
+/* Catalyst Design System Base Configuration */
+@layer base {
+  :root {
+    --font-sans: Inter, system-ui, -apple-system, sans-serif;
+  }
+  
+  html {
+    font-family: var(--font-sans);
+    /* Inter stylistic variant for improved legibility */
+    font-feature-settings: 'cv11';
+  }
+}

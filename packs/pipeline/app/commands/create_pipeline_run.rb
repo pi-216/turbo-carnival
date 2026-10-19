@@ -1,6 +1,6 @@
 class CreatePipelineRun < GLCommand::Callable
   requires :pipeline_id
-  allows :name, :target_folder, :variables, :prompt
+  allows :name, :target_folder, :variables, :prompt, :persona_id, :content_pillar_id
   returns :run
 
   def call
@@ -17,6 +17,8 @@ class CreatePipelineRun < GLCommand::Callable
       prompt: context.prompt,
       target_folder: folder,
       variables: vars,
+      persona_id: context.persona_id,
+      content_pillar_id: context.content_pillar_id,
       status: "pending"
     )
   end

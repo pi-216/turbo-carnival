@@ -1,0 +1,50 @@
+development:
+  # Posting frequency (per week)
+  posting_frequency_min: 3
+  posting_frequency_max: 5
+  posting_days_gap: 1
+
+  # Optimal posting times (system timezone)
+  optimal_time_start_hour: 5
+  optimal_time_end_hour: 8
+  alternative_time_start_hour: 10
+  alternative_time_end_hour: 15
+
+  # Content variety rules
+  variety_min_days_gap: 2
+  variety_max_same_cluster: 3
+
+  # Hashtag strategy
+  hashtag_count_min: 5
+  hashtag_count_max: 12
+
+  # Default strategy
+  default_strategy: 'thematic_rotation_strategy'
+
+test:
+  posting_frequency_min: 3
+  posting_frequency_max: 5
+  posting_days_gap: 1
+  optimal_time_start_hour: 5
+  optimal_time_end_hour: 8
+  alternative_time_start_hour: 10
+  alternative_time_end_hour: 15
+  variety_min_days_gap: 2
+  variety_max_same_cluster: 3
+  hashtag_count_min: 5
+  hashtag_count_max: 12
+  default_strategy: 'thematic_rotation_strategy'
+
+production:
+  posting_frequency_min: 3
+  posting_frequency_max: 5
+  posting_days_gap: 1
+  optimal_time_start_hour: 5
+  optimal_time_end_hour: 8
+  alternative_time_start_hour: 10
+  alternative_time_end_hour: 15
+  variety_min_days_gap: 2
+  variety_max_same_cluster: 3
+  hashtag_count_min: 5
+  hashtag_count_max: 12
+  default_strategy: 'thematic_rotation_strategy'

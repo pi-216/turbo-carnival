@@ -1,276 +1,306 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Gallery</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <%= csrf_meta_tags %>
-    <%= csp_meta_tag %>
-    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
-  </head>
+<%= render Layout::ContainerComponent.new do %>
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-8">
+    <div>
+  <h1 class="text-3xl font-bold text-white">
+    🖼️ Gallery: <%= @run.name || "Run ##{@run.id}" %>
+  </h1>
+  <div class="flex gap-2 mt-2">
+    <%= render ::Base::ButtonComponent.new(variant: :ghost, size: :sm, href: runs_path) do %>
+      ← Back to runs
+    <% end %>
+    <%= render ::Base::ButtonComponent.new(variant: :ghost, size: :sm, href: run_vote_path(@run)) do %>
+      Vote
+    <% end %>
+  </div>
+    </div>
+    <div class="flex gap-4">
+  <%= render ::Base::ButtonComponent.new(variant: :secondary, href: winners_path) do %>
+    🏆 Winners
+  <% end %>
+    </div>
+  </div>
 
-  <body class="bg-gray-900 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-      <!-- Header -->
-      <div class="flex justify-between items-center mb-8">
-        <div>
-          <h1 class="text-3xl font-bold text-white">
-            🖼️ Gallery: <%= @run.name || "Run ##{@run.id}" %>
-          </h1>
-          <div class="text-sm text-gray-400 mt-2">
-            <%= link_to "← Back to runs", runs_path, class: "hover:text-white" %>
-            <span class="mx-2">|</span>
-            <%= link_to "Vote", run_vote_path(@run), class: "hover:text-white" %>
-          </div>
-        </div>
-        <div class="flex gap-4">
-          <%= link_to "🏆 Winners", winners_path, class: "px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors" %>
-        </div>
-      </div>
+  <% if notice %>
+    <div class="bg-green-600 text-white px-4 py-3 rounded-lg mb-6">
+  <%= notice %>
+    </div>
+  <% end %>
 
-      <% if notice %>
-        <div class="bg-green-600 text-white px-4 py-3 rounded-lg mb-6">
-          <%= notice %>
-        </div>
-      <% end %>
-
-      <!-- Step Selector -->
-      <div class="bg-gray-800 rounded-lg p-6 mb-8">
-        <h2 class="text-lg font-semibold text-white mb-4">Select Pipeline Step</h2>
-        <div class="flex gap-2 flex-wrap">
-          <% @pipeline.pipeline_steps.order(:order).each do |step| %>
-            <% active_count = ImageCandidate.where(
-                 pipeline_step: step, 
-                 status: 'active',
-                 pipeline_run: @run
-               ).count %>
-            <% prs = @run.pipeline_run_steps.find_by(pipeline_step: step) %>
-            <%= link_to run_gallery_path(@run, step: step.order), 
-                class: "px-4 py-2 rounded-lg transition-colors #{@selected_step == step ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}" do %>
-              <div class="flex items-center gap-2">
-                <% if prs&.approved? %>
-                  <span class="text-green-400">✅</span>
-                <% elsif active_count > 0 %>
-                  <span class="text-yellow-400">⏸️</span>
-                <% else %>
-                  <span class="text-gray-500">🔒</span>
-                <% end %>
-                <div>
-                  <span class="font-semibold">Step <%= step.order %></span>
-                  <span class="text-sm opacity-75">(<%= active_count %>)</span>
-                  <br>
-                  <span class="text-xs"><%= step.name %></span>
-                </div>
-              </div>
+  <!-- Step Selector -->
+  <%= render ::Base::CardComponent.new(variant: :default, class: "mb-8") do |c| %>
+    <% c.with_body do %>
+    <h2 class="text-lg font-semibold text-white mb-4">Select Pipeline Step</h2>
+    <div class="flex gap-2 flex-wrap">
+      <% @pipeline.pipeline_steps.order(:order).each do |step| %>
+        <% active_count = ImageCandidate.where(
+             pipeline_step: step, 
+             status: 'active',
+             pipeline_run: @run
+           ).count %>
+        <% prs = @run.pipeline_run_steps.find_by(pipeline_step: step) %>
+        <%= link_to run_gallery_path(@run, step: step.order), 
+            class: "px-4 py-2 rounded-lg transition-colors #{@selected_step == step ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}" do %>
+          <div class="flex items-center gap-2">
+            <% if prs&.approved? %>
+              <span class="text-green-400">✅</span>
+            <% elsif active_count > 0 %>
+              <span class="text-yellow-400">⏸️</span>
+            <% else %>
+              <span class="text-zinc-500">🔒</span>
             <% end %>
+            <div>
+              <span class="font-semibold">Step <%= step.order %></span>
+              <span class="text-sm opacity-75">(<%= active_count %>)</span>
+              <br>
+              <span class="text-xs"><%= step.name %></span>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+    <% end %>
+  <% end %>
+
+  <!-- Approval Section -->
+  <% prs = @run.pipeline_run_steps.find_by(pipeline_step: @selected_step) %>
+  <% if @candidates.any? %>
+    <%= render ::Base::CardComponent.new(variant: :default, class: "mb-8 border-2 #{prs&.approved? ? 'border-green-600' : 'border-yellow-600'}") do |c| %>
+      <% c.with_body do %>
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-white mb-2">
+            <% if prs&.approved? %>
+              ✅ Step <%= @selected_step.order %> Approved
+            <% else %>
+              ⏸️ Step <%= @selected_step.order %> Awaiting Approval
+            <% end %>
+          </h2>
+          <% if prs&.approved? %>
+            <p class="text-sm text-zinc-300">
+              Approved <%= time_ago_in_words(prs.approved_at) %> ago
+              • Top <span class="font-bold text-green-400"><%= prs.top_k_count %></span> candidates will advance to Step <%= @selected_step.order + 1 %>
+            </p>
+          <% else %>
+            <p class="text-sm text-zinc-300">
+              Review candidates below and approve to continue pipeline progression
+            </p>
           <% end %>
         </div>
-      </div>
-
-      <!-- Approval Section -->
-      <% prs = @run.pipeline_run_steps.find_by(pipeline_step: @selected_step) %>
-      <% if @candidates.any? %>
-        <div class="bg-gray-800 rounded-lg p-6 mb-8 border-2 <%= prs&.approved? ? 'border-green-600' : 'border-yellow-600' %>">
-          <div class="flex items-start justify-between mb-4">
-            <div>
-              <h2 class="text-xl font-semibold text-white mb-2">
-                <% if prs&.approved? %>
-                  ✅ Step <%= @selected_step.order %> Approved
-                <% else %>
-                  ⏸️ Step <%= @selected_step.order %> Awaiting Approval
-                <% end %>
-              </h2>
-              <% if prs&.approved? %>
-                <p class="text-sm text-gray-300">
-                  Approved <%= time_ago_in_words(prs.approved_at) %> ago
-                  • Top <span class="font-bold text-green-400"><%= prs.top_k_count %></span> candidates will advance to Step <%= @selected_step.order + 1 %>
+        
+        <% unless prs&.approved? %>
+          <% if @candidates.any? %>
+            <div class="bg-zinc-900 rounded-lg p-4 min-w-[300px]">
+              <%= form_with url: run_approve_step_path(@run, @selected_step), method: :post, class: "space-y-4" do |f| %>
+              <div>
+                <label class="block text-sm font-medium text-zinc-300 mb-2">
+                  How many candidates should advance?
+                </label>
+                <div class="flex items-center gap-4">
+                  <%= f.range_field :top_k_count, 
+                      min: 1, 
+                      max: @candidates.count, 
+                      value: [JobOrchestrationConfig.default_top_k, @candidates.count].min,
+                      class: "flex-1",
+                      id: "k-slider",
+                      oninput: "document.getElementById('k-value').textContent = this.value; updateTopKPreview(this.value)" %>
+                  <span id="k-value" class="text-2xl font-bold text-blue-400 min-w-[40px] text-center">
+                    <%= [JobOrchestrationConfig.default_top_k, @candidates.count].min %>
+                  </span>
+                </div>
+                <p class="text-xs text-zinc-500 mt-1">
+                  Top <span id="k-count-text"><%= [JobOrchestrationConfig.default_top_k, @candidates.count].min %></span> by ELO will advance
                 </p>
-              <% else %>
-                <p class="text-sm text-gray-300">
-                  Review candidates below and approve to continue pipeline progression
-                </p>
-              <% end %>
-            </div>
-            
-            <% unless prs&.approved? %>
-              <% if @candidates.any? %>
-                <div class="bg-gray-900 rounded-lg p-4 min-w-[300px]">
-                  <%= form_with url: run_approve_step_path(@run, @selected_step), method: :post, class: "space-y-4" do |f| %>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">
-                      How many candidates should advance?
-                    </label>
-                    <div class="flex items-center gap-4">
-                      <%= f.range_field :top_k_count, 
-                          min: 1, 
-                          max: @candidates.count, 
-                          value: [JobOrchestrationConfig.default_top_k, @candidates.count].min,
-                          class: "flex-1",
-                          id: "k-slider",
-                          oninput: "document.getElementById('k-value').textContent = this.value; updateTopKPreview(this.value)" %>
-                      <span id="k-value" class="text-2xl font-bold text-purple-400 min-w-[40px] text-center">
-                        <%= [JobOrchestrationConfig.default_top_k, @candidates.count].min %>
-                      </span>
-                    </div>
-                    <p class="text-xs text-gray-500 mt-1">
-                      Top <span id="k-count-text"><%= [JobOrchestrationConfig.default_top_k, @candidates.count].min %></span> by ELO will advance
-                    </p>
-                  </div>
-                  
-                  <% if @candidates.any? { |c| c.vote_count < 5 } %>
-                    <div class="bg-yellow-900 bg-opacity-30 border border-yellow-600 rounded p-3">
-                      <p class="text-xs text-yellow-200">
-                        ⚠️ Some candidates have fewer than 5 votes. Rankings may not be reliable.
-                      </p>
-                    </div>
-                  <% end %>
-                  
-                  <%= f.submit "Approve with K=#{[JobOrchestrationConfig.default_top_k, @candidates.count].min}", 
-                      class: "w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-semibold",
-                      id: "approve-button",
-                      data: { turbo_confirm: "Approve this step? Only the top K candidates will advance to the next step." } %>
-                <% end %>
               </div>
-              <% else %>
-                <div class="bg-gray-800 rounded-lg p-4 min-w-[300px]">
-                  <p class="text-sm text-gray-400 text-center">
-                    ⏳ Waiting for candidates to generate...
+              
+              <% if @candidates.any? { |c| c.vote_count < 5 } %>
+                <div class="bg-yellow-900 bg-opacity-30 border border-yellow-600 rounded p-3">
+                  <p class="text-xs text-yellow-200">
+                    ⚠️ Some candidates have fewer than 5 votes. Rankings may not be reliable.
                   </p>
                 </div>
               <% end %>
+              
+              <%= f.submit "Approve with K=#{[JobOrchestrationConfig.default_top_k, @candidates.count].min}", 
+                  class: "w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-semibold",
+                  id: "approve-button",
+                  data: { turbo_confirm: "Approve this step? Only the top K candidates will advance to the next step." } %>
             <% end %>
           </div>
-          
-          <% if prs&.approved? %>
-            <div class="text-sm text-gray-400 bg-gray-900 rounded p-3">
-              <strong>Top <%= prs.top_k_count %> advancing:</strong>
-              <% prs.top_k_candidates.each_with_index do |candidate, idx| %>
-                <span class="inline-block bg-green-900 text-green-200 px-2 py-1 rounded ml-2 my-1">
-                  #<%= idx + 1 %>: ID <%= candidate.id %> (ELO <%= candidate.elo_score %>)
-                </span>
-              <% end %>
+          <% else %>
+            <div class="bg-zinc-800 rounded-lg p-4 min-w-[300px]">
+              <p class="text-sm text-zinc-400 text-center">
+                ⏳ Waiting for candidates to generate...
+              </p>
             </div>
           <% end %>
-        </div>
-
-        <script>
-          function updateTopKPreview(k) {
-            document.getElementById('k-count-text').textContent = k;
-            const button = document.getElementById('approve-button');
-            if (button) {
-              button.value = `Approve with K=${k}`;
-            }
-            
-            // Update visual indicators on cards
-            const cards = document.querySelectorAll('[data-candidate-rank]');
-            cards.forEach((card, idx) => {
-              const rank = parseInt(card.dataset.candidateRank);
-              const badge = card.querySelector('[data-advancement-badge]');
-              if (rank <= parseInt(k)) {
-                badge.textContent = '✅ Will advance';
-                badge.className = 'absolute top-2 left-2 px-3 py-1 bg-green-600 bg-opacity-90 rounded-full text-xs font-bold text-white';
-              } else {
-                badge.textContent = '⏸️ Will not advance';
-                badge.className = 'absolute top-2 left-2 px-3 py-1 bg-gray-600 bg-opacity-90 rounded-full text-xs font-bold text-gray-300';
-              }
-            });
-          }
-        </script>
-      <% end %>
-
-      <!-- Stats -->
-      <div class="bg-gray-800 rounded-lg p-6 mb-8">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-          <div>
-            <div class="text-3xl font-bold text-purple-400"><%= @candidates.count %></div>
-            <div class="text-sm text-gray-400">Active Candidates</div>
-          </div>
-          <div>
-            <div class="text-3xl font-bold text-green-400">
-              <%= @candidates.maximum(:elo_score) || 0 %>
-            </div>
-            <div class="text-sm text-gray-400">Max ELO</div>
-          </div>
-          <div>
-            <div class="text-3xl font-bold text-yellow-400">
-              <%= @candidates.minimum(:elo_score) || 0 %>
-            </div>
-            <div class="text-sm text-gray-400">Min ELO</div>
-          </div>
-          <div>
-            <div class="text-3xl font-bold text-blue-400">
-              <%= @candidates.average(:elo_score)&.round || 0 %>
-            </div>
-            <div class="text-sm text-gray-400">Avg ELO</div>
-          </div>
-        </div>
+        <% end %>
       </div>
-
-      <!-- Candidates Grid -->
-      <% if @candidates.any? %>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <% @candidates.each_with_index do |candidate, idx| %>
-            <% rank = idx + 1 %>
-            <% k_value = prs&.top_k_count || JobOrchestrationConfig.default_top_k %>
-            <% will_advance = rank <= k_value %>
-            
-            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg hover:shadow-2xl transition-shadow" data-candidate-rank="<%= rank %>">
-              <!-- Image -->
-              <div class="aspect-square bg-gray-700 relative">
-                <%= image_tag candidate_image_path(candidate), 
-                    class: "w-full h-full object-cover",
-                    loading: "lazy",
-                    onerror: "this.src='data:image/svg+xml,%3Csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"400\"%3E%3Crect fill=\"%23374151\" width=\"400\" height=\"400\"/%3E%3Ctext fill=\"%239CA3AF\" font-size=\"20\" x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\"%3ENo Image%3C/text%3E%3C/svg%3E'" %>
-                
-                <!-- Advancement Badge -->
-                <% if prs&.approved? || !prs&.approved? %>
-                  <div data-advancement-badge class="absolute top-2 left-2 px-3 py-1 <%= will_advance ? 'bg-green-600' : 'bg-gray-600' %> bg-opacity-90 rounded-full text-xs font-bold <%= will_advance ? 'text-white' : 'text-gray-300' %>">
-                    <%= will_advance ? '✅ Will advance' : '⏸️ Will not advance' %>
-                  </div>
-                <% end %>
-                
-                <!-- ELO Badge -->
-                <div class="absolute top-2 right-2 px-3 py-1 bg-black bg-opacity-75 rounded-full">
-                  <span class="text-sm font-bold text-yellow-400">⭐ <%= candidate.elo_score %></span>
-                </div>
-                
-                <!-- Rank Badge -->
-                <div class="absolute bottom-2 left-2 px-3 py-1 bg-purple-600 bg-opacity-90 rounded-full">
-                  <span class="text-xs font-bold text-white">Rank #<%= rank %></span>
-                </div>
-              </div>
-
-              <!-- Info -->
-              <div class="p-4">
-                <div class="flex justify-between items-start mb-3">
-                  <div class="text-sm text-gray-400">
-                    <div>ID: <%= candidate.id %></div>
-                    <div>Children: <%= candidate.child_count %></div>
-                    <div>Votes: <%= candidate.vote_count %></div>
-                  </div>
-                  <div class="text-right">
-                    <% if candidate.parent %>
-                      <div class="text-xs text-gray-500">Parent: <%= candidate.parent_id %></div>
-                    <% end %>
-                  </div>
-                </div>
-
-                <!-- Actions -->
-                <div class="flex gap-2">
-                  <%= button_to "🗑️ Reject", 
-                      run_gallery_reject_path(@run, candidate, step: @selected_step.order),
-                      method: :post,
-                      class: "flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-semibold",
-                      data: { turbo_confirm: "Reject this candidate and all its children?" } %>
-                </div>
-              </div>
-            </div>
+      
+      <% if prs&.approved? %>
+        <div class="text-sm text-zinc-400 bg-zinc-900 rounded p-3">
+          <strong>Top <%= prs.top_k_count %> advancing:</strong>
+          <% prs.top_k_candidates.each_with_index do |candidate, idx| %>
+            <span class="inline-block bg-green-900 text-green-200 px-2 py-1 rounded ml-2 my-1">
+              #<%= idx + 1 %>: ID <%= candidate.id %> (ELO <%= candidate.elo_score %>)
+            </span>
           <% end %>
-        </div>
-      <% else %>
-        <div class="text-center text-gray-400 py-12">
-          <p class="text-xl">No active candidates at this step</p>
         </div>
       <% end %>
     </div>
-  </body>
-</html>
+
+    <script>
+      function updateTopKPreview(k) {
+        document.getElementById('k-count-text').textContent = k;
+        const button = document.getElementById('approve-button');
+        if (button) {
+          button.value = `Approve with K=${k}`;
+        }
+        
+        // Update visual indicators on cards
+        const cards = document.querySelectorAll('[data-candidate-rank]');
+        cards.forEach((card, idx) => {
+          const rank = parseInt(card.dataset.candidateRank);
+          const badge = card.querySelector('[data-advancement-badge]');
+          if (rank <= parseInt(k)) {
+            badge.textContent = '✅ Will advance';
+            badge.className = 'absolute top-2 left-2';
+            badge.innerHTML = '<span class="inline-flex items-center justify-center font-medium transition-colors px-2 py-0.5 text-xs rounded-md bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">✅ Will advance</span>';
+          } else {
+            badge.textContent = '⏸️ Will not advance';
+            badge.className = 'absolute top-2 left-2';
+            badge.innerHTML = '<span class="inline-flex items-center justify-center font-medium transition-colors px-2 py-0.5 text-xs rounded-md bg-zinc-100 text-gray-800 dark:bg-zinc-700 dark:text-zinc-300">⏸️ Will not advance</span>';
+          }
+        });
+      }
+    </script>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <!-- Stats -->
+  <div class="max-w-4xl mx-auto">
+  <%= render ::Base::CardComponent.new(variant: :default, class: "mb-8") do |c| %>
+    <% c.with_body do %>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+      <div>
+        <div class="text-3xl font-bold text-blue-400"><%= @candidates.count %></div>
+        <div class="text-sm text-zinc-400">Active Candidates</div>
+      </div>
+      <div>
+        <div class="text-3xl font-bold text-green-400">
+          <%= @candidates.maximum(:elo_score) || 0 %>
+        </div>
+        <div class="text-sm text-zinc-400">Max ELO</div>
+      </div>
+      <div>
+        <div class="text-3xl font-bold text-yellow-400">
+          <%= @candidates.minimum(:elo_score) || 0 %>
+        </div>
+        <div class="text-sm text-zinc-400">Min ELO</div>
+      </div>
+      <div>
+        <div class="text-3xl font-bold text-blue-400">
+          <%= @candidates.average(:elo_score)&.round || 0 %>
+        </div>
+        <div class="text-sm text-zinc-400">Avg ELO</div>
+      </div>
+    </div>
+    <% end %>
+  <% end %>
+  </div>
+
+  <!-- Candidates Grid -->
+  <div class="max-w-6xl mx-auto">
+  <% if @candidates.any? %>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+      <% @candidates.each_with_index do |candidate, idx| %>
+        <% rank = idx + 1 %>
+        <% k_value = prs&.top_k_count || JobOrchestrationConfig.default_top_k %>
+        <% will_advance = rank <= k_value %>
+        
+        <%= render ::Base::CardComponent.new(variant: :default, class: "overflow-hidden", data: { candidate_rank: rank }) do |c| %>
+          <% c.with_body(class: "!p-0") do %>
+          <!-- Image -->
+          <div class="aspect-square bg-zinc-700 relative">
+            <%= image_tag candidate_image_path(candidate), 
+                class: "w-full h-full object-cover",
+                loading: "lazy",
+                onerror: "this.src='data:image/svg+xml,%3Csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"400\"%3E%3Crect fill=\"%23374151\" width=\"400\" height=\"400\"/%3E%3Ctext fill=\"%239CA3AF\" font-size=\"20\" x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\"%3ENo Image%3C/text%3E%3C/svg%3E'" %>
+            
+            <!-- Advancement Badge -->
+            <% if prs&.approved? || !prs&.approved? %>
+              <div data-advancement-badge class="absolute top-2 left-2">
+                <%= render ::Base::BadgeComponent.new(variant: will_advance ? :success : :default, size: :sm) do %>
+                  <%= will_advance ? '✅ Will advance' : '⏸️ Will not advance' %>
+                <% end %>
+              </div>
+            <% end %>
+            
+            <!-- ELO Badge -->
+            <div class="absolute top-2 right-2">
+              <%= render ::Base::BadgeComponent.new(variant: :default, size: :sm, class: "bg-black bg-opacity-75") do %>
+                <span class="text-yellow-400">⭐ <%= candidate.elo_score %></span>
+              <% end %>
+            </div>
+            
+            <!-- Rank Badge -->
+            <div class="absolute bottom-2 left-2">
+              <%= render ::Base::BadgeComponent.new(variant: :primary, size: :sm, class: "bg-blue-600") do %>
+                Rank #<%= rank %>
+              <% end %>
+            </div>
+          </div>
+
+          <!-- Info -->
+          <div class="px-6 py-4">
+            <div class="flex justify-between items-start mb-3">
+              <div class="text-sm text-zinc-400">
+                <div>ID: <%= candidate.id %></div>
+                <div>Children: <%= candidate.child_count %></div>
+                <div>Votes: <%= candidate.vote_count %></div>
+              </div>
+              <div class="text-right">
+                <% if candidate.parent %>
+                  <div class="text-xs text-zinc-500">Parent: <%= candidate.parent_id %></div>
+                <% end %>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-2 flex-col">
+              <% if @selected_step.order == @pipeline.pipeline_steps.maximum(:order) %>
+                <!-- Final step - show winner button -->
+                <% if candidate.winner %>
+                  <%= button_to "⭐ Winner!", 
+                      unselect_winner_image_candidate_path(candidate),
+                      method: :post,
+                      class: "w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-semibold",
+                      data: { turbo_confirm: "Unmark as winner?" } %>
+                <% else %>
+                  <%= button_to "👑 Pick as Winner", 
+                      select_winner_image_candidate_path(candidate),
+                      method: :post,
+                      class: "w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-semibold",
+                      data: { turbo_confirm: "Select this as the final winner? This will create a Photo in the cluster." } %>
+                <% end %>
+              <% end %>
+              
+              <%= button_to "🗑️ Reject", 
+                  run_gallery_reject_path(@run, candidate, step: @selected_step.order),
+                  method: :post,
+                  class: "w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-semibold",
+                  data: { turbo_confirm: "Reject this candidate and all its children?" } %>
+            </div>
+          </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="text-center text-zinc-400 py-12">
+  <p class="text-xl">No active candidates at this step</p>
+    </div>
+  <% end %>
+  </div>
+<% end %>

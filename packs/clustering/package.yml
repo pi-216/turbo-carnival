@@ -1,0 +1,10 @@
+enforce_dependencies: true
+enforce_privacy: true
+metadata:
+  description: 'Content clustering for organizing generated images by theme'
+  owner: 'Content Strategy Team'
+
+dependencies:
+  - packs/personas
+  - packs/content_pillars
+  - packs/pipeline

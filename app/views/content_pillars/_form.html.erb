@@ -1,0 +1,154 @@
+<%= form_with model: @pillar, url: url, method: method, class: "space-y-6" do |f| %>
+  <%= render CardComponent.new do |c| %>
+    <% c.with_body do %>
+      <div class="space-y-4">
+        <!-- Error Messages -->
+        <% if @pillar.errors.any? %>
+          <div class="bg-red-900/20 border border-red-700 rounded p-4">
+            <h3 class="font-semibold text-red-400 mb-2">
+              <%= pluralize(@pillar.errors.count, "error") %> prevented this pillar from being saved:
+            </h3>
+            <ul class="list-disc list-inside text-sm text-red-300">
+              <% @pillar.errors.full_messages.each do |message| %>
+                <li><%= message %></li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+
+        <!-- Name -->
+        <div>
+          <label class="block text-sm font-medium mb-2">
+            Name <span class="text-red-400">*</span>
+          </label>
+          <%= f.text_field :name, 
+                          class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500",
+                          placeholder: "e.g., Daily Life, Christmas 2025, Travel" %>
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label class="block text-sm font-medium mb-2">Description</label>
+          <%= f.text_area :description, 
+                         rows: 3,
+                         class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500",
+                         placeholder: "What type of content does this pillar represent?" %>
+        </div>
+
+        <!-- Weight Allocation -->
+        <div class="bg-zinc-800 p-4 rounded" 
+             data-controller="weight-calculator"
+             data-weight-calculator-used-value="<%= @used_weight %>"
+             data-weight-calculator-current-value="<%= @pillar.weight || 0 %>"
+             data-weight-calculator-max-value="100">
+          <h3 class="font-semibold mb-3">Weight Allocation</h3>
+          
+          <div class="mb-3 text-sm">
+            <div class="flex justify-between mb-1">
+              <span class="text-zinc-400">Used by other pillars:</span>
+              <span class="font-mono"><%= @used_weight %>%</span>
+            </div>
+            <div class="flex justify-between mb-1">
+              <span class="text-zinc-400">Remaining after this pillar:</span>
+              <span class="font-mono text-green-400" data-weight-calculator-target="remaining">
+                <%= @available_weight %>%
+              </span>
+            </div>
+            <div class="w-full bg-zinc-700 rounded-full h-2 mt-2">
+              <div class="bg-purple-600 h-2 rounded-full transition-all duration-300" 
+                   data-weight-calculator-target="bar"
+                   style="width: <%= @used_weight %>%"></div>
+            </div>
+          </div>
+
+          <label class="block text-sm font-medium mb-2">
+            Weight (%) <span class="text-red-400">*</span>
+          </label>
+          <div class="flex items-center gap-3">
+            <%= f.number_field :weight, 
+                              min: 0, 
+                              max: @available_weight,
+                              step: 0.01,
+                              data: { 
+                                weight_calculator_target: "weight",
+                                action: "input->weight-calculator#updateDisplay"
+                              },
+                              class: "flex-1 bg-zinc-900 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+            <span class="text-zinc-400">of 100%</span>
+          </div>
+          <p class="text-xs text-zinc-500 mt-1">
+            Percentage of content that should come from this pillar. Total must equal 100%.
+          </p>
+        </div>
+
+        <!-- Priority -->
+        <div>
+          <label class="block text-sm font-medium mb-2">
+            Priority <span class="text-red-400">*</span>
+          </label>
+          <%= f.select :priority, 
+                      (1..5).to_a.reverse.map { |p| ["#{p} - #{{ 5 => 'Highest', 4 => 'High', 3 => 'Medium', 2 => 'Low', 1 => 'Lowest' }[p]}", p] },
+                      {},
+                      class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+          <p class="text-xs text-zinc-500 mt-1">
+            Used to break ties when multiple pillars have similar weight.
+          </p>
+        </div>
+
+        <!-- Date Range (for temporary/seasonal pillars) -->
+        <div class="bg-zinc-800 p-4 rounded">
+          <h3 class="font-semibold mb-3">Date Range (Optional)</h3>
+          <p class="text-sm text-zinc-400 mb-3">
+            Set dates for seasonal or temporary pillars like "Thanksgiving" or "Summer 2025". 
+            Leave blank for permanent pillars.
+          </p>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">Start Date</label>
+              <%= f.date_field :start_date, 
+                              class: "w-full bg-zinc-900 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2">End Date</label>
+              <%= f.date_field :end_date, 
+                              class: "w-full bg-zinc-900 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+            </div>
+          </div>
+          
+          <% if @pillar.persisted? && @pillar.expired? %>
+            <div class="mt-2 text-sm text-red-400">
+              ⚠️ This pillar has expired
+            </div>
+          <% end %>
+        </div>
+
+        <!-- Target Posts Per Week -->
+        <div>
+          <label class="block text-sm font-medium mb-2">Target Posts Per Week</label>
+          <%= f.number_field :target_posts_per_week, 
+                            min: 0,
+                            class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500",
+                            placeholder: "Optional" %>
+          <p class="text-xs text-zinc-500 mt-1">
+            Suggested number of posts per week for this pillar.
+          </p>
+        </div>
+
+        <!-- Active Toggle -->
+        <div class="flex items-center gap-3">
+          <%= f.check_box :active, 
+                         class: "w-5 h-5 bg-zinc-800 border border-zinc-700 rounded text-purple-600 focus:ring-purple-500" %>
+          <%= f.label :active, "Active", class: "text-sm font-medium" %>
+          <span class="text-xs text-zinc-500">(Inactive pillars won't be used for content selection)</span>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3 pt-4 border-t border-zinc-700">
+          <%= f.submit button_text, class: "bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-2 rounded cursor-pointer" %>
+          <%= link_to "Cancel", persona_path(@persona), class: "bg-zinc-600 hover:bg-zinc-700 text-white font-medium px-6 py-2 rounded inline-block" %>
+        </div>
+      </div>
+    <% end %>
+  <% end %>
+<% end %>

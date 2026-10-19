@@ -1,0 +1,23 @@
+{
+  "key": "brain-gateway-failed",
+  "title": "brain (growth/render driver) cannot start: max395 ds4 inference server saturated",
+  "severity": "critical",
+  "evidence": "turbo-carnival:brain failed 4x today on 'Gateway starting: deadline' (12:00Z 3 attempts, 04:24Z requeue attempt). Endpoint custom:max395-ds4 @ 192.168.86.137:8000. Server (PID 2080, 7d uptime) accepts /v1/models but /v1/chat/completions times out (40s empty); KV cache 511G/512G (99.7% full, 406 .kv files), host RAM 103Gi/119Gi used (3.7Gi free). Server grants existing slots but cannot grant NEW slots -> brain gateway startup deadline. Consequence: no render attempted in 24h (render-execution-error UNVERIFIED), zero-accepted-output-24h, posting silent 2026-10-16T09:00Z (0.2d).",
+  "status": "open",
+  "first_seen": "2026-10-16T03:35:16-0400",
+  "last_seen": "2026-10-16T03:35:16-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-10-16T03:35:16-0400",
+      "note": "Enablement: only Tim can clear the shared max395 ds4-server KV cache (511G/512G) or restart ds4-server / free its RAM (103Gi/119Gi used) to grant new inference slots; clearing is destructive to other projects' resident sessions so turbo-carnival cannot do it from here."
+    },
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "VERIFIED live: shared gateway journalctl shows repeated 'Auxiliary title_generation: request to http://192.168.86.137:8000/v1/ timed out' today (03:21,04:45,05:57,06:06,06:26,06:57Z) -- ds4 inference server saturated, cannot grant a new brain slot. Still reproducing; correctly routed tim (only Tim can clear shared KV cache/RAM, destructive to other projects' resident sessions)."
+    }
+  ],
+  "route_source": "explicit"
+}

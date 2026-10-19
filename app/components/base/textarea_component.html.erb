@@ -1,0 +1,32 @@
+<div>
+  <% if @label %>
+    <label for="<%= textarea_id %>" class="<%= label_classes %>">
+      <%= @label %>
+      <% if @required %>
+        <span class="text-red-400">*</span>
+      <% end %>
+    </label>
+  <% end %>
+
+  <textarea
+    name="<%= @name %>"
+    id="<%= textarea_id %>"
+    rows="<%= @rows %>"
+    placeholder="<%= @placeholder %>"
+    class="<%= textarea_classes %>"
+    <%= "required" if @required %>
+    <%= "disabled" if @disabled %>
+  ><%= @value %></textarea>
+
+  <% if @error %>
+    <p class="<%= error_classes %>">
+      <%= @error %>
+    </p>
+  <% end %>
+
+  <% if @hint && !@error %>
+    <p class="<%= hint_classes %>">
+      <%= @hint %>
+    </p>
+  <% end %>
+</div>

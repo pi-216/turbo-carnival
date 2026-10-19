@@ -1,53 +1,73 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Pipeline Runs</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <%= csrf_meta_tags %>
-    <%= csp_meta_tag %>
-    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
-    <%= javascript_importmap_tags %>
-  </head>
-
-  <body class="bg-gray-900 min-h-screen">
-    <%= turbo_stream_from "runs" %>
-    <div class="container mx-auto px-4 py-8">
-      <!-- Header -->
-      <div class="flex justify-between items-center mb-8">
-        <h1 class="text-3xl font-bold text-white">
-          📋 Pipeline Runs
-        </h1>
-        <div class="flex gap-4">
-          <%= link_to "➕ New Run", new_run_path, class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors" %>
-          <%= link_to "🏆 Winners", winners_path, class: "px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors" %>
-        </div>
+<div class="bg-zinc-900 min-h-screen">
+  <%= turbo_stream_from "runs" %>
+  <div class="container mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-8">
+      <h1 class="text-3xl font-bold text-white">
+        📋 Pipeline Runs
+      </h1>
+      <div class="flex gap-4">
+        <%= render ::Base::ButtonComponent.new(variant: :primary, href: new_run_path) do %>
+          ➕ New Run
+        <% end %>
+        <%= render ::Base::ButtonComponent.new(variant: :secondary, href: winners_path) do %>
+          🏆 Winners
+        <% end %>
       </div>
+    </div>
 
-      <% if notice %>
-        <div class="bg-green-600 text-white px-6 py-4 rounded-lg mb-6">
-          <%= notice %>
-        </div>
-      <% end %>
+    <% if notice %>
+      <div class="bg-green-600 text-white px-6 py-4 rounded-lg mb-6">
+        <%= notice %>
+      </div>
+    <% end %>
 
-      <% if alert %>
-        <div class="bg-red-600 text-white px-6 py-4 rounded-lg mb-6">
-          <%= alert %>
-        </div>
-      <% end %>
+    <% if alert %>
+      <div class="bg-red-600 text-white px-6 py-4 rounded-lg mb-6">
+        <%= alert %>
+      </div>
+    <% end %>
 
-      <!-- Runs List -->
-      <% if @runs.any? %>
-        <div class="grid grid-cols-1 gap-6">
-          <% @runs.each do |run| %>
+    <!-- Active Runs -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold text-white mb-4">
+        Active Runs (<%= @active_runs.total_count %>)
+      </h2>
+      
+      <% if @active_runs.any? %>
+        <div class="grid grid-cols-1 gap-6 mb-6">
+          <% @active_runs.each do |run| %>
             <%= render partial: 'run_card', locals: { run: run } %>
           <% end %>
         </div>
+        
+        <%= paginate @active_runs, param_name: :active_page %>
       <% else %>
-        <div class="text-center text-gray-400 py-12">
-          <p class="text-xl mb-4">No pipeline runs found</p>
-          <p class="text-sm">Create a new run to get started</p>
+        <div class="text-center text-zinc-400 py-8 bg-zinc-800 rounded-lg">
+          <p class="text-lg">No active runs</p>
         </div>
       <% end %>
-    </div>
-  </body>
-</html>
+    </section>
+
+    <!-- Completed Runs -->
+    <section>
+      <h2 class="text-2xl font-semibold text-white mb-4">
+        Completed Runs (<%= @completed_runs.total_count %>)
+      </h2>
+      
+      <% if @completed_runs.any? %>
+        <div class="space-y-3 mb-6">
+          <% @completed_runs.each do |run| %>
+            <%= render partial: 'run_card_compact', locals: { run: run } %>
+          <% end %>
+        </div>
+        
+        <%= paginate @completed_runs, param_name: :completed_page %>
+      <% else %>
+        <div class="text-center text-zinc-400 py-8 bg-zinc-800 rounded-lg">
+          <p class="text-lg">No completed runs</p>
+        </div>
+      <% end %>
+    </section>
+  </div>
+</div>

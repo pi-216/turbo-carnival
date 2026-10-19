@@ -1,0 +1,103 @@
+<div class="container mx-auto px-4 py-8">
+  <%= link_to "← Back to #{@persona.name}", persona_path(@persona), class: "text-blue-400 hover:underline mb-4 inline-block" %>
+  
+  <div class="flex justify-between items-start mb-6">
+    <div>
+      <h1 class="text-3xl font-bold mb-2"><%= @pillar.name %></h1>
+      <% if @pillar.description.present? %>
+        <p class="text-zinc-400"><%= @pillar.description %></p>
+      <% end %>
+      <div class="mt-2 text-sm text-zinc-500">
+        Weight: <%= @pillar.weight %>% | Priority: <%= @pillar.priority %>
+        <% if @pillar.start_date || @pillar.end_date %>
+          <span class="ml-2">
+            | 
+            <% if @pillar.start_date && @pillar.end_date %>
+              <%= @pillar.start_date.strftime('%B %d, %Y') %> - <%= @pillar.end_date.strftime('%B %d, %Y') %>
+            <% elsif @pillar.start_date %>
+              From <%= @pillar.start_date.strftime('%B %d, %Y') %>
+            <% else %>
+              Until <%= @pillar.end_date.strftime('%B %d, %Y') %>
+            <% end %>
+          </span>
+        <% end %>
+      </div>
+      <% if @pillar.expired? %>
+        <div class="mt-2 text-sm text-red-400">⚠️ This pillar has expired</div>
+      <% end %>
+    </div>
+    <div class="flex gap-2">
+      <%= link_to "Upload Photo", new_persona_pillar_photo_path(@persona, @pillar),
+                  class: "bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded inline-block" %>
+      <%= link_to "✏️ Edit", edit_persona_pillar_path(@persona, @pillar), 
+                 class: "bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded inline-block" %>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold"><%= @photos.count %></div>
+        <div class="text-zinc-400">Total Photos</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold text-green-400"><%= @photos.unposted.count %></div>
+        <div class="text-zinc-400">Available</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold"><%= PipelineRun.where(content_pillar_id: @pillar.id).count %></div>
+        <div class="text-zinc-400">Runs</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-sm text-zinc-400">Status</div>
+        <div class="text-lg font-semibold"><%= @pillar.active? ? '✓ Active' : 'Inactive' %></div>
+      <% end %>
+    <% end %>
+  </div>
+
+  <!-- Photos -->
+  <h2 class="text-2xl font-semibold mb-4">Photos</h2>
+  
+  <% if @photos.any? %>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <% @photos.each do |photo| %>
+        <%= render CardComponent.new(classes: "hover:shadow-lg transition overflow-hidden") do |c| %>
+          <% c.with_body(padding: false) do %>
+            <% if photo.image.attached? %>
+              <%= image_tag photo.image, 
+                            class: "w-full h-48 object-cover" %>
+            <% else %>
+              <div class="w-full h-48 bg-zinc-700 flex items-center justify-center">
+                <span class="text-zinc-500">No Image</span>
+              </div>
+            <% end %>
+            <div class="p-3">
+              <div class="text-xs text-zinc-500">
+                <%= photo.created_at.strftime('%b %d, %Y') %>
+              </div>
+              <% if photo.posted? %>
+                <div class="text-xs text-green-400 mt-1">Posted</div>
+              <% end %>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-center text-zinc-400 py-8">
+          <p>No photos yet for this pillar.</p>
+          <p class="text-sm mt-2">Create a pipeline run to generate content.</p>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

@@ -1,0 +1,90 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to #{@persona.name.titleize}", persona_path(@persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <h1 class="text-3xl font-bold mb-2">Gap Analysis Results</h1>
+  <p class="text-zinc-400 mb-8">Analyzed <%= time_ago_in_words(@gap_analysis.analyzed_at) %> ago</p>
+
+  <!-- Coverage Summary -->
+  <h2 class="text-2xl font-semibold mb-4">Coverage Summary</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <% @gap_analysis.coverage_data.sort_by { |p| p['coverage_score'] }.each do |pillar_data| %>
+      <%= render CardComponent.new do |c| %>
+        <% c.with_body do %>
+          <h3 class="font-semibold text-lg mb-2"><%= pillar_data['pillar_name'] %></h3>
+          <div class="text-3xl font-bold mb-2 <%= pillar_data['coverage_score'] < 30 ? 'text-red-400' : pillar_data['coverage_score'] < 60 ? 'text-yellow-400' : 'text-green-400' %>">
+            <%= pillar_data['coverage_score'].round %>%
+          </div>
+          <div class="text-sm text-zinc-400">
+            <%= pluralize(pillar_data['total_photos'], 'photo') %> across <%= pluralize(pillar_data['total_clusters'], 'cluster') %>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+
+  <!-- Content Suggestions -->
+  <h2 class="text-2xl font-semibold mb-4">AI Content Suggestions</h2>
+  <p class="text-zinc-400 mb-6">Found <%= pluralize(@content_suggestions.count, 'suggestion') %> to fill content gaps</p>
+
+  <div class="space-y-4">
+    <% @content_suggestions.group_by(&:content_pillar).each do |pillar, suggestions| %>
+      <div>
+        <h3 class="text-xl font-semibold mb-3 text-blue-300"><%= pillar.name %></h3>
+        <div class="space-y-3 ml-4">
+          <% suggestions.each do |suggestion| %>
+            <%= render CardComponent.new(classes: suggestion.status == 'used' ? 'bg-green-900/20 border-green-700' : suggestion.status == 'rejected' ? 'opacity-50' : '') do |c| %>
+              <% c.with_body do %>
+                <div class="flex justify-between items-start">
+                  <div class="flex-1">
+                    <h4 class="font-semibold text-lg mb-2"><%= suggestion.title %></h4>
+                    <p class="text-zinc-300 mb-3"><%= suggestion.description %></p>
+                    
+                    <div class="text-sm text-zinc-400 mb-3">
+                      <strong>Reason:</strong> <%= suggestion.prompt_data['reason'] %>
+                    </div>
+                    
+                    <% if suggestion.prompt_data['existing_prompts']&.any? %>
+                      <details class="text-sm text-zinc-500 mb-3">
+                        <summary class="cursor-pointer hover:text-zinc-400">View existing prompts to avoid</summary>
+                        <ul class="mt-2 ml-4 list-disc">
+                          <% suggestion.prompt_data['existing_prompts'].first(5).each do |prompt| %>
+                            <li><%= prompt %></li>
+                          <% end %>
+                        </ul>
+                      </details>
+                    <% end %>
+                    
+                    <div class="bg-zinc-800 p-3 rounded text-sm font-mono">
+                      <strong class="text-zinc-400">Suggested Prompt:</strong><br>
+                      <%= suggestion.prompt_data['prompt'] %>
+                    </div>
+                  </div>
+                  
+                  <div class="ml-4 flex flex-col gap-2">
+                    <% if suggestion.status == 'pending' %>
+                      <%= button_to "🎨 Generate Images", generate_image_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap font-semibold" %>
+                      <%= button_to "Mark Used", use_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
+                      <%= button_to "Reject", reject_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-zinc-600 hover:bg-zinc-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
+                    <% else %>
+                      <span class="text-sm px-4 py-2 rounded <%= suggestion.status == 'used' ? 'bg-green-700 text-green-100' : 'bg-zinc-700 text-zinc-300' %>">
+                        <%= suggestion.status.titleize %>
+                      </span>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>

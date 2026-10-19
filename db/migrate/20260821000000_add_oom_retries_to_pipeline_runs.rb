@@ -1,0 +1,5 @@
+class AddOomRetriesToPipelineRuns < ActiveRecord::Migration[8.0]
+  def change
+    add_column :pipeline_runs, :oom_retries, :integer, default: 0, null: false
+  end
+end

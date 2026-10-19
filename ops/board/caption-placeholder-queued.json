@@ -1,0 +1,39 @@
+{
+  "key": "caption-placeholder-queued",
+  "title": "1 unpublished post(s) still carry the placeholder caption and will publish with it",
+  "severity": "warn",
+  "evidence": "queued placeholders: 399 due 10-12 10:30; these are artifacts of the caption outage that wrote them; caption path now: models resident on max395: gemma3:4b (a caption call can run); the publisher repairs them before it sends (bin/scheduled_posting.sh runs captions:refresh_placeholders APPLY=1 ahead of scheduling:post_scheduled), so this clears at the next publishing tick -- a row that survives a tick means the captioner itself is down",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T22:39:28-0400",
+  "last_seen": "2026-10-08T14:29:40-0400",
+  "seen_count": 13,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-19T23:55:20-0400",
+      "note": "Re-measured 2026-09-20 03:5xZ: still 5 queued placeholders (333/334/335/336 due today 15:15/16:01/16:25/17:10Z, 337 due 09-21 17:15Z). The check evidence used to claim \"the path itself has recovered\" - that was FALSE and is now replaced by the live caption state (repo commit this run). The suggested repair cannot even run while nothing is resident on max395, so APPLY=1 is blocked behind the same model-load problem. Tim has two decisions: warm a caption model on max395, then APPLY=1."
+    },
+    {
+      "ts": "2026-09-20T00:40:09-0400",
+      "note": "2026-09-20 04:4xZ ops-triage: now UNBLOCKED except for Tim's go-ahead, and the evidence for the decision is attached. (1) The caption path is warm: gemma3:4b cold-loaded in 29.2s and is pinned resident (keep_alive=21600s), and the app now sends keep_alive itself, so a successful caption call keeps its model. (2) READ-ONLY rehearsal (no write) of what the refresh would produce, PostAutomation::GenerateCaption per candidate with the DB re-read after each: all 5 returned success with real captions and post.caption was byte-identical afterwards -- #333 cobblestone-streets travel, #334 pine/outdoors, #335 pasta/food, #336 yoga, #337 vintage-shop/silk-scarf (model_selection=preferred_not_resident(gemma3:27b), i.e. the 4b fallback, which is the healthy path). (3) 'rails captions:refresh_placeholders' dry-run confirms the 5 candidates (333/334/335/336/337) and writes nothing. Apply with: APPLY=1 bundle exec rails captions:refresh_placeholders. Not applied here: replacing a queued caption changes what the public account will say, which the tool deliberately keeps opt-in. Timing: #333 is due 2026-09-20 15:15Z, so there are ~10h to decide; #337 not until 09-21 17:15Z."
+    },
+    {
+      "ts": "2026-09-20T01:37:42-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-20T01:39:29-0400",
+      "note": "FIXED at the root: the publisher now repairs the queue before it sends. Root cause was ownership -- the producers write the placeholder on a captioner failure, the post queues like any other, and the repair was opt-in (APPLY=1), so the artifact published verbatim unless a human intervened. bin/scheduled_posting.sh now runs 'captions:refresh_placeholders APPLY=1 INCLUDE_DUE=1' ahead of scheduling:post_scheduled, non-fatally (a captioner outage publishes as before and this check keeps the condition open). PlaceholderRefresh also gained include_due: the old future-only predicate skipped exactly the rows a late tick is about to publish, which is the hole this guard exists to close. Verified: 5 queued placeholders refreshed in production with 0 failures (333/334/335/336/337, model gemma3:4b, statuses unchanged; pre-repair captions backed up to ops/backups/placeholder_captions.20260920T053637Z.json); DB now shows 0 unpublished placeholders; the next probe auto-closed this entry; rspec spec/services/caption_generation 6/0 and full suite 383/0. NOTE FOR TIM: this is a policy change -- a queued caption is now replaced automatically instead of waiting for APPLY=1. The placeholder is a failure artifact, not content, so publishing it was the worse default; revert is one line in bin/scheduled_posting.sh."
+    },
+    {
+      "ts": "2026-09-30T03:20:39-0400",
+      "note": "2026-09-29: repaired. Verified dry-run: bundle exec rails captions:refresh_placeholders -> \"No unpublished post is carrying the placeholder caption.\" All 4 remaining placeholder rows (244/305/311/312) are already posted, so there is nothing left to fix. Context: the placeholder flood was caused by the max395 caption Ollama; per Tim directive 2026-09-29 the caption Ollama moved to game (192.168.86.49:11434), and an end-to-end caption through the production path (ModelConfig.resolve -> AI::OllamaClient.generate) succeeded in 81.5s including cold load (gemma3:4b, 300s budget)."
+    },
+    {
+      "ts": "2026-10-08T15:51:09-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-10-08T15:51:09-0400",
+  "route": "agent"
+}

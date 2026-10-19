@@ -1,0 +1,19 @@
+<%= content_tag wrapper_tag, **wrapper_options do %>
+  <% if header? %>
+    <div class="<%= header_classes %>">
+      <%= header %>
+    </div>
+  <% end %>
+  
+  <% if body? %>
+    <div class="<%= body_classes %>">
+      <%= body %>
+    </div>
+  <% end %>
+  
+  <% if footer? %>
+    <div class="<%= footer_classes %>">
+      <%= footer %>
+    </div>
+  <% end %>
+<% end %>

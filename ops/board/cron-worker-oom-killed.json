@@ -1,0 +1,40 @@
+{
+  "key": "cron-worker-oom-killed",
+  "title": "2 of this profile's own cron run(s) were OOM-killed by the kernel in the last 24h (newest 23.8h ago)",
+  "severity": "warn",
+  "evidence": "`journalctl -k` names oom_memcg inside a hermes-worker-cron scope for job(s) 9c05f60f5fef x2; newest kill 2026-09-24 09:40 local (13:40Z), victims node-MainThread, ruby. A worker scope is capped at 4 GiB and a verification command run INLINE can exceed it (a full-repo bin/rubocop peaks at 2113-3518 MB and RuboCop 1.81 defaults to --parallel across all CPUs): the tick dies mid-run, its execution row ends `unknown`, its work and its report are lost. Run heavy verification through `bin/ops_heavy.sh <label> <command...>` -- it gets its own accounted scope and asserts the child's cgroup -- instead of inline. Self-closing: clears once no kill lands inside the window.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-24T15:52:15-0400",
+  "last_seen": "2026-09-25T09:26:05-0400",
+  "seen_count": 41,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T15:55:54-0400",
+      "note": "ops-triage 2026-09-24: ROOT CAUSE FOUND AND FIXED. The 09:25 tick's 'unknown' execution was NOT a gateway restart (gateway up since 09-23 10:15 EDT, NRestarts=1): journalctl -k shows the kernel cgroup OOM killer took the worker scope at 13:40:34Z, 4.13GB anon vs its 4096MB cap, killing ruby+node-MainThread, while the tick ran a full-repo bin/rubocop whose 1.81 default --parallel forks ~38 procs (peak measured 2113-3518MB in an isolated scope). 18 such kills in 7d (14 = growth-brain, hourly 09-18). FIX: bin/ops_heavy.sh (own accounted scope + cgroup assertion; verified peak_mb=2114 isolated=yes oom_kill=0 while our worker scope stayed at 398MB/4096) + 'tc_ops.py heavy' passthrough + this check. Self-closes 24h after the last kill."
+    },
+    {
+      "ts": "2026-09-24T16:40:52-0400",
+      "note": "2026-09-24 20:5xZ ops-triage: cause fixed AND the point of use now carries the guard, so it no longer depends on an agent remembering. bin/rubocop degrades itself to serial when its own cgroup cap is below the measured parallel footprint: cap 4096 MB (the worker cap that killed the 09-24 tick) -> warning printed, serial, peak 576 MB, oom_kill=0; cap 8192 MB -> no warning, parallel, peak 2081 MB (guard inert, verified in two isolated systemd scopes). The exact command that killed the tick now completes inline in a 4 GiB worker scope. Wider look-back measured this pass (journalctl -k, 30d, 29 kills): 23 of them were job 43b0d5c4446d (the hourly growth brain) between 09-10 and 09-19, 14 of those consecutive hourly ticks on 09-18/09-19 -- a five-day silent production stall that nothing on this board reported; none since. Item stays open on its own 24h window and self-closes tomorrow."
+    },
+    {
+      "ts": "2026-09-24T23:36:35-0400",
+      "note": "2026-09-25 03:3xZ ops-triage: no further change warranted -- this item is the rolling window, not a defect. Root fix already landed (ac9d3a4 bin/ops_heavy.sh + 511ada9 bin/rubocop degrades to serial: 3518 MB parallel -> 577 MB serial, under the 4 GiB worker scope), and the guard sits at the POINT OF USE, so the command is safe regardless of what any cron prompt says; there is nothing left to change in the prompt or the repo. Newest kill is still 2026-09-24 13:40Z (13.8h ago this tick), i.e. none since the fix. Self-closes once no kill lands inside the rolling 24h window (~2026-09-25 13:40Z)."
+    },
+    {
+      "ts": "2026-09-25T05:28:47-0400",
+      "note": "2026-09-25 ops-triage: FIXED the missing CALLER, not just the tool. bin/ops_heavy.sh existed and the probe evidence told every tick to use it, but no cron prompt mentioned it -- and the runner discarded the child OUTPUT to /dev/null, so a heavy command whose text is the point (a gate read, an inventory count) could not be isolated at all: the tick had to run it inline, which is exactly what gets the tick OOM-killed at the 4 GiB cap. Two changes: (1) bin/ops_heavy.sh now captures output to OPS_HEAVY_OUT (default log/ops_heavy-LABEL.out), echoes the last 25 lines plus the path, and still propagates rc; (2) the tc-ops-triage prompt (job 9c05f60f5fef -- the scope the 2026-09-24 13:40:34Z kill named) now carries a HEAVY COMMANDS section requiring the isolated runner for repo-wide lint/test/verification, plus the cgroup diagnosis recipe. Verified: bin/ops_heavy_test.sh ALL PASS, 12 assertions (rc propagation, stdout+stderr captured, path echoed, silence on an empty command, usage rc=2); a real heavy READ ran isolated -- bin/ops_heavy.sh gate bundle exec rake growth:gate -> rc=0 peak_mb=148 oom_kill=0 isolated=yes with the gate line printed; the tc_ops.py heavy passthrough shows the same; tc_ops.py selftest 821/0. Newest kill is still 2026-09-24 13:40Z; this item self-closes when the rolling window passes it."
+    },
+    {
+      "ts": "2026-09-25T06:26:39-0400",
+      "note": "2026-09-25 10:2xZ ops-triage: FIX VERIFIED FROM THE RECEIVING SIDE, which was the only open loose end. The previous tick wired bin/ops_heavy.sh into this job's own prompt; this tick's inbound prompt DOES carry the HEAVY COMMANDS section (it is in the text I was handed), so the gateway is serving the edit with NO restart -- the 'gateway predates my edit' caveat is closed, nothing to restart. Runner re-proved mechanically on a real heavy read through it: 'bin/tc_ops.py heavy selftest python3 bin/tc_ops.py selftest' -> rc=0 peak_mb=..., oom_kill=0 isolated=yes cgroup=.../ops-heavy-selftest-*.scope with the selftest line 'selftest: 821 assertions, 0 failures' CAPTURED and printed (the capture was the other half of the fix). Window: both kills are 2026-09-24 (newest 13:40Z), so the 24h check self-closes ~13:40Z today; the item stays open until then and this note is the decision, not a re-assert."
+    },
+    {
+      "ts": "2026-09-26T12:00:56-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "closed_at": "2026-09-26T12:00:56-0400"
+}

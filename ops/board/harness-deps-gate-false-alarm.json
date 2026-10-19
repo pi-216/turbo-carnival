@@ -1,0 +1,18 @@
+{
+  "key": "harness-deps-gate-false-alarm",
+  "title": "The launch-layer venv gate can never pass: it probes `import comfy.storage` from the wrong cwd",
+  "severity": "warn",
+  "evidence": "bin/comfyui_harness.sh ensure_comfyui_deps ran `\"$py\" -c \"import comfy.storage\"` with the harness own cwd (the repo root), but `comfy` is ComfyUI OWN application package -- not installed into the venv -- so `python -c` only finds it when the cwd IS the app dir, which is what the launch uses. Measured 2026-09-21: from the repo root -> ModuleNotFoundError: No module named comfy; from /mnt/fscache/essdee/ComfyUI -> OK. Consequences, all observed on the 07:00 EDT launch (the first launch since the gate landed 87b2ebd 2026-09-19 11:37): deps: ComfyUI runtime import FAILED -> a pointless pip install -> deps: ERROR -- import still failing after pip install; launch will likely fail, while ComfyUI came up in 20s and rendered three prompts. The gate therefore could not distinguish the ONE case it was built for (requirements.txt pin drift, comfy-aimdo 0.5.3 vs 0.5.5) from an alarm that never stops, and it put an ERROR line in log/comfyui_harness.log that tc_ops log-health counts.",
+  "status": "closed",
+  "first_seen": "2026-09-21T07:41:29-0400",
+  "last_seen": "2026-09-21T07:41:29-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-21T07:41:44-0400",
+      "note": "FIXED 2026-09-21 11:4xZ ops-triage. (1) bin/comfyui_harness.sh: the probe is now comfy_runtime_import_ok(), which runs the import with cwd=$COMFY_DIR -- the same cwd the launch uses -- and ensure_comfyui_deps calls it for both the pre-check and the post-provision check. (2) New read-only `deps` subcommand (no pip, no GPU, no claim) exposes the verdict, so the gate is answerable offline the way `plan` is. (3) bin/tc_ops.py selftest now asserts the harness gate and the board own probe (check_launch_deps_importable, which has always passed cwd=COMFY_DIR) AGREE, so a regression to an un-anchored probe fails the suite instead of silently logging ERROR forever. VERIFIED: bash -n clean; `bin/comfyui_harness.sh deps` from the repo root AND from COMFY_DIR -> \"deps: OK ... succeeds from /mnt/fscache/essdee/ComfyUI\" exit 0 in 0.07s (was: ModuleNotFoundError + pip install + ERROR); negative control -- temporarily restoring the un-anchored probe made `deps` exit 3 and selftest FAIL harness-deps-agrees-with-board, then restored; selftest 222 assertions / 0 failures. No claim taken, no render run, no other project touched."
+    }
+  ],
+  "closed_at": "2026-09-21T07:41:44-0400"
+}

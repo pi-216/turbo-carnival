@@ -5,4 +5,49 @@ require "bundler/setup"
 # explicit rubocop config increases performance slightly while avoiding config confusion.
 ARGV.unshift("--config", File.expand_path("../.rubocop.yml", __dir__))
 
+# --- memory-cgroup guard (measured 2026-09-24; see bin/ops_heavy.sh) ---------
+# A Hermes cron worker runs in its own transient cgroup scope capped at 4 GiB
+# (min(gateway memory.max, RAM/2) bounded to 4 GiB). setsid/nohup do NOT escape
+# a cgroup, so a full-repo lint run INLINE inside a tick is OOM-killed together
+# with the tick:
+#
+#   2026-09-24 13:40:34Z oom_memcg=.../hermes-worker-cron-9c05f60f5fef-exec-*.scope
+#                        4.13 GB anon against the 4096 MB cap, failcnt 31149
+#   -> the ops-triage tick died mid-verification, its report was never written.
+#
+# RuboCop defaults to --parallel across every CPU (its own `--help`: "Default is
+# true"), forking one worker per CPU: on this repo that is up to 38 processes and
+# a 3518 MB peak. The SAME full-repo lint serially peaks at **577 MB in 46 s**
+# (measured in an isolated scope at cap 4096 MB, oom_kill=0). The gap between
+# those two numbers is the difference between dying inside a worker and not.
+#
+# So: when the cap is provably too small for the parallel footprint, degrade to
+# serial and SAY SO on stderr. A flag from the caller always wins, and
+# RUBOCOP_FORCE_PARALLEL=1 restores the default.
+PARALLEL_FOOTPRINT_MB = 6144 # measured parallel peak 3518 MB + headroom
+
+def cgroup_memory_cap_mb
+  rel = File.read("/proc/self/cgroup").lines
+            .map { |l| l.split(":", 3)[2].to_s.strip }
+            .find { |p| !p.nil? && !p.empty? }
+  return nil if rel.nil?
+  raw = File.read("/sys/fs/cgroup#{rel}/memory.max").strip
+  return nil if raw == "max"
+  raw.to_i / 1_048_576
+rescue StandardError
+  nil
+end
+
+cap_mb = cgroup_memory_cap_mb
+explicit = ARGV.any? { |a| a == "--parallel" || a == "--no-parallel" || a == "-P" }
+if cap_mb && cap_mb < PARALLEL_FOOTPRINT_MB && !explicit &&
+   ENV["RUBOCOP_FORCE_PARALLEL"] != "1"
+  warn "bin/rubocop: this process' memory cgroup is capped at #{cap_mb} MB and " \
+       "the parallel lint needs ~#{PARALLEL_FOOTPRINT_MB} MB (measured), so " \
+       "this run is forced SERIAL (peak ~577 MB). Run heavy verification " \
+       "through bin/ops_heavy.sh to get your own scope instead; pass " \
+       "--parallel or set RUBOCOP_FORCE_PARALLEL=1 to override."
+  ARGV << "--no-parallel"
+end
+
 load Gem.bin_path("rubocop", "rubocop")

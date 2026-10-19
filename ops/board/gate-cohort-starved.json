@@ -1,0 +1,39 @@
+{
+  "key": "gate-cohort-starved",
+  "title": "the next gate read cannot be a measurement: 0 post-intervention post(s) can carry insights inside the 09-28 13:00 review window (need 5) while the render loop is refused",
+  "severity": "warn",
+  "evidence": "next weekly review 09-28 13:00Z; its window is [(review - 7d), review]. Post-intervention pool (photos rendered at/after 2026-09-21 23:35:00Z -- the content-mix lever, inside Growth::GateRead::INTERVENTION_AT): 15. Inside that window the SLOTS hold 0 published + 4 queued = 4, but Growth::GateRead#cohort_size ALSO requires insights_updated_at, and insights arrive a measured 30h after publication (fastest observed publish->insights lag, taken from the DB) -- so a slot inside the window's last 30h can never testify. FEASIBLE cohort: 0 published + 0 queued = 0, against MIN_COHORT_POSTS=5. Below it Growth::GateRead returns :extend (\"re-read, do NOT act\") regardless of the date, so the pre-registered GO/PIVOT/KILL read is deferred by arithmetic, not by waiting. Render loop: its LAST attempt was refused (newest refusal 2026-09-25 07:04:15.634126Z is newer than the newest post-intervention photo 2026-09-25 06:40:30.408511), 1 refusal(s) in the last 12h, so no new post-intervention photo can enter the pool -- the cohort is fed only by renders (publication lags them by the queue depth). That is why a GPU refusal starves the STRATEGY decision and not merely a render window; the launch-args gate is NOT firing (no :8188 instance is up without --reserve-vram), so the refusal is the VRAM/claim path -- check_render_starved carries that attribution and this entry deliberately does not guess a holder. Nothing here is ours to repair -- the refusal itself is correct (an instance launched without --reserve-vram cannot be submitted to) -- and this entry is not an ask on the holder: it self-closes when the loop stops being refused.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-22T17:59:02-0400",
+  "last_seen": "2026-09-25T03:52:26-0400",
+  "seen_count": 84,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T01:37:53-0400",
+      "note": "2026-09-24 05:3xZ ops-triage: unchanged and still on its self-close path. Refusals in the 12h window are down to 8 (was 9); the last comfyui_unclaimed refusal is 01:00:38Z, so the window empties and check_gate_cohort_starved returns None on its own at ~13:00:38Z -- no hand-close. The render loop is producing again: photos 362/363/364/365 across 02:15Z..04:40Z, and the 10-05 window's feasible cohort stands at 5 of 5 (posts 355-358, photos 362-365), so the strategy read it forecasts is a real measurement rather than another :extend. No action taken on this item, nothing hand-closed."
+    },
+    {
+      "ts": "2026-09-24T02:31:54-0400",
+      "note": "2026-09-24 06:3xZ ops-triage: unchanged and still on its self-close path (no hand-close). Refusals in the 12h window are down to 7 (was 8); the last comfyui_unclaimed refusal is 2026-09-24T01:00:38Z, so the window empties and check_gate_cohort_starved returns None on its own at ~13:00:38Z. Render loop healthy but idle by design, not by fault: queue runway is fine (posts 355-358 scheduled through 2026-09-30T14:00Z, 20 publishable, and every non-gate check is quiet including queue-runway and photo-pool), so the ~2h without a new photo after 365 is the queue being full rather than a refused loop. The 10-05 window feasible cohort stands at 5 of 5 (posts 355-358 on photos 362-365), so the read it forecasts is a real measurement; the 09-28 13:00Z read stays :extend by arithmetic, exactly as pre-registered on 09-23. No action taken, nothing hand-closed."
+    },
+    {
+      "ts": "2026-09-24T03:33:14-0400",
+      "note": "2026-09-24 07:2xZ ops-triage: unchanged and still on its self-close path (no hand-close). Refusals in the 12h window are down to 7; the last comfyui_unclaimed refusal is 2026-09-24T01:00:38Z, so the window empties and check_gate_cohort_starved returns None on its own at ~13:00:38Z. Render loop producing (photos 362-365; queue topped up by the 07:0xZ brain tick, runways quiet), so the newest photo is the queue being full rather than a refused loop. 09-28 13:00Z stays :extend by arithmetic and the 10-05 feasible cohort stands 5 of 5 -- both pre-registered, no new decision. This pass's work was the reel rail's missing serving step (see zero-engagement note) and does not touch this cohort: it publishes nothing."
+    },
+    {
+      "ts": "2026-09-24T04:33:00-0400",
+      "note": "2026-09-24 08:2xZ ops-triage: unchanged, still on its self-close path (no hand-close). Refusals in the 12h window are 7; the last comfyui_unclaimed refusal is 2026-09-24T01:00:38Z, so the window empties and check_gate_cohort_starved returns None on its own at ~13:00:38Z. Render loop healthy and idle by design: queue runway is fine (publishable=21, dry_out=2026-10-01T10:30Z = 7.1d, silence 2026-10-04T02:30Z ~9.8d), so the absence of a new photo after 367 is the queue being full, not a refused loop. Live gate read this pass, verbatim: gate=extend followers=157/170 FAIL max_pillar_eng=0.0% FAIL (floor 3.0%, top=Travel & Adventure) window=7d posts=25 cohort=0/5 INVALID -- the 09-28 read stays :extend by arithmetic and the 10-05 feasible cohort stands 5 of 5, both pre-registered, no new decision. This pass's work (a ground-truth check that the hashtags actually ship, see the zero-engagement note) does not touch the cohort: it publishes nothing and changes no lever."
+    },
+    {
+      "ts": "2026-09-24T05:27:48-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-25T04:25:39-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-09-25T04:25:39-0400"
+}

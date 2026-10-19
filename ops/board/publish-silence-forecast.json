@@ -1,0 +1,41 @@
+{
+  "key": "publish-silence-forecast",
+  "title": "if the render loop stays blocked, publishing goes silent and nothing is left to publish",
+  "severity": "warn",
+  "evidence": "the GPU-free library holds 0 spendable photo(s) of 8 measured, 8 already spent; at 3/day that buys 0.0d past the last scheduled clock 2026-10-16T12:01:48Z (queue alone drains in 0.0d), so publishing goes SILENT 2026-10-16T12:01:48Z -- in 0.0d -- and after that date there is NO content source left (library spent, renders blocked); depth measured 2026-09-24T00:32:43Z by bin/library_depth.py; that measurement is 22.5d old (> 7d) -- re-run bin/library_depth.py; 42 photo(s) landed since it, so the depth is UNDERSTATED -- re-run bin/library_depth.py; outside-scheduler holders: 2857769 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB, 3087480 main.py 2.5GiB (operator-interactive session); the card is held by the OPERATOR's own interactive session, so the action is the one `render-starved` already names -- what this item adds is the DATE it has to happen by",
+  "status": "open",
+  "first_seen": "2026-09-23T20:36:04-0400",
+  "last_seen": "2026-10-16T08:01:48-0400",
+  "seen_count": 27,
+  "source": "probe",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-10-03T21:49:23-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-11T01:59:34-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T03:44:40-0400",
+      "note": "ASK UPDATED: posting goes silent 2026-10-16T09:00Z (0.2d). Root blocker is now the brain/render driver unable to start (max395 ds4 inference server saturated, KV 511G/512G RAM 103Gi/119Gi) -- see brain-gateway-failed; the 4090 co-tenant contention is secondary (probe auto-closed render-starved as non-blocking). Only inference-capacity relief enables a fresh render before the deadline."
+    },
+    {
+      "ts": "2026-10-16T06:00:50-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T07:32:13-0400",
+      "note": "QUEUE NOW EMPTY (publishable=0, dry_out=none, held=3 age-gate) -- posting is at the silence point: last scheduled post ~2026-10-16T09:00Z then silent. Prior 'condition no longer reproduces' note (06:00) was a probe blind spot: dry_out=none (already empty) is MAXIMALLY reproducing, not gone. Root cause: no fresh render can land -- brain/render driver dead (max395 ds4 saturated, brain-gateway-failed) AND 4090 vram_insufficient (image_embed+ollama co-tenants, render-starved). Both enablement for Tim."
+    }
+  ],
+  "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders. THIS ITEM PUTS A DATE ON IT: if nothing renders, publishing goes silent 2026-10-16T12:01:48Z (0.0d away) and the library is then empty -- there is no other content source, so that date is the deadline, not a warning.",
+  "route_source": "explicit",
+  "closed_at": "2026-10-16T06:00:50-0400"
+}

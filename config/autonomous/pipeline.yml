@@ -1,0 +1,55 @@
+# Autonomous feature pipeline config (turbo-carnival)
+# Consumed by the ticket tooling and the worker cron agents.
+#
+# BOARD: org-owned project 5 under the pi-216 umbrella, alongside crawlr (#4), elo-picker (#3),
+# t-genetics (#2) and t-chat (#1). Founder's preference, 2026-10-18.
+#
+# The repo moved from `timlawrenz/turbo-carnival` to `pi-216/turbo-carnival` on 2026-10-18, so the board
+# owner and the repo owner are now the SAME account and this file has the same shape as t-chat's and
+# crawlr's. Before the move it needed a split `board_owner`/`repo` pair — a personal repo was feeding an
+# org board. `owner` is unambiguous again; do not reintroduce the split without the same reason.
+owner: pi-216
+repo: turbo-carnival
+
+project_number: 5
+project_id: PVT_kwDOE00cLc4BnqRm
+url: https://github.com/orgs/pi-216/projects/5
+
+# Status maps onto the board's default single-select options. These three option ids are GitHub's
+# defaults and are identical across every project (t-chat, crawlr and this one carry the same
+# values); only the field id is per-project.
+status_field_id: PVTSSF_lADOE00cLc4BnqRmzhmNz0I
+status_options:
+  todo: f75ad846        # Todo
+  in_progress: 47fc9ee4 # In Progress
+  done: 98236657        # Done
+
+# Track — the three kinds of work, as a field rather than three boards: they share one queue and
+# one worker, and differ by *cadence*, which is what the worker must branch on.
+#   core-infrastructure  build-now, one-off, blocking        (Block 1)
+#   experiment           parallel, must never block Block 2  (Block 3)
+#   day-to-day           recurring and unattended — a stalled item here is an outage
+track_field_id: PVTSSF_lADOE00cLc4BnqRmzhmNz2Q
+track_options:
+  core_infrastructure: 1ff1c556
+  experiment: 8661bfde
+  day_to_day: 484c6333
+
+# Ticket lifecycle labels (claims are made by flipping status + these labels,
+# so independent agents never double-claim)
+labels:
+  ticket: "Generated work ticket (autonomous agent)"
+  approved: "PRD spec approved by product owner — agent may implement"
+  agent_working: "Claimed by an autonomous agent (in progress)"
+  agent_blocked: "Blocked — agent may not work"
+  agent_needs_review: "Needs human review before done"
+  # `founder_needed` is deliberately distinct from `approved`: `approved` means an agent may start;
+  # `founder_needed` means only the founder can — a ruling, or an action outside the repo (credential,
+  # platform setting, GPU policy, physical action). Never overload one for the other.
+  founder_needed: "Only the founder can do this — a decision or an action outside the repo"
+
+# Where generated tickets point for repo conventions.
+# AGENTS.md is now the real house conventions for this repo (rewritten 2026-10-19, PRD 0003):
+# pack boundaries, the gate, the traps that have cost time, and how a ticket is claimed. The OpenSpec
+# managed block it replaced is gone, along with the `openspec/` directory.
+agents_md: AGENTS.md

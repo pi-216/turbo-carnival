@@ -1,0 +1,20 @@
+{
+  "key": "interrupted-cron-run-uncommitted-work-2026-09-24",
+  "title": "a killed ops-triage run left a verified production-boot fix uncommitted for 50 minutes, invisibly",
+  "severity": "warn",
+  "evidence": "The 09:25EDT tc-ops-triage tick (job 9c05f60f5fef) was killed when the gateway restarted under it: its execution row in cron/executions.db ended status=unknown, finished 2026-09-24T09:40:35-04:00, error 'Scheduler restarted after this execution's owner exited before a durable terminal state; whether side effects ran is unknown'. Nothing else showed it: the cron JOB record still reported the previous run (last_run_at 08:49, last_status ok) so check_cron_delivery stayed silent, delivery_outcome was NULL so no report was delivered, and the board saw nothing. What it had already written and verified sat uncommitted in the working tree: the RAILS_ENV=production boot fix (lib/ai no longer a Zeitwerk root; the gap_analysis pack's module GapAnalysis collided with the GapAnalysis ActiveRecord CLASS), a regression spec, and 75 lines of probe code adding check_production_boot. It was found only because the 10:25EDT tick happened to read git status. Impact if missed: the next run would have re-diagnosed both collisions from scratch, and any later git checkout/stash would have destroyed work nothing had recorded.",
+  "status": "closed",
+  "first_seen": "2026-09-24T10:32:44-0400",
+  "last_seen": "2026-09-24T10:32:44-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T10:32:50-0400",
+      "note": "2026-09-24 14:2xZ ops-triage: SALVAGED and verified, then made detectable. (1) Salvage: the interrupted run's work was sound, so it is committed rather than re-derived -- 431c7c0 'the app could not boot as production at all'. Verified this pass: RAILS_ENV=production bin/rails zeitwerk:check -> 'All is good!' rc=0 (it aborted before the fix); RAILS_ENV=production bin/rails runner -> 'BOOT_OK production GapAnalysisAi::Suggester true', i.e. the renamed service AND the GapAnalysis model both resolve in a real eager-loaded boot; rspec 593 examples 0 failures. (2) Detection, so the class cannot recur silently: bin/tc_ops.py gains check_interrupted_run_debris (82a66f1), which reads cron/executions.db for an execution that reached no terminal state in the last 24h AND requires uncommitted work that has lingered >45min -- the conjunction is deliberate, because this probe rewrites ops/board and ops/NEEDS_HUMAN.md every tick so a merely dirty tree proves nothing, and a running row with no finished_at is this probe's own tick and is never a hit (a probe must not match itself). It self-closes on commit; a last_status-keyed check could not (it carries a resolved item until the job next runs). (3) One correction found by running it live: git reports an untracked DIRECTORY by its own mtime, so the interrupted run's packs/gap_analysis/app/ read as 7,070h old and the evidence named that bogus path as the oldest -- the age now comes from the newest file inside the directory. Selftest 672 assertions 0 failures (6 branches offline, no sqlite and no git needed). The live check fired correctly against this very debris before the commit and is silent after it, which is the self-closing property being claimed."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-09-24T10:32:50-0400"
+}

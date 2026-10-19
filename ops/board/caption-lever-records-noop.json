@@ -1,0 +1,18 @@
+{
+  "key": "caption-lever-records-noop",
+  "title": "The caption lever records a NO-OP as an applied experiment (from == to)",
+  "severity": "warn",
+  "evidence": "Found by reading the weekly-persona-review output (2026-09-14), not by the probe: Growth::Review 5 (2026-09-14T13:00:53Z) applied_changes contains {\"kind\"=>\"caption_config\", \"reason\"=>\"caption action=warmer\", \"from\"=>{\"tone\"=>\"friendly and approachable\", \"style\"=>\"intimate\"}, \"to\"=>{\"tone\"=>\"friendly and approachable\", \"style\"=>\"intimate\"}} -- from == to, i.e. the weekly review recorded a persona experiment that moved NOTHING. Root cause: PersonaEvolution#adjust_caption tested tone == 'friendly' (exact match) against a FREE-TEXT tone ('friendly and approachable'), so the warmer branch could never fire for any persona whose authored tone is not the bare literal; and #record wrote a change row unconditionally, so the inert lever still landed in the ledger that the NEXT review's gate evaluation (WeeklyReview#evaluate_previous_gates) reads to keep/revert experiments.",
+  "status": "closed",
+  "first_seen": "2026-09-21T04:34:41-0400",
+  "last_seen": "2026-09-21T04:34:41-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-21T04:34:57-0400",
+      "note": "FIXED (commit 71c88b2). PersonaEvolution: warmth is now a TOKEN test (WARM_TONE_TOKENS) instead of an exact string match, and :warmer APPENDS ', warm' rather than replacing the authored voice (idempotent); #record refuses to persist from == to and logs an explicit info line, so an inert lever is visible as inert instead of as a phantom experiment. Callers return the recorded change (or nil) rather than changes.last, which could hand back a STALE change once a no-op was skipped. Verified: new spec/services/growth/persona_evolution_spec.rb (8 examples, incl. the exact review-5 case) + spec/services/growth/ 68 examples 0 failures + full suite 467 examples 0 failures 8 pending; rubocop on the new spec clean, no new offenses in the pack file; live check on persona Sarah (tone 'friendly and approachable', style 'intimate') -> warm_tone? true, i.e. the lever is genuinely inert and now records nothing."
+    }
+  ],
+  "closed_at": "2026-09-21T04:34:57-0400"
+}

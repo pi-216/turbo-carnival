@@ -1,0 +1,34 @@
+<div>
+  <% if @label %>
+    <label for="<%= input_id %>" class="<%= label_classes %>">
+      <%= @label %>
+      <% if @required %>
+        <span class="text-red-400">*</span>
+      <% end %>
+    </label>
+  <% end %>
+
+  <input
+    type="<%= @type %>"
+    name="<%= @name %>"
+    id="<%= input_id %>"
+    value="<%= @value %>"
+    placeholder="<%= @placeholder %>"
+    class="<%= input_classes %>"
+    <%= "required" if @required %>
+    <%= "disabled" if @disabled %>
+    <%= "autocomplete=\"#{@autocomplete}\"" if @autocomplete %>
+  />
+
+  <% if @error %>
+    <p class="<%= error_classes %>">
+      <%= @error %>
+    </p>
+  <% end %>
+
+  <% if @hint && !@error %>
+    <p class="<%= hint_classes %>">
+      <%= @hint %>
+    </p>
+  <% end %>
+</div>

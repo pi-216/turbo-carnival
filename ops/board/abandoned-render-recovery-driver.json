@@ -1,0 +1,19 @@
+{
+  "key": "abandoned-render-recovery-driver",
+  "title": "abandoned renders have no GPU-free recovery driver; our own reconciler also restarted the grace",
+  "severity": "warn",
+  "evidence": "A sync producer SIGKILLed by the growth tick foreground ceiling leaves its run non-terminal with the PNG on disk and no post. RenderSalvage recovers that and needs NO GPU, but its only driver was the top of CadenceEngine#sync -- which a tick that cannot acquire the 4090 never reaches. Measured 2026-09-21: while a foreign claim held the card 19:00-22:00 EDT no tick salvaged; on 2026-09-19 three paid-for renders sat unposted 13h+ while the queue drained. Second half: the 30-min grace was keyed on the run updated_at, and ReconcileStaleRuns (JobPollerWorker, every 5 min) writes a terminal status onto exactly these runs -- so each reconcile RESTARTED the grace: run 483 was reconciled 03:38:07 and its candidate (rendered 03:08:06) stayed unrecoverable until 04:08.",
+  "status": "closed",
+  "first_seen": "2026-09-21T23:48:08-0400",
+  "last_seen": "2026-09-21T23:48:08-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-21T23:48:18-0400",
+      "note": "2026-09-22 03:4xZ ops-triage: DECIDED and FIXED -- both halves, commit 5b9c0d9. (1) DRIVER: new Growth::AbandonedRenderWorker, a 5-min self-rescheduling Sidekiq loop in the always-on worker (same pattern as JobPollerWorker), bounded by the cadence shortfall, idempotent (the Photo row is the marker), and serving only an ACTIVE goal; armed from the sidekiq startup hook beside the poller and submitter. (2) CLOCK: RenderSalvage now keys the abandonment grace on the CANDIDATE created_at (the render landing, to which the producer post-actions follow within seconds), so our own reconciler cannot move it. VERIFIED LIVE: growth:salvage_abandoned[Sarah] -> examined=2 recovered=2 posts=[349,350] (photos 357/358) -- the two renders from the 02:35Z and 03:01Z ticks, both previously unrecoverable; queue shortfall 3 -> 1, dry_out 2026-09-27 -> 2026-09-28. Specs 17 examples 0 failures; rubocop clean on the touched files. REMAINING (not a business decision): the new loop arms only when the sidekiq unit is restarted -- the running process booted 2026-09-19 predates the new worker directory and cannot resolve the class (NameError in its journal, dead-set entry cleared by hand) -- and systemctl is blocked for this cron by the approval policy. Filed as growth-salvage-loop-arm, route tim."
+    }
+  ],
+  "closed_at": "2026-09-21T23:48:18-0400"
+}

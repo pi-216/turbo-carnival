@@ -1,4 +1,6 @@
 # Conventions
+
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild; house conventions now come from the t-chat-style AGENTS.md
 *   **Controller Responsibilities:** Controllers focus on auth (using **Pundit**), input validation, calling `GLCommand`, and handling command results.
 *   **Avoid Domain Logic in Controllers:** Keep domain logic out of controllers; delegate it to `GLCommand`s or service layers.
     **Use state_machines for state management:** For models with any state transitions, use the `state_machines-activerecord` gem (the modern successor to `acts_as_state_machine`). Status columns should be of type string.

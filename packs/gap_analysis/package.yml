@@ -1,0 +1,7 @@
+# Gap Analysis Pack
+# Analyzes content distribution and suggests new content
+
+enforce_dependencies: true
+enforce_privacy: true
+metadata:
+  description: "Content gap analysis and AI-powered content suggestions"

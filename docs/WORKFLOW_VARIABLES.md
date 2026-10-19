@@ -1,5 +1,7 @@
 # Workflow Variables Guide
 
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild
+
 This guide explains how to use variables in ComfyUI workflow JSON files.
 
 ## Overview

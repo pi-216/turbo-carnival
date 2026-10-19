@@ -1,0 +1,38 @@
+<button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700" onclick="document.getElementById('form-modal').classList.remove('hidden')">
+  Open Form Modal
+</button>
+
+<%= render(component) do %>
+  <div class="space-y-4">
+    <%= render Base::InputComponent.new(
+      name: "item[name]",
+      label: "Item Name",
+      placeholder: "Enter item name",
+      required: true
+    ) %>
+
+    <%= render Base::TextareaComponent.new(
+      name: "item[description]",
+      label: "Description",
+      placeholder: "Enter description",
+      rows: 4
+    ) %>
+
+    <%= render Base::SelectComponent.new(
+      name: "item[category]",
+      label: "Category",
+      options: [["General", "general"], ["Important", "important"], ["Urgent", "urgent"]]
+    ) %>
+  </div>
+
+  <% content_for :footer do %>
+    <div class="flex justify-end gap-3">
+      <%= render Base::ButtonComponent.new(variant: :secondary, onclick: "document.getElementById('form-modal').classList.add('hidden')") do %>
+        Cancel
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :primary, onclick: "document.getElementById('form-modal').classList.add('hidden')") do %>
+        Create Item
+      <% end %>
+    </div>
+  <% end %>
+<% end %>

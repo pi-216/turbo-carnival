@@ -1,0 +1,25 @@
+<%= form_with(model: persona, class: "space-y-6") do |form| %>
+  <% if persona.errors.any? %>
+    <div class="bg-red-900/50 border border-red-700 rounded-lg p-4">
+      <h2 class="text-red-400 font-semibold mb-2"><%= pluralize(persona.errors.count, "error") %> prohibited this persona from being saved:</h2>
+      <ul class="list-disc list-inside text-red-300 text-sm">
+        <% persona.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div>
+    <%= form.label :name, class: "block text-sm font-medium text-zinc-300 mb-2" %>
+    <%= form.text_field :name, 
+        class: "w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+        placeholder: "e.g., Sarah" %>
+  </div>
+
+  <div class="flex gap-4">
+    <%= form.submit class: "px-3.5 py-2.5 text-base/6 sm:px-3 sm:py-1.5 sm:text-sm/6 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg border border-transparent shadow-sm transition-colors cursor-pointer" %>
+    <%= link_to "Cancel", persona.persisted? ? persona_path(persona) : personas_path,
+        class: "px-6 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors" %>
+  </div>
+<% end %>

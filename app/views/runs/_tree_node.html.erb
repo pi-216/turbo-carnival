@@ -10,7 +10,7 @@
               elsif candidate.elo_score >= 1000
                 'text-green-400'
               else
-                'text-gray-400'
+                'text-zinc-400'
               end
   
   # Indentation for tree structure
@@ -21,19 +21,19 @@
   <!-- Branch line -->
   <% if depth > 0 %>
     <div class="flex flex-col items-center mr-2 mt-2">
-      <div class="w-8 h-0.5 bg-gray-600"></div>
+      <div class="w-8 h-0.5 bg-zinc-600"></div>
     </div>
   <% end %>
   
   <!-- Candidate card -->
-  <div class="flex-1 bg-gray-700 rounded-lg p-4 mb-2 hover:bg-gray-650 transition-colors">
+  <div class="flex-1 bg-zinc-700 rounded-lg p-4 mb-2 hover:bg-gray-650 transition-colors">
     <div class="flex gap-4">
       <!-- Thumbnail -->
-      <div class="w-24 h-24 bg-gray-600 rounded flex-shrink-0 overflow-hidden">
+      <div class="w-24 h-24 bg-zinc-600 rounded flex-shrink-0 overflow-hidden">
         <% if candidate.image_path.present? %>
           <%= image_tag candidate_image_path(candidate), class: "w-full h-full object-cover", alt: "Candidate #{candidate.id}" %>
         <% else %>
-          <div class="w-full h-full flex items-center justify-center text-gray-500 text-xs">
+          <div class="w-full h-full flex items-center justify-center text-zinc-500 text-xs">
             No image
           </div>
         <% end %>
@@ -44,7 +44,10 @@
         <div class="flex justify-between items-start mb-2">
           <div>
             <span class="text-white font-semibold">ID <%= candidate.id %></span>
-            <span class="text-gray-400 text-sm ml-2"><%= candidate.pipeline_step.name %></span>
+            <span class="text-zinc-400 text-sm ml-2"><%= candidate.pipeline_step.name %></span>
+            <% if candidate.winner? %>
+              <span class="ml-2 px-2 py-1 bg-yellow-500 text-black text-xs font-bold rounded">✓ WINNER</span>
+            <% end %>
           </div>
           <div class="<%= elo_color %> font-bold text-lg">
             ⭐ <%= candidate.elo_score %>
@@ -53,7 +56,7 @@
         
         <div class="grid grid-cols-3 gap-2 text-sm">
           <div>
-            <span class="text-gray-400">Children:</span>
+            <span class="text-zinc-400">Children:</span>
             <span class="text-white font-semibold">
               <%= children.count %>/<%= max_children %>
               <% if children.count < max_children && next_step %>
@@ -64,19 +67,35 @@
             </span>
           </div>
           <div>
-            <span class="text-gray-400">Votes:</span>
+            <span class="text-zinc-400">Votes:</span>
             <span class="text-white"><%= candidate.vote_count %></span>
           </div>
           <div>
-            <span class="text-gray-400">Failures:</span>
-            <span class="<%= candidate.failure_count > 0 ? 'text-red-400' : 'text-gray-400' %>">
+            <span class="text-zinc-400">Failures:</span>
+            <span class="<%= candidate.failure_count > 0 ? 'text-red-400' : 'text-zinc-400' %>">
               <%= candidate.failure_count %>
             </span>
           </div>
         </div>
         
+        <!-- Winner Selection Actions -->
+        <div class="mt-3">
+          <% if candidate.winner? %>
+            <%= button_to "Unselect Winner", 
+                unselect_winner_image_candidate_path(candidate),
+                method: :delete,
+                class: "text-sm px-3 py-1 bg-zinc-600 hover:bg-zinc-500 text-white rounded transition-colors",
+                form: { data: { turbo_confirm: "Are you sure you want to unselect this winner?" } } %>
+          <% else %>
+            <%= button_to "Pick Winner",
+                select_winner_image_candidate_path(candidate),
+                method: :post,
+                class: "text-sm px-3 py-1 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded transition-colors" %>
+          <% end %>
+        </div>
+        
         <% if candidate.parent %>
-          <div class="text-xs text-gray-500 mt-1">
+          <div class="text-xs text-zinc-500 mt-1">
             Parent: <%= candidate.parent_id %>
           </div>
         <% end %>

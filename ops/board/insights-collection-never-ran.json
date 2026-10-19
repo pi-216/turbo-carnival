@@ -1,0 +1,22 @@
+{
+  "key": "insights-collection-never-ran",
+  "title": "Engagement insights were never collected: the feedback path existed but nothing invoked it (newest write 2026-05-27)",
+  "severity": "warn",
+  "evidence": "Scheduling::Commands::CollectPostInsights is implemented, its columns (likes/comments/reach/saved/engagement_rate) are read by Growth::WeeklyReview to steer hashtags and content, and it works when called by hand -- but nothing invoked it: no rake task, no cron (grep: the class name appears only in its own file). Measured 2026-09-20: newest insights_updated_at = 2026-05-27, 25 rows with insights vs 107 posted items with a provider id and NULL insights (newest id 327). Second defect found while fixing it: posts_needing_insights had no ORDER BY, so even a manual run re-refreshed the same oldest rows (ids 29-57) and never reached the posts with no insights at all -- and find_each discarded the ORDER BY/LIMIT on top of that (proved by the new spec). Consequence: every pillar's engagement read 0.0 for ~4 months, so the strategy layer had no content signal while the follower goal stalled at 0.08x trajectory.",
+  "status": "closed",
+  "first_seen": "2026-09-20T03:52:04-0400",
+  "last_seen": "2026-09-20T03:52:04-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-20T03:52:18-0400",
+      "note": "FIXED + VERIFIED 2026-09-20 07:4xZ (committed with this run). Root cause, two defects that had to be fixed together: (1) NOTHING invoked the command -- no rake task, no cron, so the newest insights write was 2026-05-27 while 107 posted items had no insights at all; (2) posts_needing_insights had NO ORDER BY, so the limit(25) re-refreshed the same oldest rows (ids 29-57) and never reached the never-collected ones, and find_each then discarded the ORDER BY/LIMIT entirely (found by the new spec, which failed on the first attempt: three already-collected rows were refreshed instead of never-collected ones). Changes: CollectPostInsights selects never-collected first, newest first, loads with .to_a (not find_each) and returns collected/pending; new rake task scheduling:collect_insights (exits non-zero when candidates exist but the API returns nothing); wired NON-FATALLY into bin/scheduled_posting.sh (hourly, the only in-repo hook that runs regardless of the GPU gate); new probe check check_insights_stale (insights-stale) so the path can never go silent for months again; spec/tasks/collect_insights_spec.rb (3 examples) + spec/support/rake_tasks.rb (load_tasks is not idempotent -- a second load duplicates every rake task body and had silently broken the release-pacing spec). Evidence: rake task run through the real publisher path -> 'CollectPostInsights: refreshed 25 of 25 candidate post(s)', publisher exits 0, publishing unaffected; DB: with_insights 25 -> 75, newest insights_updated_at 2026-05-27T16:14Z -> 2026-09-20T07:49Z, refreshed ids now include the recent posts (279-326) the old query could never reach, backlog of never-collected posts draining 25/hour; probe: insights-stale silent when fresh and exercised firing with the threshold forced to 0h ('engagement insights are 0h old (132 posted item(s) older than 24h)'); tc_ops selftest 48 assertions 0 failures; full suite 388 examples 0 failures."
+    },
+    {
+      "ts": "2026-09-20T10:42:24-0400",
+      "note": "2026-09-20 14:4xZ ops-triage: follow-up closed the silent half of this path (commit 0b205d2). A live run reports collected=14 pending=25, and until today nothing anywhere said why the other 11 were not refreshed -- fetch_insights returned nil on every non-200 with no log line at all. Measured with the harness token: ids 133-143 answer HTTP 400 code 100 '(#100) Tried accessing nonexisting field (insights)' and id 148 'Object with ID ... does not exist, cannot be loaded due to missing permissions' -- media Instagram will never serve, re-selected on every run because the query cannot tell a deleted media from a never-collected one. The command now classifies 400/code 100 as terminal, logs status+code+message for every non-200, exposes the count as `unavailable` (the publisher line reads 'refreshed 14 of 25 candidate post(s) (11 permanently unavailable...)'), and no longer exits non-zero when every candidate is dead media. No freshness harm measured: 121/134 posts carry insights, 0 posts have insights older than 24h."
+    }
+  ],
+  "closed_at": "2026-09-20T03:52:18-0400"
+}

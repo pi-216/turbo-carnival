@@ -1,95 +1,116 @@
-<div class="min-h-screen bg-gray-900 p-8">
+<div class="min-h-screen bg-zinc-900 p-8">
   <div class="max-w-7xl mx-auto">
     <div class="flex justify-between items-center mb-8">
       <div>
         <h1 class="text-4xl font-bold text-white">🏆 Top 3 Winners</h1>
-        <p class="text-gray-400 mt-2">
+        <p class="text-zinc-400 mt-2">
           Run: <%= @run.name || "Run ##{@run.id}" %>
         </p>
         <% if @step %>
-          <p class="text-gray-400">From <%= @step.name %> (Step <%= @step.order %>) - Ordered by ELO</p>
+          <p class="text-zinc-400">From <%= @step.name %> (Step <%= @step.order %>) - Ordered by ELO</p>
         <% end %>
       </div>
       <div class="flex gap-4">
-        <%= link_to "← Back to runs", runs_path, class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors" %>
-        <%= link_to "Vote", run_vote_path(@run), class: "px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors" %>
+        <%= render ::Base::ButtonComponent.new(variant: :primary, href: runs_path) do %>
+          ← Back to runs
+        <% end %>
+        <%= render ::Base::ButtonComponent.new(variant: :secondary, href: run_vote_path(@run)) do %>
+          Vote
+        <% end %>
       </div>
     </div>
 
     <% if @winners.any? %>
       <div class="grid md:grid-cols-3 gap-6">
         <% @winners.each_with_index do |winner, index| %>
-          <div class="bg-gray-800 rounded-lg overflow-hidden shadow-xl">
-            <div class="relative">
-              <div class="absolute top-2 right-2 bg-yellow-500 text-gray-900 px-3 py-1 rounded-full font-bold text-sm">
-                <% if index == 0 %>🥇<% elsif index == 1 %>🥈<% else %>🥉<% end %> #<%= index + 1 %>
+          <%= render ::Base::CardComponent.new(variant: :elevated) do |c| %>
+            <% c.with_body(class: "p-0") do %>
+              <div class="relative">
+                <div class="absolute top-2 right-2">
+                  <%= render ::Base::BadgeComponent.new(variant: :warning, size: :sm) do %>
+                    <% if index == 0 %>🥇<% elsif index == 1 %>🥈<% else %>🥉<% end %> #<%= index + 1 %>
+                  <% end %>
+                </div>
+                <div class="aspect-square bg-zinc-700 flex items-center justify-center">
+                  <% if winner.image_path.present? %>
+                    <%= image_tag candidate_image_path(winner), class: "w-full h-full object-contain", alt: "Winner #{index + 1}" %>
+                  <% else %>
+                    <span class="text-zinc-500">No image</span>
+                  <% end %>
+                </div>
               </div>
-              <div class="aspect-square bg-gray-700 flex items-center justify-center">
-                <% if winner.image_path.present? %>
-                  <%= image_tag candidate_image_path(winner), class: "w-full h-full object-contain", alt: "Winner #{index + 1}" %>
-                <% else %>
-                  <span class="text-gray-500">No image</span>
+              
+              <div class="p-4">
+                <h3 class="text-white font-semibold text-lg mb-2">
+                  <%= winner.pipeline_step.name %>
+                </h3>
+                <div class="text-zinc-400 text-sm space-y-1 mb-4">
+                  <p>ID: <%= winner.id %></p>
+                  <p class="text-yellow-500 font-bold text-lg">ELO: <%= winner.elo_score %></p>
+                  <p>Votes: <%= winner.vote_count %></p>
+                  <p>Children: <%= winner.child_count %></p>
+                </div>
+
+                <%= button_to select_winner_image_candidate_path(winner), 
+                    method: :post,
+                    class: "w-full px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl",
+                    data: { turbo_confirm: "Pick this as the winning candidate?" } do %>
+                  🏆 Pick as Winner
                 <% end %>
-              </div>
-            </div>
-            
-            <div class="p-4">
-              <h3 class="text-white font-semibold text-lg mb-2">
-                <%= winner.pipeline_step.name %>
-              </h3>
-              <div class="text-gray-400 text-sm space-y-1">
-                <p>ID: <%= winner.id %></p>
-                <p class="text-yellow-500 font-bold text-lg">ELO: <%= winner.elo_score %></p>
-                <p>Votes: <%= winner.vote_count %></p>
-                <p>Children: <%= winner.child_count %></p>
-                <% if winner.image_path.present? %>
-                  <div class="mt-3 pt-3 border-t border-gray-700">
-                    <div class="flex items-start gap-2">
-                      <div class="flex-1 min-w-0">
-                        <p class="text-xs text-gray-500 mb-1">Path:</p>
-                        <p class="text-xs text-gray-300 truncate" style="direction: rtl; text-align: left;" title="<%= winner.image_path %>">
-                          <%= winner.image_path %>
-                        </p>
-                      </div>
-                      <button 
-                        onclick="
-                          const path = '<%= winner.image_path %>';
-                          if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(path).then(() => {
+
+                <div class="text-zinc-400 text-sm space-y-1 mt-4">
+                  <% if winner.image_path.present? %>
+                    <div class="mt-3 pt-3 border-t border-zinc-700">
+                      <div class="flex items-start gap-2">
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs text-zinc-500 mb-1">Path:</p>
+                          <p class="text-xs text-zinc-300 truncate" style="direction: rtl; text-align: left;" title="<%= winner.image_path %>">
+                            <%= winner.image_path %>
+                          </p>
+                        </div>
+                        <button 
+                          onclick="
+                            const path = '<%= winner.image_path %>';
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                              navigator.clipboard.writeText(path).then(() => {
+                                this.textContent='✓';
+                                setTimeout(() => this.textContent='📋', 1000);
+                              });
+                            } else {
+                              // Fallback for HTTP or older browsers
+                              const textarea = document.createElement('textarea');
+                              textarea.value = path;
+                              textarea.style.position = 'fixed';
+                              textarea.style.opacity = '0';
+                              document.body.appendChild(textarea);
+                              textarea.select();
+                              document.execCommand('copy');
+                              document.body.removeChild(textarea);
                               this.textContent='✓';
                               setTimeout(() => this.textContent='📋', 1000);
-                            });
-                          } else {
-                            // Fallback for HTTP or older browsers
-                            const textarea = document.createElement('textarea');
-                            textarea.value = path;
-                            textarea.style.position = 'fixed';
-                            textarea.style.opacity = '0';
-                            document.body.appendChild(textarea);
-                            textarea.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(textarea);
-                            this.textContent='✓';
-                            setTimeout(() => this.textContent='📋', 1000);
-                          }
-                        "
-                        class="flex-shrink-0 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs transition-colors"
-                        title="Copy full path">
-                        📋
-                      </button>
+                            }
+                          "
+                          class="flex-shrink-0 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-xs transition-colors"
+                          title="Copy full path">
+                          📋
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                <% end %>
+                  <% end %>
+                </div>
+                </div>
               </div>
-            </div>
-          </div>
+            <% end %>
+          <% end %>
         <% end %>
       </div>
     <% else %>
       <div class="text-center py-20">
-        <p class="text-gray-400 text-xl">No candidates yet in the final step.</p>
-        <p class="text-gray-500 mt-2">Start voting to evolve images through the pipeline!</p>
-        <%= link_to "Start Voting →", vote_path, class: "inline-block mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors" %>
+        <p class="text-zinc-400 text-xl">No candidates yet in the final step.</p>
+        <p class="text-zinc-500 mt-2">Start voting to evolve images through the pipeline!</p>
+        <%= render ::Base::ButtonComponent.new(variant: :primary, href: vote_path) do %>
+          Start Voting →
+        <% end %>
       </div>
     <% end %>
   </div>

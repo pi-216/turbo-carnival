@@ -1,0 +1,9 @@
+enforce_dependencies: true
+enforce_privacy: true
+metadata:
+  description: 'Strategic content pillar management for persona-driven content planning'
+  owner: 'Content Strategy Team'
+
+dependencies:
+  - packs/personas
+  # packs/clustering will be added in Week 2

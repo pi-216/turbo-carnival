@@ -1,0 +1,39 @@
+{
+  "key": "comfyui-vram-unclaimed",
+  "title": "ComfyUI is up with no claim on the 4090 while holding 20.6 GB",
+  "severity": "warn",
+  "evidence": "port 8188 answering, state=idle, the instance itself holds 21142MiB of the card's 23300MiB (threshold 8192MiB); the instance is IDLE -- native queue empty and last prompt 110 min ago (live window 30 min) -- so this VRAM is residue the next claimant renders against. owner=foreign pid=1625701 cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/hermes-webui.service started=Fri_Oct__9_22:22:08_2026 reserve=missing holder=agent. A foreign instance is not ours to kill (harness ownership rule): shut it down from its own session, or accept the hold.",
+  "status": "closed",
+  "first_seen": "2026-09-20T09:25:29-0400",
+  "last_seen": "2026-10-10T01:03:08-0400",
+  "seen_count": 6,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-23T01:34:43-0400",
+      "note": "2026-09-23 05:4xZ ops-triage: DECIDED -- accept the hold (yield), and made the check's claim TRUE BY CONSTRUCTION. Condition is real: pid 553489 (holder=operator, his byobu/tmux session, started Tue Sep 22 18:49 EDT) is IDLE (native queue empty, last prompt 62 min) holding 18,438 of the card's 18,945 MiB with no claim and no --reserve-vram. But the title asserted that from the CARD-level reading (nvidia-smi memory.used = an upper bound counting every co-tenant), so a labeler holding 14 GiB beside an idle ComfyUI holding 300 MiB produced the same reading AND the same title -- a false attribution that sends a reader to shut down the wrong process. FIX (bin/tc_ops.py): new pure unclaimed_vram_verdict(card_mib, own_mib) + comfyui_instance_vram_mib() (per-pid, --query-compute-apps): the instance's OWN hold decides; a co-tenant's VRAM makes the check quiet; an unreadable own-hold keeps the detection but is worded as the card's, never the instance's. Verified: selftest 451/0 (9 new branches: co-tenant-holds-it -> quiet, own-unreadable -> still fires); live re-run prints 'the instance itself holds 18438MiB of the card's 18945MiB' and still fires. DECISION: YIELD -- a foreign operator session is not ours to kill or re-flag; the render impact is render-starved's warn, and that refusal is over-determined (launch-args gate first, then free 5.0GiB < 16GiB floor). Escalation criterion unchanged (pre-registered by the overnight watchdog): dry_out inside ~3 days while refusals continue -- currently 09-29T10:30Z (6.3d), so no Tim ask."
+    },
+    {
+      "ts": "2026-09-23T02:32:44-0400",
+      "note": "2026-09-23 06:4xZ ops-triage: the other half of the previous tick's fix is now VERIFIED LIVE -- the holder_verdict branch keeps this check quiet on an instance that is genuinely in use. Probe at 06:25Z fired it (idle: native queue empty, last prompt 113 min) while checks-audit at 06:36Z read the SAME check quiet, because by then pid 553489 was mid-render (queue depth 2, last prompt 43 s, 23,014 MiB, 98% util). Both directions now observed on live hardware: idle-holding -> fires, actively-rendering -> quiet. No further action: accept the hold, yield."
+    },
+    {
+      "ts": "2026-09-23T02:33:15-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-23T04:37:28-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-23T04:39:44-0400",
+      "note": "NOT filed, and the card is still held: the :8188 instance (pid 553489) is the OPERATOR's own interactive session -- no agent may touch it, its launch line is not ours to change, and the harness ownership rule says yield. This item has no agent remedy, so it is not filed as an agent decision; the harm it causes (render starvation) is escalated on render-starved (route=tim) with the lever, and was last seen idle-holding 17.8 GB on the 4090."
+    },
+    {
+      "ts": "2026-10-10T02:08:04-0400",
+      "note": "FIXED root cause: classifier mis-attribution. The open instance pid 1625701 (ComfyUI holding 20.6GB, native queue empty) is the OPERATOR's interactive WebUI session -- launched from hermes-webui/server.py, cgroup=hermes-webui.service, owner=foreign -- but classify_holder returned 'agent' because the cgroup contains 'hermes', so the check filed an agent decision for a session no agent may touch. Fixed classify_holder: hermes-webui.service now classifies 'operator' BEFORE the generic hermes->agent rule (harness's own instance lives in comfyui-svc-* and is unaffected -> 'unit'). VERIFIED:  now prints operator; synthetic classifier table passes (hermes-webui->operator, comfyui-svc->unit, hermes-worker->agent). The check now note_quiets this operator session (render starvation is already escalated on render-starved route=tim), so the item stops being filed."
+    }
+  ],
+  "route": "agent",
+  "closed_at": "2026-10-10T02:08:04-0400"
+}

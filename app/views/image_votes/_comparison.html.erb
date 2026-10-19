@@ -1,7 +1,7 @@
 <div class="h-full flex flex-col" data-controller="voting">
   <div class="text-center text-white mb-4 flex-shrink-0">
     <h1 class="text-2xl font-bold mb-2">Vote for the Better Image</h1>
-    <p class="text-gray-400 text-sm">
+    <p class="text-zinc-400 text-sm">
       ← / → arrows to vote • K to kill • N to skip
     </p>
     <div class="mt-2">
@@ -15,15 +15,15 @@
       <%= f.hidden_field :winner_id, value: candidate_a.id %>
       <%= f.hidden_field :loser_id, value: candidate_b.id %>
       
-      <%= f.button type: "submit", class: "flex-1 bg-gray-800 rounded-lg overflow-hidden shadow-xl hover:shadow-2xl transition-all hover:scale-[1.02] cursor-pointer flex flex-col min-h-0" do %>
-        <div class="px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+      <%= f.button type: "submit", class: "flex-1 bg-zinc-800 rounded-lg overflow-hidden shadow-xl hover:shadow-2xl transition-all hover:scale-[1.02] cursor-pointer flex flex-col min-h-0" do %>
+        <div class="px-3 py-2 bg-zinc-800 border-b border-zinc-700 flex-shrink-0">
           <p class="text-white font-semibold text-sm"><%= candidate_a.pipeline_step.name %> (Step <%= candidate_a.pipeline_step.order %>)</p>
         </div>
-        <div class="flex-1 bg-gray-700 flex items-center justify-center min-h-0 p-2">
+        <div class="flex-1 bg-zinc-700 flex items-center justify-center min-h-0 p-2">
           <% if candidate_a.image_path.present? %>
             <%= image_tag candidate_image_path(candidate_a), class: "max-w-full max-h-full object-contain" %>
           <% else %>
-            <span class="text-gray-500 text-xl">Image (ID: <%= candidate_a.id %>)</span>
+            <span class="text-zinc-500 text-xl">Image (ID: <%= candidate_a.id %>)</span>
           <% end %>
         </div>
       <% end %>
@@ -34,15 +34,15 @@
       <%= f.hidden_field :winner_id, value: candidate_b.id %>
       <%= f.hidden_field :loser_id, value: candidate_a.id %>
       
-      <%= f.button type: "submit", class: "flex-1 bg-gray-800 rounded-lg overflow-hidden shadow-xl hover:shadow-2xl transition-all hover:scale-[1.02] cursor-pointer flex flex-col min-h-0" do %>
-        <div class="px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+      <%= f.button type: "submit", class: "flex-1 bg-zinc-800 rounded-lg overflow-hidden shadow-xl hover:shadow-2xl transition-all hover:scale-[1.02] cursor-pointer flex flex-col min-h-0" do %>
+        <div class="px-3 py-2 bg-zinc-800 border-b border-zinc-700 flex-shrink-0">
           <p class="text-white font-semibold text-sm"><%= candidate_b.pipeline_step.name %> (Step <%= candidate_b.pipeline_step.order %>)</p>
         </div>
-        <div class="flex-1 bg-gray-700 flex items-center justify-center min-h-0 p-2">
+        <div class="flex-1 bg-zinc-700 flex items-center justify-center min-h-0 p-2">
           <% if candidate_b.image_path.present? %>
             <%= image_tag candidate_image_path(candidate_b), class: "max-w-full max-h-full object-contain" %>
           <% else %>
-            <span class="text-gray-500 text-xl">Image (ID: <%= candidate_b.id %>)</span>
+            <span class="text-zinc-500 text-xl">Image (ID: <%= candidate_b.id %>)</span>
           <% end %>
         </div>
       <% end %>

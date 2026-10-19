@@ -35,7 +35,7 @@ class CardComponent < ApplicationComponent
 
   def card_classes
     base_classes = "bg-gray-800 rounded-lg overflow-hidden"
-    [base_classes, @classes].join(" ")
+    [ base_classes, @classes ].join(" ")
   end
 
   def header_classes

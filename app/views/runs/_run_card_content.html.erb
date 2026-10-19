@@ -54,34 +54,42 @@
     end
   %>
   
-  <div class="bg-gray-800 rounded-lg p-6 hover:shadow-xl transition-shadow">
-    <div class="flex justify-between items-start mb-4">
-      <div>
-        <h2 class="text-2xl font-bold text-white mb-2">
-          <%= display_name %>
-        </h2>
-        <div class="flex gap-4 text-sm">
-          <span class="px-3 py-1 rounded-full <%= run.status == 'completed' ? 'bg-gray-600' : 'bg-green-600' %> text-white">
-            <%= run.status.titleize %>
-          </span>
-          <span class="text-gray-400">
-            Pipeline: <%= pipeline.name %>
-          </span>
-          <span class="text-gray-400">
-            Created: <%= run.created_at.strftime('%b %d, %Y') %>
-          </span>
+  <%= render ::Base::CardComponent.new(variant: :elevated, class: "hover:shadow-2xl") do |c| %>
+    <% c.with_header do %>
+      <div class="flex justify-between items-start">
+        <div>
+          <h2 class="text-2xl font-bold text-white mb-2">
+            <%= display_name %>
+          </h2>
+          <div class="flex gap-4 text-sm">
+            <% if run.status == 'completed' %>
+              <%= render ::Base::BadgeComponent.new(variant: :default) do %>
+                <%= run.status.titleize %>
+              <% end %>
+            <% else %>
+              <%= render ::Base::BadgeComponent.new(variant: :success) do %>
+                <%= run.status.titleize %>
+              <% end %>
+            <% end %>
+            <span class="text-zinc-400">
+              Pipeline: <%= pipeline.name %>
+            </span>
+            <span class="text-zinc-400">
+              Created: <%= run.created_at.strftime('%b %d, %Y') %>
+            </span>
+          </div>
+        </div>
+        
+        <div class="text-right">
+          <div class="text-4xl font-bold <%= completion_pct == 100 ? 'text-green-400' : 'text-yellow-400' %>">
+            <%= completion_pct %>%
+          </div>
+          <div class="text-sm text-zinc-400">Complete</div>
         </div>
       </div>
-      
-      <div class="text-right">
-        <div class="text-4xl font-bold <%= completion_pct == 100 ? 'text-green-400' : 'text-yellow-400' %>">
-          <%= completion_pct %>%
-        </div>
-        <div class="text-sm text-gray-400">Complete</div>
-      </div>
-    </div>
+    <% end %>
 
-    <!-- Step Progress -->
+    <% c.with_body do %>
     <div class="mb-4">
       <div class="flex gap-2 mb-2">
         <% step_stats.each do |stat| %>
@@ -106,21 +114,21 @@
               bar_color = "bg-yellow-500"
             elsif !stat[:approved] && stat[:active_count] > 0
               status_icon = "⏸️"
-              bar_color = "bg-gray-500"
+              bar_color = "bg-zinc-500"
             else
               status_icon = "🔒"
-              bar_color = "bg-gray-600"
+              bar_color = "bg-zinc-600"
             end
           %>
           <div class="flex-1">
-            <div class="text-xs text-gray-400 mb-1">
+            <div class="text-xs text-zinc-400 mb-1">
               <%= status_icon %> <%= stat[:name] %>
             </div>
-            <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div class="h-2 bg-zinc-700 rounded-full overflow-hidden">
               <div class="h-full <%= bar_color %>" 
                    style="width: <%= width %>%"></div>
             </div>
-            <div class="text-xs text-gray-500 mt-1">
+            <div class="text-xs text-zinc-500 mt-1">
               <% if stat[:target] > 0 %>
                 <%= stat[:active_count] %>/<%= stat[:target] %>
               <% elsif !stat[:approved] && stat[:active_count] > 0 %>
@@ -142,16 +150,24 @@
 
     <!-- Actions -->
     <div class="flex gap-3">
-      <%= link_to "📊 Details", run_path(run), class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors", data: { turbo_frame: "_top" } %>
+      <%= render ::Base::ButtonComponent.new(variant: :primary, href: run_path(run), data: { turbo_frame: "_top" }) do %>
+        📊 Details
+      <% end %>
       <% if has_votes %>
-        <%= link_to "🗳️ Vote", run_vote_path(run), class: "px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors", data: { turbo_frame: "_top" } %>
+        <%= render ::Base::ButtonComponent.new(variant: :secondary, href: run_vote_path(run), data: { turbo_frame: "_top" }) do %>
+          🗳️ Vote
+        <% end %>
       <% else %>
-        <span class="px-4 py-2 bg-gray-700 text-gray-500 rounded-lg cursor-not-allowed" title="No unvoted pairs available">
+        <span class="px-4 py-2 bg-zinc-700 text-zinc-500 rounded-lg cursor-not-allowed" title="No unvoted pairs available">
           🗳️ Vote
         </span>
       <% end %>
-      <%= link_to "🖼️ Gallery", run_gallery_path(run, step: gallery_step), class: "px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors", data: { turbo_frame: "_top" } %>
-      <%= link_to "🏆 Winners", winners_run_path(run), class: "px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors", data: { turbo_frame: "_top" } %>
+      <%= render ::Base::ButtonComponent.new(variant: :secondary, href: run_gallery_path(run, step: gallery_step), data: { turbo_frame: "_top" }) do %>
+        🖼️ Gallery
+      <% end %>
+      <%= render ::Base::ButtonComponent.new(variant: :warning, href: winners_run_path(run), data: { turbo_frame: "_top" }) do %>
+        🏆 Winners
+      <% end %>
       
       <% if run.status != 'completed' %>
         <%= button_to "✅ Mark Complete", complete_run_path(run), 
@@ -160,4 +176,5 @@
             data: { turbo_confirm: "Mark this run as complete? It will be excluded from job generation.", turbo_frame: "_top" } %>
       <% end %>
     </div>
-  </div>
+    <% end %>
+  <% end %>

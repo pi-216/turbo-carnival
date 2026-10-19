@@ -1,0 +1,18 @@
+{
+  "key": "uncommitted-live-authority-work",
+  "title": "Live growth-harness code (Growth::Authority + weekly-review verdicts) has been uncommitted in the working tree for ~2 days",
+  "severity": "info",
+  "evidence": "git status shows untracked packs/growth_harness/app/services/growth/authority.rb + spec/services/growth/authority_spec.rb + openspec/changes/add-growth-authority/ + THESIS.md, and MODIFIED growth/strategy_brain.rb, growth/weekly_review.rb, growth/decision.rb, growth/review.rb. All mtimes 2026-09-17 18:10-18:32 (checked 2026-09-19 21:3x UTC). The Rails app and Sidekiq run from the working tree, so this IS the running behaviour: the weekly review now returns resource_blocked / goal_unattainable verdicts and StrategyBrain#exhaust writes a strategy_exhausted Decision instead of returning a transient hash. Verified green this run: bundle exec rspec spec/services/growth -> 46 examples, 0 failures; spec/services/growth/authority_spec.rb -> 4 examples, 0 failures. So it is not broken -- the risk is that a git checkout/stash/clean silently reverts live behaviour, and tc-weekly-persona-review (Mon 09:00) runs whatever the tree holds. Not touched by this ops-triage run (not its work, and it is coherent).",
+  "status": "closed",
+  "first_seen": "2026-09-19T17:37:09-0400",
+  "last_seen": "2026-09-19T17:37:09-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-19T18:39:16-0400",
+      "note": "FIXED: committed the live Authority layer as 8cd9584 (exact tree state, no code changes) after verifying it green: bundle exec rspec spec/services/growth -> 46 examples, 0 failures; spec/services/growth/authority_spec.rb -> 4 examples, 0 failures. Also ignored /db/*.sqlite3 (0-byte stray from a postgres-only app). The running app/Sidekiq read the working tree, so the checkout/stash/clean revert risk is now closed -- the behaviour is in git history."
+    }
+  ],
+  "closed_at": "2026-09-19T18:39:16-0400"
+}

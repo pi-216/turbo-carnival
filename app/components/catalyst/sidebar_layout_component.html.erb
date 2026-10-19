@@ -1,0 +1,26 @@
+<div class="<%= layout_classes %>">
+  <!-- Sidebar on desktop -->
+  <% if sidebar? %>
+    <div class="<%= sidebar_desktop_classes %>">
+      <%= sidebar %>
+    </div>
+  <% end %>
+
+  <!-- Mobile menu button (TODO: needs Stimulus controller for toggle) -->
+  <header class="flex items-center px-4 lg:hidden">
+    <div class="min-w-0 flex-1">
+      <% if navbar? %>
+        <%= navbar %>
+      <% end %>
+    </div>
+  </header>
+
+  <!-- Main content area -->
+  <main class="<%= main_classes %>">
+    <div class="<%= content_classes %>">
+      <div class="<%= max_width_classes %>">
+        <%= content %>
+      </div>
+    </div>
+  </main>
+</div>

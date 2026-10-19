@@ -1,0 +1,22 @@
+{
+  "key": "scheduler-state-frozen",
+  "title": "scheduler state.json not updated in 1337h",
+  "severity": "warn",
+  "evidence": "updated_at=2026-07-25T19:34:38.418340+00:00 \u2014 queue is derived from job files, but frozen state hides daemon death",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T11:35:01-0400",
+  "last_seen": "2026-09-19T12:30:06-0400",
+  "seen_count": 10,
+  "notes": [
+    {
+      "ts": "2026-09-19T12:41:52-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T12:50:47-0400",
+      "note": "PROBE MISCALIBRATED - fixed in bin/tc_ops.py. state.json['updated_at'] was written once by the scheduler's 'init' (2026-07-25) and is NEVER touched by claim/activate/heartbeat/release; the fields that move are the global version counter (5365) and each GPU entry. The check read a vestigial field and warned 'frozen 1337h' on every probe while the 4090 was actively claimed and heartbeating. Now it alerts on the real condition: a GPU held busy/claimed whose heartbeat is >45min stale (UTC parsing via calendar.timegm, not mktime)."
+    }
+  ],
+  "source": "probe",
+  "closed_at": "2026-09-19T12:41:52-0400"
+}

@@ -1,0 +1,22 @@
+{
+  "key": "stuck-pipeline-runs",
+  "title": "42 PipelineRun rows stuck in 'pending'",
+  "severity": "warn",
+  "evidence": "runs that produced output still report pending (status never advanced)",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T11:35:01-0400",
+  "last_seen": "2026-09-19T11:51:48-0400",
+  "seen_count": 5,
+  "notes": [
+    {
+      "ts": "2026-09-19T11:53:08-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-19T12:50:47-0400",
+      "note": "Closed by the ContentGenerator fix: growth runs no longer stay 'pending' after their render (terminal status written on every exit path) and the 10 orphaned pending runs were reconciled. pending now = 0."
+    }
+  ],
+  "source": "probe",
+  "closed_at": "2026-09-19T11:53:08-0400"
+}

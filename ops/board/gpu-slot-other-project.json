@@ -1,0 +1,39 @@
+{
+  "key": "gpu-slot-other-project",
+  "title": "4090 held by another project (prx-tg-eir-cosine-restart-v7) with our job(s) queued behind it",
+  "severity": "info",
+  "evidence": "we hold no claim; held 1.1h; our queue entries=1",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T14:26:35-0400",
+  "last_seen": "2026-10-02T05:35:26-0400",
+  "seen_count": 74,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-21T22:51:43-0400",
+      "note": "2026-09-22 02:5xZ ops-triage: HOLDER RELEASED, and we took the slot and released it cleanly. prx-tg-pixel-posttrain-v4 released 4090 status=completed at 02:27:19Z (~2h into its 13h reservation), which made our entry comfyui-1790038865-1557706-1 the FIFO head; this pass claimed it at 02:34:21Z, rendered once (ComfyuiJob 7568, 02:35:25Z-02:42:19Z, the reserve-vram verification), and released at 02:47:12Z -- harness log: 'clean -- port closed, GPU idle (VRAM 612 MiB)'; the derived queue is now empty and the 4090 is idle. MATERIAL, measured while v4 still held its claim: that hold had NO GPU consumer -- 6 nvidia-smi samples over 12s read 0% utilization, 612 MiB used, ~27 W idle, '--query-compute-apps' EMPTY, and no prx-tg process on this box -- while state.json carried a FRESH heartbeat (02:25:33Z) with vram_used_gb=0. So 'held by another project' did not mean 'the card was in use' for that window: never infer GPU work from a foreign claim's heartbeat alone, and never from the claim itself. SECOND OBSERVATION, our own side: between the release (02:27Z) and this pass's claim (02:34Z) the card sat IDLE while our own unclaimed entry blocked the FIFO for everything behind it (poll returns not_my_turn for any later requested_at). That window is bounded by the growth tick's hourly cadence and no co-tenant was queued, so no machinery was added; if a co-tenant is ever seen starved behind our unclaimed head entry, the fix is to shorten OUR claim cadence, not to cancel the entry (cancelling loses the FIFO place)."
+    },
+    {
+      "ts": "2026-09-21T22:52:59-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-26T14:58:37-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-01T13:35:29-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-02T03:01:15-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-02T13:38:34-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-10-02T13:38:34-0400",
+  "route": "agent"
+}

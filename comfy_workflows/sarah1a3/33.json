@@ -1,0 +1,590 @@
+{
+  "121": {
+    "inputs": {
+      "text": "{{prompt}}"
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Text Multiline"
+    }
+  },
+  "125": {
+    "inputs": {
+      "filename_prefix": "sarah1a3/{{run_name}}/body",
+      "images": [
+        "101:799",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "126": {
+    "inputs": {
+      "image": "{{parent_image_path}}"
+    },
+    "class_type": "LoadImageFromPath",
+    "_meta": {
+      "title": "Load Image From Path"
+    }
+  },
+  "101:784": {
+    "inputs": {
+      "face": false,
+      "hair": false,
+      "body": true,
+      "clothes": true,
+      "accessories": false,
+      "background": false,
+      "confidence": 0.4,
+      "detail_method": "VITMatte",
+      "detail_erode": 6,
+      "detail_dilate": 6,
+      "black_point": 0.01,
+      "white_point": 0.99,
+      "process_detail": true,
+      "device": "cuda",
+      "max_megapixels": 2,
+      "images": [
+        "126",
+        0
+      ]
+    },
+    "class_type": "LayerMask: PersonMaskUltra V2",
+    "_meta": {
+      "title": "LayerMask: PersonMaskUltra V2(Advance)"
+    }
+  },
+  "101:772": {
+    "inputs": {
+      "expand": 40,
+      "incremental_expandrate": 0,
+      "tapered_corners": true,
+      "flip_input": false,
+      "blur_radius": 7.800000000001095,
+      "lerp_alpha": 0,
+      "decay_factor": 0,
+      "fill_holes": true,
+      "mask": [
+        "101:784",
+        1
+      ]
+    },
+    "class_type": "GrowMaskWithBlur",
+    "_meta": {
+      "title": "Grow Mask With Blur"
+    }
+  },
+  "101:774": {
+    "inputs": {
+      "padding_left": [
+        "101:776",
+        0
+      ],
+      "padding_right": [
+        "101:776",
+        0
+      ],
+      "padding_top": [
+        "101:776",
+        0
+      ],
+      "padding_bottom": [
+        "101:776",
+        0
+      ],
+      "image": [
+        "126",
+        0
+      ],
+      "mask": [
+        "101:772",
+        0
+      ]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "101:776": {
+    "inputs": {
+      "int": 0
+    },
+    "class_type": "Int Literal",
+    "_meta": {
+      "title": "Int Literal"
+    }
+  },
+  "101:914": {
+    "inputs": {
+      "width": [
+        "101:809",
+        0
+      ],
+      "height": [
+        "101:809",
+        1
+      ],
+      "interpolation": "lanczos",
+      "method": "keep proportion",
+      "condition": "always",
+      "multiple_of": 2,
+      "image": [
+        "101:774",
+        0
+      ]
+    },
+    "class_type": "ImageResize+",
+    "_meta": {
+      "title": "🔧 Image Resize"
+    }
+  },
+  "101:775": {
+    "inputs": {
+      "padding_left": [
+        "101:776",
+        0
+      ],
+      "padding_right": [
+        "101:776",
+        0
+      ],
+      "padding_top": [
+        "101:776",
+        0
+      ],
+      "padding_bottom": [
+        "101:776",
+        0
+      ],
+      "image": [
+        "101:773",
+        0
+      ],
+      "mask": [
+        "101:772",
+        0
+      ]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "101:773": {
+    "inputs": {
+      "mask": [
+        "101:772",
+        0
+      ]
+    },
+    "class_type": "MaskToImage",
+    "_meta": {
+      "title": "Convert Mask to Image"
+    }
+  },
+  "101:913": {
+    "inputs": {
+      "width": [
+        "101:809",
+        0
+      ],
+      "height": [
+        "101:809",
+        1
+      ],
+      "interpolation": "lanczos",
+      "method": "keep proportion",
+      "condition": "always",
+      "multiple_of": 2,
+      "image": [
+        "101:775",
+        0
+      ]
+    },
+    "class_type": "ImageResize+",
+    "_meta": {
+      "title": "🔧 Image Resize"
+    }
+  },
+  "101:809": {
+    "inputs": {
+      "image": [
+        "126",
+        0
+      ]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": {
+      "title": "🔧 Get Image Size"
+    }
+  },
+  "101:778": {
+    "inputs": {
+      "channel": "red",
+      "image": [
+        "101:913",
+        0
+      ]
+    },
+    "class_type": "ImageToMask",
+    "_meta": {
+      "title": "Convert Image to Mask"
+    }
+  },
+  "101:781": {
+    "inputs": {
+      "pixels": [
+        "101:914",
+        0
+      ],
+      "vae": [
+        "101:732",
+        2
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "101:791": {
+    "inputs": {
+      "model": "gokaygokay/Florence-2-Flux-Large",
+      "precision": "fp16",
+      "attention": "sdpa",
+      "convert_to_safetensors": false
+    },
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "_meta": {
+      "title": "DownloadAndLoadFlorence2Model"
+    }
+  },
+  "101:792": {
+    "inputs": {
+      "text_input": "",
+      "task": "more_detailed_caption",
+      "fill_mask": true,
+      "keep_model_loaded": false,
+      "max_new_tokens": 1024,
+      "num_beams": 3,
+      "do_sample": true,
+      "output_mask_select": "",
+      "seed": "{{auto_seed}}",
+      "image": [
+        "101:914",
+        0
+      ],
+      "florence2_model": [
+        "101:791",
+        0
+      ]
+    },
+    "class_type": "Florence2Run",
+    "_meta": {
+      "title": "Florence2Run"
+    }
+  },
+  "101:793": {
+    "inputs": {
+      "delimiter": ", ",
+      "clean_whitespace": "true",
+      "text_a": [
+        "101:792",
+        2
+      ],
+      "text_b": [
+        "101:794",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "101:799": {
+    "inputs": {
+      "blend_factor": 1,
+      "feathering": 8,
+      "target": [
+        "126",
+        0
+      ],
+      "target_bounds": [
+        "101:775",
+        1
+      ],
+      "source": [
+        "101:741",
+        0
+      ]
+    },
+    "class_type": "Bounded Image Blend",
+    "_meta": {
+      "title": "Bounded Image Blend"
+    }
+  },
+  "101:738": {
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, hyper-realistic, photorealism, high quality, masterpiece, 8k,\nSkinny model"
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Text Multiline"
+    }
+  },
+  "101:795": {
+    "inputs": {
+      "find": "girl",
+      "replace": "woman",
+      "text": [
+        "101:793",
+        0
+      ]
+    },
+    "class_type": "Text Find and Replace",
+    "_meta": {
+      "title": "Text Find and Replace"
+    }
+  },
+  "101:796": {
+    "inputs": {
+      "PreviewTextNode_0": "The image is a portrait of a young woman standing in front of a gray textured wall. She is wearing a black long-sleeved crop top with white stripes on the sleeves and a pair of black shorts with white drawstrings. The top has a high neckline and long sleeves. The woman has long brown hair that is styled in loose waves and is smiling at the camera. Her left hand is resting on her head, as if she is posing for the photo. The overall mood of the image is confident and relaxed., Her mouth is closed. sarah1a3, young, detailed, pretty, cute, adorable, ephebos, ephebophilia, in the style of Yorick nubé.\n\nShe has long, wavy chestnut hair that falls down to her waist, framing her heart-shaped face. Her skin is creamy and flawless, like fresh milk. She has large, round breasts that sit high and proud on her chest. Her waist is tiny and narrow, but her hips flare out generously, giving her a classic hourglass figure. Her legs are long and shapely, with smooth, tanned skin and delicate ankles. Her butt is full and rounded, with a perfect peach shape and just the right amount of bounce. Her stomach is flat and toned, with a cute little belly button that's just begging to be kissed. Her back is straight and strong, with a graceful curve that accentuates her feminine form. Her neck is long and slender, with a graceful slope that leads down to her perky breasts. Her face is angelic, with full, pouty lips, a small upturned nose, and big, expressive eyes that sparkle with innocence.",
+      "text": [
+        "101:795",
+        0
+      ]
+    },
+    "class_type": "PreviewTextNode",
+    "_meta": {
+      "title": "Preview Text Node"
+    }
+  },
+  "101:794": {
+    "inputs": {
+      "text": "Her mouth is closed. sarah1a3, young, detailed, pretty, cute, adorable, ephebos, ephebophilia, in the style of Yorick nubé.\n\nShe has long, wavy chestnut hair that falls down to her waist, framing her heart-shaped face. Her skin is creamy and flawless, like fresh milk. She has large, round breasts that sit high and proud on her chest. Her waist is tiny and narrow, but her hips flare out generously, giving her a classic hourglass figure. Her legs are long and shapely, with smooth, tanned skin and delicate ankles. Her butt is full and rounded, with a perfect peach shape and just the right amount of bounce. Her stomach is flat and toned, with a cute little belly button that's just begging to be kissed. Her back is straight and strong, with a graceful curve that accentuates her feminine form. Her neck is long and slender, with a graceful slope that leads down to her perky breasts. Her face is angelic, with full, pouty lips, a small upturned nose, and big, expressive eyes that sparkle with innocence."
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Text Multiline"
+    }
+  },
+  "101:741": {
+    "inputs": {
+      "samples": [
+        "101:733",
+        0
+      ],
+      "vae": [
+        "101:732",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "101:780": {
+    "inputs": {
+      "samples": [
+        "101:781",
+        0
+      ],
+      "mask": [
+        "101:778",
+        0
+      ]
+    },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": {
+      "title": "Set Latent Noise Mask"
+    }
+  },
+  "101:733": {
+    "inputs": {
+      "seed": "{{auto_seed}}",
+      "steps": 60,
+      "cfg": 5.6,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 0.3,
+      "model": [
+        "101:747",
+        0
+      ],
+      "positive": [
+        "101:735",
+        0
+      ],
+      "negative": [
+        "101:731",
+        0
+      ],
+      "latent_image": [
+        "101:780",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "101:730": {
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": [
+        "101:747",
+        1
+      ]
+    },
+    "class_type": "CLIPSetLastLayer",
+    "_meta": {
+      "title": "CLIP Set Last Layer"
+    }
+  },
+  "101:747": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "Pony Realism Slider.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "pony/skinny_bigBreasts.safetensors",
+        "strength": 0.1
+      },
+      "lora_3": {
+        "on": false,
+        "lora": "hourglassv2_pony.safetensors",
+        "strength": 0.45
+      },
+      "lora_4": {
+        "on": false,
+        "lora": "Body Type_alpha1.0_rank4_noxattn_last.safetensors",
+        "strength": -0.09
+      },
+      "lora_5": {
+        "on": false,
+        "lora": "skinny_bigBreasts.safetensors",
+        "strength": 1.5
+      },
+      "lora_6": {
+        "on": false,
+        "lora": "Breast Sag Slider_alpha1.0_rank4_noxattn_last.safetensors",
+        "strength": -0.25
+      },
+      "lora_7": {
+        "on": false,
+        "lora": "pony/sarah1a3.safetensors",
+        "strength": 0.4999999999999998
+      },
+      "lora_8": {
+        "on": false,
+        "lora": "BustyFC-pdxl.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "101:732",
+        0
+      ],
+      "clip": [
+        "101:732",
+        1
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "101:731": {
+    "inputs": {
+      "text": "score_6, score_5, score_4, (worst quality:1.2), (low quality:1.2), (normal quality:1.2), logo, branding, watermark, piercings, bangs, lowres, bad anatomy, bad hands, signature, watermarks, ugly, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, extra limb, missing limbs",
+      "clip": [
+        "101:730",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "101:750": {
+    "inputs": {
+      "string_a": [
+        "101:738",
+        0
+      ],
+      "string_b": [
+        "101:796",
+        0
+      ]
+    },
+    "class_type": "ConcatStringSingle",
+    "_meta": {
+      "title": "Concat String (Single) 📅🅕🅝"
+    }
+  },
+  "101:961": {
+    "inputs": {
+      "text": "score_9, score_8_up, score_7_up, (raw, photo, realistic:1.2)\n\n"
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Text Multiline"
+    }
+  },
+  "101:735": {
+    "inputs": {
+      "text": [
+        "101:962",
+        0
+      ],
+      "clip": [
+        "101:747",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "101:962": {
+    "inputs": {
+      "string_a": [
+        "101:961",
+        0
+      ],
+      "string_b": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "ConcatStringSingle",
+    "_meta": {
+      "title": "Concat String (Single)"
+    }
+  },
+  "101:732": {
+    "inputs": {
+      "ckpt_name": "pony/cyberrealisticponyV85.TgCf.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  }
+}

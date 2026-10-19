@@ -1,0 +1,39 @@
+{
+  "key": "photo-corpus-single-copy",
+  "title": "The NAS-only 176 MiB of the corpus still has no OFF-SITE copy (the in-repo second copy landed 2026-09-21 and verifies)",
+  "severity": "warn",
+  "evidence": "MEASURED 2026-09-21 16:40Z, read-only. WHAT CHANGED: the in-repo half of this defect is FIXED. bin/corpus_backup.sh (commit b962ce3) rsyncs -L (real bytes, not a symlink) into <repo>/corpus-backup/snapshots/<weekday> on this box's local NVMe -- a different MACHINE and a different DEVICE from the NAS -- with seven weekday hardlink slots and a gate that FAILS the run unless every resolvable photos.path is present. Verified this pass: 'corpus_backup: verified 171 resolvable corpus file(s); missing=0' then 'OK: /home/tim/source/activity/turbo-carnival/corpus-backup/snapshots/mon matches the corpus'. ~64-78G on a 3.5T volume with 1.3T free. Cron tc-corpus-backup (03:15 daily, agent-driven) was created 2026-09-21 11:22 EDT, first tick 2026-09-22 03:15, and is now MONITORED: a new probe check (corpus-backup-stale) fires warn if the newest snapshot slot is >48h old and critical at >144h, so a backup whose job silently stopped ticking can no longer look green. WHAT IS STILL MISSING -- and it is now exactly two things, both outside this repo: (1) NO OFF-SITE COPY. The repo copy is on the same box as the Rails app, so a box death (disk, fire, theft) still loses the 171 photos that exist nowhere else. Cost to close it is small and the machinery is already here: 171 files = 176 MiB (the snapshot tree is ~78G only because it also mirrors the historical sarah1a3 render tree). B2 credentials for the app's existing bucket DO exist on this machine (.env B2_ACCESS_KEY_ID / B2_APPLICATION_KEY, service 'b2' in config/storage.yml, endpoint s3.us-west-004.backblazeb2.com) and aws-cli 2.15.38 is installed -- so the ASK IS APPROVAL, not a credential: say go and the 176 MiB (or the whole snapshot) is uploaded to the app's bucket, which costs a few cents/month; or name a different target. NOTE the 141 ATTACHED photos are already in B2 via ActiveStorage (155 blobs, service b2), so this ask is specifically about the 171 path-only NAS files. (2) /home/tim/backup.sh:27 still mirrors /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output is copied as a DANGLING symlink onto the SAME NAS volume -- the nightly backup still LOOKS like it covers the images while covering none of them. That file is outside this repo, so it is a decision for you: either exclude the 'output' symlink so the backup stops implying coverage it does not have, or leave it (it is now genuinely redundant given the repo copy).",
+  "status": "closed",
+  "first_seen": "2026-09-20T07:42:05-0400",
+  "last_seen": "2026-09-21T12:53:49-0400",
+  "seen_count": 2,
+  "source": "manual",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-09-21T08:48:23-0400",
+      "note": "2026-09-21 12:3xZ ops-triage: unchanged and still outside this repo. Re-read /home/tim/backup.sh today: the essdee rsync is still \"rsync -xahP ... /mnt/fscache/essdee/\" with -x and no --copy-links, so ComfyUI/output still mirrors as a dangling symlink and the render corpus keeps ONE copy while the mark writer mutates it in place. Fix is a one-flag edit in a home-dir script, so it stays Tims."
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: unchanged, outside this repo. /home/tim/backup.sh still rsyncs /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output (a symlink into /mnt/nas-ai-models/comfyui-output) is mirrored as a dangling symlink and the photo corpus keeps ONE copy on the same NAS volume as its mirror. One flag in a home-dir script; not touched from here."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "ROUTED to Tim 2026-09-21 (operating agent): the ONE genuine ENABLEMENT ask on the board -- it needs a hand outside this repo. The fix is NOT one flag: --copy-links would follow the symlink, but the rsync target (the NAS home backup dir) is on the SAME volume as the source, so it still would not be redundancy against volume loss. The ask: put a second copy of /mnt/nas-ai-models/comfyui-output on a DIFFERENT volume (B2, or another box). The corpus is now mutated in place by the synthetic-mark writer and 66 photos have already been lost this way, so a single copy is a live loss risk, not a theoretical one."
+    },
+    {
+      "ts": "2026-09-21T12:40:04-0400",
+      "note": "DELIVERED 2026-09-21 (operating agent) -- the second copy EXISTS, so this is no longer an enablement ask. bin/corpus_backup.sh (commit b962ce3) snapshots the corpus into <repo>/corpus-backup/ on this box local NVMe: a different MACHINE and a different DEVICE from the NAS, which is exactly the bar this item set. First snapshot ran to completion: 59,704 files / 83.02 GB into corpus-backup/snapshots/mon, and the database check passed -- verified 171 resolvable corpus file(s); missing=0. Retention is seven weekday hardlink slots, so it keeps a week of history without pruning anything. Scope is the top-level gen pngs plus sarah1a3/ only. Nightly Hermes cron tc-corpus-backup (bae1bd85ec35) at 03:15 runs it. The REMAINING gap is different and lower severity -- there is still no copy on a different SITE -- and it is filed as its own item rather than left implied here. Note for the next reader: B2 credentials are dead across the ecosystem, so off-site needs NEW credentials."
+    },
+    {
+      "ts": "2026-09-21T12:54:11-0400",
+      "note": "2026-09-21 16:5xZ ops-triage: NARROWED, not re-derived. The 'corpus has ONE copy' half is FIXED and verified in-repo (b962ce3: bin/corpus_backup.sh + the tc-corpus-backup cron; verified 171/171 resolvable files present in the second copy on a different device, 2026-09-21 16:40Z). What remains is OFF-SITE coverage only, and it is an APPROVAL not a credential: the app's B2 keys are already on this machine and aws-cli is installed, so the 176 MiB of NAS-only corpus bytes can be uploaded to the app's existing bucket as soon as you say go (I have not written anything to B2 -- external write, awaiting your OK). The other half is /home/tim/backup.sh:27 (your file, outside this repo): it still mirrors ComfyUI/output as a dangling symlink onto the same NAS volume, so the nightly backup implies coverage it does not have."
+    },
+    {
+      "ts": "2026-09-21T12:55:57-0400",
+      "note": "DECISION 2026-09-21 (operating agent): CLOSED as superseded by photo-corpus-offsite-gap, which is the correctly-scoped surviving ask. The single-copy defect itself is FIXED and verified: bin/corpus_backup.sh (b962ce3) + cron tc-corpus-backup (03:15 daily, first tick 2026-09-22) keep a verified second copy at <repo>/corpus-backup/ on this box's local NVMe -- a different device AND a different machine from the NAS -- gated on the database ('verified 171 resolvable corpus file(s); missing=0', re-run this pass 16:40Z). The repo copy is now monitored too: a new probe check (corpus-backup-stale) warns at >48h and goes critical at >144h, so a backup whose cron silently stopped ticking cannot look green. CORRECTION to what I filed an hour ago in this record: the app's B2 keys are NOT usable, so off-site is not merely an approval. VERIFIED this pass: .env B2_ACCESS_KEY_ID and Rails credentials b2.access_key_id are the SAME key id (00437451bb92cd0000000000e, len 25) and both are DEAD -- aws s3 ls on fluffy-train-development/-production returns InvalidAccessKeyId 'the key ... is not valid', and Rails' own service.exist? on the newest b2 blob (id 172, created 2026-05-28, i.e. nothing written to B2 since May) returns Aws::S3::Errors::Forbidden. So the off-site copy needs NEW credentials or a different destination -- the other session's finding was right and mine was not."
+    }
+  ],
+  "closed_at": "2026-09-21T12:55:57-0400"
+}

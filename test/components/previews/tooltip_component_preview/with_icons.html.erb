@@ -1,0 +1,25 @@
+<div class="flex items-center justify-center gap-6 py-12">
+  <%= render Base::TooltipComponent.new(text: "Information") do %>
+    <span class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200">
+      ℹ️
+    </span>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "Warning: Check this carefully") do %>
+    <span class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-yellow-100 text-yellow-600 hover:bg-yellow-200">
+      ⚠️
+    </span>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "Success!") do %>
+    <span class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-green-100 text-green-600 hover:bg-green-200">
+      ✓
+    </span>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "Error occurred") do %>
+    <span class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200">
+      ✖
+    </span>
+  <% end %>
+</div>

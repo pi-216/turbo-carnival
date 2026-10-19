@@ -1,0 +1,67 @@
+<div class="container mx-auto px-4 py-8">
+  <!-- Back button -->
+  <div class="mb-4">
+    <%= link_to persona_pillar_path(@persona, @pillar), class: "text-blue-600 hover:text-blue-800" do %>
+      ← Back to <%= @pillar.name %>
+    <% end %>
+  </div>
+
+  <h1 class="text-3xl font-bold mb-2">AI Content Suggestions</h1>
+  <p class="text-zinc-400 mb-8">
+    For <strong><%= @pillar.name %></strong> pillar
+  </p>
+
+  <% if @suggestions.any? %>
+    <div class="space-y-4">
+      <% @suggestions.each do |suggestion| %>
+        <%= render CardComponent.new do |c| %>
+          <% c.with_body do %>
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <h3 class="text-xl font-semibold mb-2"><%= suggestion[:name] %></h3>
+                <p class="text-zinc-400 mb-3"><%= suggestion[:description] %></p>
+                
+                <% if suggestion[:keywords].present? %>
+                  <div class="flex flex-wrap gap-2 mb-3">
+                    <% suggestion[:keywords].each do |keyword| %>
+                      <span class="inline-block bg-zinc-700 rounded px-2 py-1 text-sm"><%= keyword %></span>
+                    <% end %>
+                  </div>
+                <% end %>
+                
+                <% if suggestion[:example].present? %>
+                  <p class="text-sm text-zinc-500 italic">Example: <%= suggestion[:example] %></p>
+                <% end %>
+                
+                <div class="mt-4">
+                  <span class="text-xs text-zinc-600">Source: <%= suggestion[:source] %></span>
+                </div>
+              </div>
+              
+              <div class="ml-4">
+                <%= link_to "Create Cluster", 
+                  new_persona_pillar_cluster_path(@persona, @pillar, 
+                    cluster: { 
+                      name: suggestion[:name],
+                      keywords: suggestion[:keywords]
+                    }
+                  ),
+                  class: "inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                %>
+              </div>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-center text-zinc-400">
+          <p>No suggestions available.</p>
+          <p class="text-sm mt-2">AI service may be unavailable or there was an error generating suggestions.</p>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

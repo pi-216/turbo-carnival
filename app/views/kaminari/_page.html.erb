@@ -1,0 +1,9 @@
+<%# Link showing page number
+  - available local variables
+    page:          a page object for "this" page
+    url:           url to this page
+    current_page:  a page object for the currently displayed page
+    remote:        data-remote
+    rel:           rel attribute value
+-%>
+<%= link_to page, url, class: "px-4 py-2 rounded-lg transition-colors #{current_page.number == page.number ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}", rel: (defined?(rel) ? rel : nil) %>

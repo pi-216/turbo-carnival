@@ -1,0 +1,19 @@
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold mb-6">Personas</h1>
+  
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <% @personas.each do |persona| %>
+      <%= render CardComponent.new(classes: "hover:shadow-lg transition-shadow") do |c| %>
+        <% c.with_body do %>
+          <%= link_to persona, class: "block" do %>
+            <h2 class="text-2xl font-semibold mb-2"><%= persona.name.titleize %></h2>
+            <div class="text-zinc-400 space-y-1">
+              <p><%= pluralize(persona.content_pillars.count, 'pillar') %></p>
+              <p><%= pluralize(persona.photos.count, 'photo') %></p>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+</div>

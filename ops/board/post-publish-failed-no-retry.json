@@ -1,0 +1,38 @@
+{
+  "key": "post-publish-failed-no-retry",
+  "title": "a post Instagram rejected ends as `failed` -- the slot and its photo are lost, and nothing re-books them",
+  "severity": "warn",
+  "evidence": "1 un-retried post(s) marked failed in the last 24h (newest 10.7h ago): post 333 photo 339 slot 2026-09-20 15:15:13.541039 failed 2026-09-20 16:00:58.718029 reason: instagram: 400 code 9007 (Media ID is not available -- the media is not ready for publishing); backfilled 2026-09-20 from log/scheduled_posting.log (row predates failure_reason). The retry path now exists in-repo (Scheduling::FailedPostRetry, wired into bin/scheduled_posting.sh as `scheduling:retry_failed` with APPLY=1): it re-books the SAME row onto a Growth::PostSlotPlanner slot when the stored failure_reason matches a TRANSIENT class (9007/2207027, timeout, 429, 5xx, connection, url_generation) and writes a `retry#N` marker so one failure can never be re-booked twice. Rows counted here are therefore those the retry would NOT touch or has not yet seen: a policy/permission rejection (deliberate -- re-offering rejected content is not ours to decide), a row with no stored reason, a photo file that is gone, or a repair that stopped running. Rows marked `retry#N` are excluded on purpose: they are booked, not lost. Original failure mode ffe9692 (4x/10s publish retry + persisted reason) still stands -- what lands here survived it.",
+  "status": "closed",
+  "first_seen": "2026-09-20T12:35:53-0400",
+  "last_seen": "2026-09-20T22:40:55-0400",
+  "seen_count": 39,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-20T17:43:54-0400",
+      "note": "2026-09-20 21:4xZ ops-triage: unchanged, self-clearing. Live: exactly 1 failed row in the 24h window (post 333, photo 339, slot 15:15Z, failed 16:00:58Z on 400/code 9007) which predates the ffe9692 publish-retry fix by ~3.7h; 3 posts created in 24h, 18 future scheduled, 0 stuck ComfyuiJobs, 0 stuck PipelineRuns. Window empties ~09-21 16:00Z."
+    },
+    {
+      "ts": "2026-09-20T18:36:23-0400",
+      "note": "2026-09-20 22:3xZ ops-triage: unchanged in-window; the detection half is already fixed in-repo (check_publish_failed_silent). Live psql: exactly 1 failed post in the last 24h - post 333, failed 16:00:58 EDT (instagram 400 code 9007), which predates the retry fix ffe9692, and it ages out of the window around 20:00Z on 09-21. Residual is whether a definitively-rejected slot gets made up or dropped: live-publish policy, so Tim call."
+    },
+    {
+      "ts": "2026-09-20T19:56:48-0400",
+      "note": "2026-09-20 23:5xZ ops-triage: condition still in-window; the issue itself is now a stale-title artifact. Live psql: exactly 1 failed row in 24h -- post 333, failed 16:00:58 EDT on instagram 400 code 9007, which predates the retry fix ffe9692 (Instagram::Client retries 9007 4x/10s) and the failure_reason migration; it ages out of the window around 20:00Z on 09-21. This run corrected the check's title/evidence in bin/tc_ops.py, which still claimed 'no retry and no alarm' after both halves had landed. Residual is whether a definitively-rejected slot is made up or dropped: live-publish policy, Tim's call."
+    },
+    {
+      "ts": "2026-09-20T21:42:25-0400",
+      "note": "2026-09-21 01:4xZ ops-triage: condition still in-window, and the retry half is verified in place. Live psql: exactly 1 failed row in 24h -- post 333 (photo 339), instagram 400 code 9007, failed 2026-09-20 20:00:58Z, which PREDATES the retry fix ffe9692 (Instagram::Client retries 9007 4x/10s) and the failure_reason migration; it ages out of the window around 09-21 20:00Z. Residual (nothing re-books a PERMANENTLY failed slot) is a live-publishing policy decision for Tim: an automatic re-book would re-publish content Instagram rejected, so it is deliberately not implemented here."
+    },
+    {
+      "ts": "2026-09-20T22:43:37-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-20T22:47:43-0400",
+      "note": "FIXED 2026-09-21 ops-triage -- the slot is re-booked now, and the fix was verified on live data, not only in specs. ROOT CAUSE: 'failed' is terminal in Scheduling::Post's state machine, index_posts_on_photo_id_and_persona_id is UNIQUE (so no replacement row can exist for the same photo), and nothing in the pipeline ever reads a 'failed' row -- so a rejected post lost its slot AND its paid-for render while the publisher exited 0. FIX: Scheduling::FailedPostRetry (packs/scheduling/app/services/scheduling/) re-books the SAME row onto a Growth::PostSlotPlanner slot when the stored failure_reason matches a TRANSIENT class (9007/2207027, timeout, 429, 5xx, connection reset, url_generation) and stamps failure_reason with 'retry#N' so one failure can never be re-booked twice. A policy/permission rejection, a row with no stored reason, or a photo whose file is gone is deliberately LEFT failed for a human -- re-offering rejected content is not ours to decide. Wired into bin/scheduled_posting.sh as 'scheduling:retry_failed' with APPLY=1 LIMIT=3 ahead of the publisher (NON-FATAL, same shape as the caption/hashtag/salvage repairs); the rake task is dry-run by default. VERIFIED: 10 new examples (spec/services/scheduling/failed_post_retry_spec.rb) and 79 examples green across spec/services/{scheduling,growth}; live dry run printed 'examined=1 requeued=1 posts=[333]'; live APPLY=1 re-booked post 333 and psql reads status=scheduled, scheduled_at=2026-09-26 14:00:00Z, failure_reason='retry#1 re-booked 2026-09-26T14:00:00Z | instagram: 400 code 9007 ...', strategy_name=turbo-one-step (caption/hashtags/photo preserved); probe re-run no longer fires this check. The check is now retry-aware: rows marked 'retry#%' are excluded (booked, not lost) and the evidence names the retry path plus what it will not touch."
+    }
+  ],
+  "closed_at": "2026-09-20T22:47:43-0400"
+}

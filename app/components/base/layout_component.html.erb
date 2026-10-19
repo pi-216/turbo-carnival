@@ -1,0 +1,21 @@
+<div class="min-h-screen flex flex-col bg-gray-950">
+  <% if navbar? %>
+    <%= navbar %>
+  <% end %>
+  
+  <div class="flex flex-1 overflow-hidden">
+    <% if sidebar? %>
+      <%= sidebar %>
+    <% end %>
+    
+    <main class="<%= main_classes %>">
+      <div class="<%= content_classes %>">
+        <%= main %>
+      </div>
+      
+      <% if footer? %>
+        <%= footer %>
+      <% end %>
+    </main>
+  </div>
+</div>

@@ -1,0 +1,22 @@
+# Version-controlled copy of the systemd user unit. Install with:
+#   cp ops/systemd/turbo-carnival-sidekiq.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now turbo-carnival-sidekiq
+#
+# WHY: Procfile.dev declared a `worker:` line but only the web server was ever
+# run under systemd, so JobPollerWorker (status advance) and JobSubmitterWorker
+# (submission) never ran. See bin/run_worker.sh for the full incident note.
+[Unit]
+Description=Turbo Carnival Sidekiq worker (JobPollerWorker: advances ComfyuiJob/PipelineRun status)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tim/source/activity/turbo-carnival
+ExecStart=/home/tim/source/activity/turbo-carnival/bin/run_worker.sh
+Environment="RAILS_ENV=development"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

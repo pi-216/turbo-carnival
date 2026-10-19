@@ -1,0 +1,41 @@
+<!-- Modal Container -->
+<div id="<%= id %>" class="<%= modal_classes %>" role="dialog" aria-modal="true" aria-labelledby="<%= id %>-title">
+  <!-- Backdrop -->
+  <div id="<%= backdrop_id %>" class="fixed inset-0 bg-zinc-950/50 transition-opacity"></div>
+
+  <!-- Modal Dialog -->
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <div class="<%= dialog_classes %>">
+      <!-- Header -->
+      <% if title.present? || content_for?(:header) %>
+        <div class="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+          <% if content_for?(:header) %>
+            <%= content_for(:header) %>
+          <% elsif title.present? %>
+            <h2 id="<%= id %>-title" class="text-lg font-semibold text-zinc-900">
+              <%= title %>
+            </h2>
+          <% end %>
+          <button type="button" class="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600" onclick="document.getElementById('<%= id %>').classList.add('hidden')">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span class="sr-only">Close</span>
+          </button>
+        </div>
+      <% end %>
+
+      <!-- Body -->
+      <div class="px-6 py-4">
+        <%= content %>
+      </div>
+
+      <!-- Footer -->
+      <% if content_for?(:footer) %>
+        <div class="border-t border-zinc-200 px-6 py-4">
+          <%= content_for(:footer) %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

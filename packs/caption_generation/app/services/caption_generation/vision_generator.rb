@@ -1,0 +1,149 @@
+# frozen_string_literal: true
+
+require 'base64'
+
+module CaptionGeneration
+  # Image path: sends the photo to a vision model. Note this path is only TAKEN
+  # when the caller routes a photo here (see PostAutomation::GenerateCaption:
+  # it branches on an ActiveStorage attachment); renders imported by the growth
+  # harness are path-only, so today they take CaptionGeneration::Generator
+  # instead. This class itself needs no attachment -- encode_image prefers the
+  # photo's local/NAS file -- so routing path-only renders here is a one-line
+  # change in the caller, not a change to this class.
+  class VisionGenerator
+    def self.generate(photo:, persona:, content_pillar: nil)
+      new(photo: photo, persona: persona, content_pillar: content_pillar).generate
+    end
+
+    def initialize(photo:, persona:, content_pillar: nil)
+      @photo = photo
+      @persona = persona
+      @content_pillar = content_pillar
+    end
+
+    def generate
+      raise ArgumentError, 'Persona caption_config is required' unless @persona.caption_config
+      raise ArgumentError, 'Photo must have a readable image' unless image_readable?
+
+      # Get image as base64
+      image_base64 = encode_image
+
+      # Build vision prompt
+      prompt = build_vision_prompt
+
+      # Call Ollama with vision
+      choice = model_choice
+      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
+                                    keep_alive: choice[:keep_alive])
+
+      result = client.chat(
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+            images: [ image_base64 ]
+          }
+        ],
+        temperature: 0.7
+      )
+
+      # Process the generated caption
+      caption_text = result[:text]
+      processed = PostProcessor.process(caption_text, @persona.caption_config)
+
+      Result.new(
+        text: processed[:text],
+        metadata: build_metadata(processed, result),
+        success: processed[:compliant]
+      )
+    rescue StandardError => e
+      ModelConfig.log_failure(component: 'vision', error: e, photo_id: @photo&.id)
+      Result.new(
+        text: '',
+        metadata: { error: e.message, vision: true,
+                    model: model_choice[:model],
+                    requested_model: ModelConfig.model,
+                    model_selection: model_choice[:reason],
+                    timeout: model_choice[:timeout] },
+        success: false
+      )
+    end
+
+    private
+
+    # The guard must match what encode_image can ACTUALLY do: it prefers the
+    # photo's local/NAS file and only falls back to the ActiveStorage blob, so
+    # requiring an ATTACHMENT refused path-only photos this class could encode --
+    # which is every render the growth harness imports. Whether the CALLER routes
+    # a path-only photo here is a separate, deliberate product decision (pinned
+    # in spec/commands/post_automation/generate_caption_spec.rb); this guard only
+    # refuses a photo with no readable bytes at all, so it can never reject work
+    # it is capable of doing. Measured 2026-09-21 on a live path-only render
+    # (photo 351): encode + gemma3:4b vision call = 15.0s, and the caption
+    # described the actual photo while the text path invented a different scene.
+    def image_readable?
+      ImageEncoder.readable?(@photo)
+    end
+
+    # Resolved once per call: which model answers depends on what Ollama has
+    # resident right now (see ModelConfig.resolve), and the metadata must record
+    # the same choice the client was built with.
+    def model_choice
+      @model_choice ||= ModelConfig.resolve
+    end
+
+    def encode_image
+      ImageEncoder.encode_base64(@photo)
+    end
+
+    def build_vision_prompt
+      style = @persona.caption_config.style || 'casual'
+      tone = @persona.caption_config.tone || 'friendly'
+      voice = @persona.caption_config.voice || 'authentic'
+      max_length = @persona.caption_config.max_length || 150
+
+      pillar_context = if @content_pillar
+        context = "\n\nContent Theme: #{@content_pillar.name}"
+        if @content_pillar.ai_prompt.present?
+          context += "\nGuidelines: #{@content_pillar.ai_prompt}"
+        end
+        context
+      else
+        ""
+      end
+
+      <<~PROMPT
+        You are writing an Instagram caption for #{@persona.name}.
+
+        Writing Style Guide:
+        - Style: #{style}
+        - Tone: #{tone}
+        - Voice: #{voice}
+        - Maximum length: #{max_length} words
+        #{pillar_context}
+
+        Instructions:
+        1. Return ONLY the caption text
+        2. Analyze the image carefully
+        3. Write a caption that describes what you see
+        4. Match the personality and style specified above
+        5. Keep it under #{max_length} words
+        6. Make it engaging and authentic
+      PROMPT
+    end
+
+    def build_metadata(processed, ai_result)
+      {
+        model: ai_result[:model] || model_choice[:model],
+        requested_model: ModelConfig.model,
+        model_selection: model_choice[:reason],
+        timeout: model_choice[:timeout],
+        generator: 'vision',
+        word_count: processed[:text].split.size,
+        char_count: processed[:text].length,
+        compliant: processed[:compliant],
+        warnings: processed[:warnings] || []
+      }
+    end
+  end
+end

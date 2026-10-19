@@ -1,0 +1,46 @@
+<div class="p-8 space-y-6">
+  <div>
+    <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Small</h3>
+    <div class="flex gap-3 flex-wrap">
+      <%= render Base::ButtonComponent.new(variant: :primary, size: :sm) do %>
+        Small Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :secondary, size: :sm) do %>
+        Small Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :outline, size: :sm) do %>
+        Small Button
+      <% end %>
+    </div>
+  </div>
+
+  <div>
+    <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Medium (Default)</h3>
+    <div class="flex gap-3 flex-wrap">
+      <%= render Base::ButtonComponent.new(variant: :primary, size: :md) do %>
+        Medium Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :secondary, size: :md) do %>
+        Medium Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :outline, size: :md) do %>
+        Medium Button
+      <% end %>
+    </div>
+  </div>
+
+  <div>
+    <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Large</h3>
+    <div class="flex gap-3 flex-wrap">
+      <%= render Base::ButtonComponent.new(variant: :primary, size: :lg) do %>
+        Large Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :secondary, size: :lg) do %>
+        Large Button
+      <% end %>
+      <%= render Base::ButtonComponent.new(variant: :outline, size: :lg) do %>
+        Large Button
+      <% end %>
+    </div>
+  </div>
+</div>

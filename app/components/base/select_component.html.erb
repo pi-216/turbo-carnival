@@ -1,0 +1,41 @@
+<div>
+  <% if @label %>
+    <label for="<%= select_id %>" class="<%= label_classes %>">
+      <%= @label %>
+      <% if @required %>
+        <span class="text-red-400">*</span>
+      <% end %>
+    </label>
+  <% end %>
+
+  <select
+    name="<%= @name %>"
+    id="<%= select_id %>"
+    class="<%= select_classes %>"
+    <%= "required" if @required %>
+    <%= "disabled" if @disabled %>
+    <%= "multiple" if @multiple %>
+  >
+    <% if @prompt %>
+      <option value=""><%= @prompt %></option>
+    <% end %>
+    
+    <% normalize_options.each do |label, value| %>
+      <option value="<%= value %>" <%= "selected" if selected?(value) %>>
+        <%= label %>
+      </option>
+    <% end %>
+  </select>
+
+  <% if @error %>
+    <p class="<%= error_classes %>">
+      <%= @error %>
+    </p>
+  <% end %>
+
+  <% if @hint && !@error %>
+    <p class="<%= hint_classes %>">
+      <%= @hint %>
+    </p>
+  <% end %>
+</div>

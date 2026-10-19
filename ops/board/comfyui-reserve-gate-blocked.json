@@ -1,0 +1,35 @@
+{
+  "key": "comfyui-reserve-gate-blocked",
+  "title": "renders are refused by the launch args of the live :8188 instance while the 4090 has room (21.8GiB free vs ask 21GiB)",
+  "severity": "warn",
+  "evidence": "port 8188 answering, free=21.8GiB vs ask 21GiB (so free VRAM is NOT the cause), claim=idle; the :8188 instance (pid 3808097, owner foreign, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); the harness yields the window rather than submitting to an unflagged instance, so renders stay blocked until that instance exits or is relaunched with --reserve-vram. Nothing here is ours to restart.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-22T23:30:35-0400",
+  "last_seen": "2026-09-28T07:41:40-0400",
+  "seen_count": 6,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-23T00:26:11-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-23T09:31:17-0400",
+      "note": "2026-09-23 13:4xZ ops-triage: DECISION = keep open, route stays AGENT (self-closing; NOT a second ask). This check is the DIFFERENTIAL: it fires only when the launch-args gate refuses while the live free reading ALREADY clears the ask the harness would make (13:3xZ: 22.2GiB free vs ask 21GiB, pid 553489 reserve=missing, claim=idle) \u2014 the case no VRAM arithmetic can explain and the shape that let an earlier starvation read as 'nothing is blocking us'. It stays on the agent queue deliberately: render-starved (route=tim) already carries the same fact in its evidence AND now in a live-sized ask, so a second tim item would be the duplicate escalation this board exists to remove. No remedy here is ours (an unflagged instance cannot be rendered through \u2014 that is the measured over-commit OOM \u2014 and a foreign session is not ours to restart or re-flag). Self-closes the moment that instance exits or is relaunched with --reserve-vram."
+    },
+    {
+      "ts": "2026-09-23T09:55:54-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-23T10:30:13-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T09:35:12-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-09-29T09:35:12-0400"
+}

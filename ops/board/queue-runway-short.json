@@ -1,0 +1,41 @@
+{
+  "key": "queue-runway-short",
+  "title": "the publish queue drains inside 3 days and the render loop cannot top it up",
+  "severity": "warn",
+  "evidence": "publishable=1 but the last future clock is 2026-10-16T09:00:00Z -- the queue drains in 0.2d; sched_job=none; outside-scheduler holders: 1453958 uvicorn 5.6GiB (operator-interactive session), 1667355 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB; render refusals_12h=0; the card is held by the OPERATOR's own interactive session -- no in-repo action can free it, so this is filed as enablement (a GPU-policy call on a session no agent may touch). Past dry_out, posting stops with no error of its own (nothing raises, the queue is simply empty), so this is the early signal: either top the queue up (needs the 4090, which may be another project's to hold) or make a deliberate cadence decision -- but make it BEFORE the last clock passes.",
+  "status": "auto-closed",
+  "first_seen": "2026-10-03T10:24:55-0400",
+  "last_seen": "2026-10-16T00:38:34-0400",
+  "seen_count": 9,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-10-04T01:37:22-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-11T02:46:00-0400",
+      "note": "DECISION: render blockage FIXED this tick (drove run 523 -> photo 398 + post); brain queued P1 behind me will keep topping up. Steady-state: 12h brain cadence renders ~1/tick vs posting 3/day => structural drain; raising cadence is an external (Hermes cron jobs.json) change -> noted, not acted."
+    },
+    {
+      "ts": "2026-10-12T00:22:40-0400",
+      "note": "CLOSE: render loop IS topping up now. Evidence: runs 523/524/525 completed today -> photos 398/399/400 created (05:38/07:00/18:15); 4090 idle+claimable, queue empty, no contention. publishable=8, dry_out 10-14 (2.3d) is the sustainable steady-state at 3/day consumption vs ~3/day render production; library lever exhausted (0 spendable of 8, NSFW-gated safety - recorded in LibraryFallback). The 'render loop cannot top it up' premise stopped reproducing; cadence engine + brain keep topping via fresh renders whenever GPU is free (idle now)."
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T05:23:28-0400",
+      "note": "Same root cause as brain-gateway-failed: queue drains <3d because the render loop cannot top it up -- brain (render driver) cannot start (max395 ds4 inference saturated, KV 511G/512G RAM 103Gi/119Gi). No repo-side fix; blocked on Tim enablement."
+    },
+    {
+      "ts": "2026-10-16T06:00:50-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "explicit",
+  "ask": "",
+  "closed_at": "2026-10-16T06:00:50-0400"
+}

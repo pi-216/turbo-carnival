@@ -1,0 +1,25 @@
+<div class="flex flex-wrap items-center justify-center gap-4 py-12">
+  <%= render Base::TooltipComponent.new(text: "Save your changes") do %>
+    <%= render Base::ButtonComponent.new(variant: :primary) do %>
+      💾 Save
+    <% end %>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "Delete this item") do %>
+    <%= render Base::ButtonComponent.new(variant: :danger) do %>
+      🗑️ Delete
+    <% end %>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "Cancel the operation") do %>
+    <%= render Base::ButtonComponent.new(variant: :secondary) do %>
+      ✖️ Cancel
+    <% end %>
+  <% end %>
+
+  <%= render Base::TooltipComponent.new(text: "View more options") do %>
+    <%= render Base::ButtonComponent.new(variant: :ghost) do %>
+      ⚙️ Options
+    <% end %>
+  <% end %>
+</div>

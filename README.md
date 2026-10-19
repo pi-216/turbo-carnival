@@ -1,27 +1,96 @@
 # Turbo Carnival
 
-AI Image Generation Curation and Workflow Management Hub
+> **Status:** UNREVIEWED — app overview, 983 lines — large enough to be its own truth source
+
+Unified Persona-Based Content Creation and Instagram Scheduling Platform
 
 ## Overview
 
-This application is a **Curation and Workflow Management Hub** for AI image generation. It sits between users and a generative AI backend (like ComfyUI) to manage multi-stage creative pipelines:
+This application is a **unified content creation and social media management platform** that combines AI image generation, content strategy, and Instagram scheduling into a single workflow. It manages the entire content lifecycle from persona creation to automated posting:
 
-- Manages thousands of potential images in a tree structure
-- Intelligently decides which image to generate next using ELO scoring
-- Presents users with "A vs. B" voting decisions to guide the system
-- Automates the multi-stage generation funnel (Base → Face Fix → Hand Fix → Upscale)
-- Optimizes GPU usage by prioritizing work on promising branches
-- Works autonomously to deliver fully-finished candidates
+### Core Capabilities
 
+**🎭 Persona Management**
+- Create and manage multiple social media personas
+- Each persona has distinct content pillars (themes), caption configs, and hashtag strategies
+- Visual dashboard showing content gaps and opportunities per persona
+
+**📊 Content Strategy & Gap Analysis**
+- Define content pillars (e.g., "Thanksgiving", "Fitness", "Travel") with weights and priorities
+- Automated gap analysis identifies under-represented content areas
+- Visual indicators show which pillars need more content (red = urgent, green = satisfied)
+- Time-based pillar scheduling (start/end dates for seasonal content)
+
+**🎨 AI Image Generation Pipeline**
+- Multi-stage ComfyUI workflow execution (Base → Face Fix → Hand Fix → Upscale)
+- Intelligent job selection using ELO-weighted prioritization
+- Tree structure manages thousands of image candidates per run
+- A/B voting interface for human curation and quality control
+- Autonomous workers continuously generate and process images
+- Per-run isolation: multiple pipelines can run simultaneously
+
+**📸 Content Library**
+- Organized photo library per persona
+- Photos linked to content pillars for strategic organization
+- Support for both uploaded photos and AI-generated images
+- Gallery views with per-step filtering and approval gates
+
+**📝 AI Caption & Hashtag Generation**
+- Automated caption generation using Google Gemini API
+- Context-aware captions based on persona voice and content pillar
+- Smart hashtag suggestions with configurable strategies
+- Manual editing and approval workflow
+
+**📅 Instagram Scheduling & Posting**
+- Schedule posts with automatic publishing via Instagram Graph API
+- Visual calendar interface showing upcoming posts
+- Draft management with caption and image preview
+- Automated hourly posting via cron jobs
+- Status tracking: draft → scheduled → posted/failed
+
+**⚙️ Workflow Automation**
+- Background workers (Sidekiq) for autonomous image generation
+- Automated content suggestion based on gap analysis
+- One-click content creation: gap → AI prompt → generation → voting → approval → scheduling
+- Integration with ComfyUI for GPU-accelerated image generation
+
+
+## What Can This Application Do?
+
+This platform enables end-to-end content creation and social media management:
+
+### Complete Workflow Example
+
+1. **Create a Persona** → Define "Sarah - Fitness Influencer"
+2. **Set Content Strategy** → Add pillars: "Gym Workouts" (30%), "Meal Prep" (25%), "Motivation" (25%), "Lifestyle" (20%)
+3. **Run Gap Analysis** → System identifies "Gym Workouts" needs 5 more photos
+4. **Generate AI Content** → Click "Generate Content" → AI creates prompt → ComfyUI generates images
+5. **Vote & Curate** → A/B voting selects best images → Approve final candidates
+6. **Create Post** → Select image → AI generates caption → Add hashtags → Schedule for 7 PM
+7. **Automated Posting** → Cron job publishes to Instagram at scheduled time
+
+### Key Capabilities
+
+✅ **Manage multiple personas** with distinct content strategies  
+✅ **AI-powered image generation** through ComfyUI integration  
+✅ **Intelligent gap analysis** identifies content needs automatically  
+✅ **ELO-based voting** ensures only best content makes it to Instagram  
+✅ **AI caption generation** with persona-specific voice and style  
+✅ **Automated Instagram posting** on schedule via Graph API  
+✅ **Content library** organized by pillars and personas  
+✅ **Real-time monitoring** of generation pipelines and post status
 
 ## Getting Started
 
 ### Prerequisites
 
-- Ruby 3.4.5
-- PostgreSQL
-- Bundler
-- ComfyUI instance running (for autonomous operation)
+- **Ruby 3.4.5** (via rbenv or RVM)
+- **PostgreSQL 14+** (for JSONB support)
+- **Bundler** (gem dependency management)
+- **Node.js 18+** (for asset compilation)
+- **ComfyUI instance** running (optional, for AI image generation)
+- **Instagram Business Account** (optional, for posting features)
+- **Google Gemini API key** (optional, for AI caption generation)
 
 ### Setup
 
@@ -48,42 +117,61 @@ bundle exec rubocop
 
 ### Quick Start: Web Interface
 
-The web interface provides real-time monitoring and curation:
+The web interface provides persona management, content strategy, and Instagram scheduling:
 
 ```bash
 # Start the Rails server
 bin/rails server
 
-# Visit the runs dashboard
+# Visit the dashboard
 open http://localhost:3000
 
-# Features:
-# - See all runs with live progress updates
-# - Vote on candidates per-run (/runs/:id/vote)
-# - Browse galleries per-run (/runs/:id/gallery)
-# - View tree structure (/runs/:id - Details)
-# - See top 3 winners (/runs/:id/winners)
+# Main Features:
+# - Dashboard: Overview of all personas, pillars, and recent runs
+# - Personas (/personas): Manage personas and content pillars
+# - Runs (/runs): Monitor AI generation pipelines
+# - Scheduling (/personas/:id/scheduling/posts): Create and schedule Instagram posts
+# - Gap Analysis: View content gaps and generate suggestions
 ```
 
-**Key Features**:
-- **Live Updates**: Run cards auto-refresh via Turbo Streams when new candidates are generated
-- **Per-Run Isolation**: All voting, browsing, and stats scoped to individual runs
-- **Smart Navigation**: Vote button disables when no pairs available, gallery links to latest step with images
-- **Tree Visualization**: See parent-child relationships and ELO scores in tree view
+**Key Web Features**:
+- **Dashboard**: Bird's-eye view of all personas, content pillars, photos, and active runs
+- **Persona Show Page**: Complete persona overview with pillars, gap analysis, and content suggestions
+- **Content Pillar Management**: Create/edit pillars with weights, priorities, and date ranges
+- **Run Monitoring**: Live updates via Turbo Streams when new candidates are generated
+- **Voting Interface**: A/B comparison with ELO ranking per run
+- **Gallery Views**: Browse images by pipeline step with approval gates
+- **Post Scheduling**: Visual interface for creating and scheduling Instagram posts
+- **Caption Generation**: AI-powered caption suggestions with manual editing
 
-### Quick Start: Voting Interface
+### Quick Start: Content Creation Workflow
 
-The voting interface allows you to curate generated images using ELO-based ranking:
+Complete workflow from gap analysis to Instagram posting:
 
 ```bash
-# Start the Rails server
-bin/rails server
+# 1. Create a persona
+open http://localhost:3000/personas/new
 
-# Visit the voting interface
-open http://localhost:3000/vote
+# 2. Add content pillars (e.g., "Fitness", "Travel", "Food")
+# Visit persona page and click "New Pillar"
 
-# Vote by clicking on the better image
-# Use "Kill" buttons to reject bad image branches
+# 3. Run gap analysis to identify content needs
+# Gaps automatically displayed on persona dashboard
+
+# 4. Generate content for a gap
+# Click "Generate Content" on a pillar with low content
+
+# 5. Vote on generated images
+open http://localhost:3000/runs/:id/vote
+
+# 6. Approve final images
+open http://localhost:3000/runs/:id/gallery
+
+# 7. Schedule Instagram post
+open http://localhost:3000/personas/:id/scheduling/posts/new
+
+# 8. AI generates caption automatically
+# Edit caption and schedule for posting
 ```
 
 ### Quick Start: Running Pipelines
@@ -136,6 +224,53 @@ TARGET_LEAF_NODES=10     # Target final candidates
 bundle exec sidekiq
 ```
 
+### Instagram Scheduling Setup
+
+To enable automated Instagram posting:
+
+1. **Configure Instagram Credentials**
+
+Add your Instagram Business Account credentials to Rails encrypted credentials:
+
+```bash
+bin/rails credentials:edit
+```
+
+```yaml
+instagram:
+  app_id: "your_facebook_app_id"
+  app_secret: "your_facebook_app_secret"
+  access_token: "your_long_lived_user_access_token"
+  account_id: "your_instagram_business_account_id"
+
+gemini:
+  api_key: "your_gemini_api_key"  # For AI caption generation
+```
+
+2. **Set Up Cron Job for Automated Posting**
+
+Add to your crontab (runs every hour):
+
+```bash
+crontab -e
+```
+
+```
+0 * * * * cd /path/to/turbo-carnival && bin/scheduled_posting.sh
+```
+
+3. **Test Manual Posting**
+
+```bash
+# Schedule a post immediately
+bin/rails scheduling:post_scheduled
+
+# Or via web interface
+open http://localhost:3000/personas/:id/scheduling/posts/new
+```
+
+See `docs/instagram-scheduling.md` for detailed setup instructions.
+
 **Job Selection Strategy**:
 The system uses a **per-parent breadth-first** approach with **round-robin run selection**:
 
@@ -168,33 +303,53 @@ Step 4: [2 from each of 8 parents]     = 16 total
 
 ### Core Data Models
 
-**Pipeline** - Reusable pipeline configurations
+**Persona** - Social media identity/character
+- Has many content pillars (content themes)
+- Has many photos (content library)
+- Stores caption_config (JSONB) for AI caption generation settings
+- Stores hashtag_strategy (JSONB) for hashtag selection preferences
+
+**ContentPillar** - Content theme/category (e.g., "Fitness", "Travel")
+- Belongs to a persona
+- Has weight (0-100) for content distribution targets
+- Has priority (1-5) for scheduling preference
+- Optional date range for seasonal content
+- Has many photos
+
+**ContentPillars::Photo** - Individual photo in content library
+- Belongs to a content pillar
+- ActiveStorage attachment for image file
+- Can be uploaded or AI-generated
+
+**Scheduling::Post** - Instagram post
+- Belongs to persona
+- References a photo
+- Stores caption, hashtags, scheduled_at timestamp
+- State machine: draft → scheduled → posted/failed
+- Tracks provider_post_id from Instagram API
+
+**Pipeline** - Reusable AI generation pipeline template
 - Has many ordered pipeline steps
 - Has many pipeline runs
-- Template that can be executed multiple times with different inputs
+- Can be linked to persona
 
-**PipelineStep** - Defines stages within a pipeline
-- Belongs to a pipeline
-- Stores ComfyUI workflow JSON template with `{{template_variables}}`
-- Has ordered sequence (1, 2, 3...)
-- Declares variable requirements via boolean flags (see Variable System below)
-- Has many image candidates
+**PipelineStep** - Stage in generation pipeline
+- Stores ComfyUI workflow JSON with `{{template_variables}}`
+- Boolean flags for variable requirements
+- Per-step N value for generation control
 
-**PipelineRun** - Individual execution of a pipeline
-- Belongs to a pipeline
-- Stores run-specific variables in JSONB (prompt, seed, run_name, persona_id, etc.)
-- Has `target_folder` for organizing all images from this execution
+**PipelineRun** - Single execution of a pipeline
+- Stores run-specific variables in JSONB
+- Has target_folder for organizing output images
 - Status tracking: pending → running → completed/failed
-- One run creates many ImageCandidates (100+) across all pipeline steps
-- Variables are substituted into PipelineStep workflow templates
+- Creates many ImageCandidates
 
-**ImageCandidate** - Represents a single ComfyUI job result (one image file)
-- Belongs to a pipeline step AND a pipeline run
+**ImageCandidate** - Single AI-generated image
+- Belongs to pipeline step and pipeline run
 - Self-referential tree structure (parent/children)
-- ELO score tracking (default 1000)
-- State machine: `active` → `rejected`
-- Counter cache for child count
-- Stores `image_path` which can be referenced by child steps
+- ELO score (default 1000) updated via A/B voting
+- State machine: active → rejected, with winner flag
+- Image path stored for use by subsequent steps
 
 
 ### Variable System & Template Substitution
@@ -554,16 +709,19 @@ The system is fully functional! Future enhancements:
 ## Tech Stack
 
 - **Ruby 3.4.5** / **Rails 8.0.4** - Web framework
-- **PostgreSQL** - Database
+- **PostgreSQL** - Database with JSONB for flexible metadata storage
 - **Puma** - Web server
 - **Sidekiq 7.3.9** - Background job processing
 - **Solid Cache/Queue/Cable** - Database-backed Rails infrastructure
 - **Packwerk** + **packs-rails** - Modular architecture with enforced boundaries
 - **ViewComponent** - Reusable UI components
 - **Tailwind CSS v4** - Utility-first styling
-- **GLCommand** - Business logic command pattern
+- **Turbo Streams** - Real-time UI updates
+- **GLCommand** - Business logic command pattern with rollback support
 - **State Machines** - Model state management
-- **Pundit** - Authorization
+- **Google Gemini API** - AI caption generation
+- **Instagram Graph API** - Automated Instagram posting
+- **ComfyUI API** - AI image generation integration
 - **RSpec** + **FactoryBot** - Testing
 
 
@@ -575,29 +733,69 @@ The application uses `packs-rails` for modular architecture:
 
 ```
 packs/
-  pipeline/           # Core domain models for pipeline management
+  personas/           # Persona management
+    app/
+      models/
+        persona.rb
+      services/
+        caption_config.rb
+        hashtag_strategy.rb
+  
+  content_pillars/    # Content strategy and themes
+    app/
+      models/
+        content_pillar.rb
+        photo.rb
+      commands/
+        create_pillar.rb
+        
+  gap_analysis/       # Content gap identification
+    app/
+      models/
+        gap_analysis.rb
+      commands/
+        analyze_gaps.rb
+        
+  content_strategy/   # Post selection strategy
+    app/
+      models/
+        content_strategy_state.rb
+      commands/
+        select_next_post.rb
+  
+  scheduling/         # Instagram posting
+    app/
+      models/
+        post.rb
+      commands/
+        schedule_post.rb
+        publish_to_instagram.rb
+      workers/
+        scheduled_posting_worker.rb
+        
+  caption_generation/ # AI caption creation
+    app/
+      commands/
+        generate_caption.rb
+      services/
+        gemini_client.rb
+  
+  pipeline/           # AI image generation pipelines
     app/
       models/
         pipeline.rb
         pipeline_step.rb
         pipeline_run.rb
         image_candidate.rb
-    spec/
-      models/
-      factories/
-    package.yml
+      commands/
+        record_vote.rb
+        reject_image_branch.rb
   
-  job_orchestration/  # Intelligent job selection logic
+  job_orchestration/  # Intelligent job selection
     app/
       commands/
         select_next_job.rb
         build_job_payload.rb
-      services/
-        job_orchestration_config.rb
-    spec/
-      commands/
-      services/
-    package.yml
   
   comfyui/            # ComfyUI API integration
     app/
@@ -612,229 +810,7 @@ packs/
       workers/
         job_submitter_worker.rb
         job_poller_worker.rb
-    spec/
-      models/
-      commands/
-      services/
-      workers/
-      factories/
-    package.yml
 ```
-
-### Core Data Models
-
-**Pipeline** - Reusable pipeline configurations
-- Has many ordered pipeline steps
-- Has many pipeline runs
-- Template that can be executed multiple times with different inputs
-
-**PipelineStep** - Defines stages within a pipeline
-- Belongs to a pipeline
-- Stores ComfyUI workflow JSON template with `{{template_variables}}`
-- Has ordered sequence (1, 2, 3...)
-- Declares variable requirements via boolean flags (see Variable System below)
-- Has many image candidates
-
-**PipelineRun** - Individual execution of a pipeline
-- Belongs to a pipeline
-- Stores run-specific variables in JSONB (prompt, seed, run_name, persona_id, etc.)
-- Has `target_folder` for organizing all images from this execution
-- Status tracking: pending → running → completed/failed
-- One run creates many ImageCandidates (100+) across all pipeline steps
-- Variables are substituted into PipelineStep workflow templates
-
-**ImageCandidate** - Represents a single ComfyUI job result (one image file)
-- Belongs to a pipeline step AND a pipeline run
-- Self-referential tree structure (parent/children)
-- ELO score tracking (default 1000)
-- State machine: `active` → `rejected`
-- Counter cache for child count
-- Stores `image_path` which can be referenced by child steps
-
-### Variable System & Template Substitution
-
-The variable system allows you to parameterize ComfyUI workflows and reuse pipeline definitions with different inputs.
-
-#### How It Works
-
-1. **Define template variables** in your ComfyUI workflow JSON using `{{variable_name}}` syntax
-2. **Declare requirements** on each PipelineStep using boolean flags
-3. **Provide values** when creating a PipelineRun via the `variables` JSONB field
-4. **Template substitution** happens automatically when building job payloads
-
-#### Template Variable Syntax
-
-In your ComfyUI workflow JSON, use double curly braces for variables:
-
-```json
-{
-  "107": {
-    "inputs": {
-      "seed": {{seed}}
-    },
-    "class_type": "Seed"
-  },
-  "121": {
-    "inputs": {
-      "text": "{{prompt}}"
-    },
-    "class_type": "Text Multiline"
-  },
-  "122": {
-    "inputs": {
-      "filename_prefix": "sarah1a3/{{run_name}}_base_image_",
-      "images": ["77", 0]
-    },
-    "class_type": "SaveImage"
-  }
-}
-```
-
-**Important**: 
-- Numeric values: `"seed": {{seed}}` (no quotes around template)
-- String values: `"text": "{{prompt}}"` (quotes around entire string)
-- The system does simple string replacement, so format accordingly
-
-#### PipelineStep Variable Requirement Flags
-
-Each PipelineStep declares what data it needs using boolean flags:
-
-**`needs_run_prompt`** (deprecated - use `needs_run_variables` instead)
-- Legacy flag: Makes `prompt` from PipelineRun variables available
-- Use `needs_run_variables` for new implementations
-
-**`needs_parent_image_path`**
-- Automatically provides `{{parent_image_path}}` template variable
-- Value comes from the parent ImageCandidate's `image_path` field
-- Used for steps that process existing images (face fix, upscale, etc.)
-- Example: `"image": "{{parent_image_path}}"`
-
-**`needs_run_variables`**
-- Provides ALL variables from the PipelineRun's `variables` JSONB field
-- Most flexible option - use for any custom variables
-- Variables become available as template substitutions
-- Example variables: `prompt`, `seed`, `run_name`, `persona_id`, `style`, etc.
-
-#### Variable Substitution Process
-
-When `BuildJobPayload` constructs a job for ComfyUI:
-
-```ruby
-# 1. Load workflow JSON template from PipelineStep
-workflow_json = pipeline_step.comfy_workflow_json
-
-# 2. Replace all {{variable}} placeholders with actual values
-pipeline_run.variables.each do |key, value|
-  workflow_json.gsub!("{{#{key}}}", value.to_s)
-end
-
-# 3. If needs_parent_image_path, add parent's path
-if pipeline_step.needs_parent_image_path
-  workflow_json.gsub!("{{parent_image_path}}", parent_candidate.image_path)
-end
-
-# 4. Parse as JSON and submit to ComfyUI
-workflow = JSON.parse(workflow_json)
-```
-
-#### Example: Complete Pipeline Setup
-
-```ruby
-# Create pipeline template (define once)
-pipeline = Pipeline.create!(name: "Portrait Generation")
-
-# Step 1: Base image generation
-step1 = pipeline.pipeline_steps.create!(
-  name: "Base Image",
-  order: 1,
-  comfy_workflow_json: File.read("workflows/base_image.json"),
-  needs_run_variables: true  # Needs: seed, prompt, run_name
-)
-
-# Step 2: Face refinement
-step2 = pipeline.pipeline_steps.create!(
-  name: "Face Fix",
-  order: 2,
-  comfy_workflow_json: File.read("workflows/face_fix.json"),
-  needs_run_variables: true,      # Needs: seed, run_name
-  needs_parent_image_path: true   # Needs: parent image
-)
-
-# Step 3: Final upscale
-step3 = pipeline.pipeline_steps.create!(
-  name: "Upscale",
-  order: 3,
-  comfy_workflow_json: File.read("workflows/upscale.json"),
-  needs_run_variables: true,      # Needs: seed, prompt, run_name
-  needs_parent_image_path: true   # Needs: parent image
-)
-
-# Execute multiple times per day with different variables
-run1 = pipeline.pipeline_runs.create!(
-  name: "Morning Gym Session",
-  target_folder: "runs/2025-11-10/gym",
-  variables: {
-    seed: 1000001,
-    prompt: "person at the gym, athletic wear, exercising",
-    run_name: "gym_session",
-    persona_id: 123,
-    style: "photorealistic"
-  }
-)
-
-run2 = pipeline.pipeline_runs.create!(
-  name: "Afternoon Coffee Shop",
-  target_folder: "runs/2025-11-10/cafe",
-  variables: {
-    seed: 1000002,
-    prompt: "person at coffee shop, casual clothes, reading book",
-    run_name: "cafe_session",
-    persona_id: 123,
-    style: "photorealistic"
-  }
-)
-```
-
-#### ComfyUI Output Requirements
-
-**Critical**: Your workflow MUST include a SaveImage node (or similar output node) or ComfyUI will reject it with "Prompt has no outputs".
-
-```json
-{
-  "122": {
-    "inputs": {
-      "filename_prefix": "{{run_name}}_step1_",
-      "images": ["77", 0]
-    },
-    "class_type": "SaveImage"
-  }
-}
-```
-
-**Output file structure**:
-- ComfyUI saves to its `output/` directory
-- Filename: `{filename_prefix}{number}_.png`
-- Example: `gym_session_step1_00001_.png`
-- The system retrieves this path via ComfyUI's history API
-- Path is stored in ImageCandidate's `image_path` field for use by child steps
-
-#### Common Variable Patterns
-
-**Required for most workflows**:
-- `seed` - Random seed for reproducibility (numeric, no quotes in template)
-- `prompt` - Text description of desired image
-- `run_name` - Identifier for organizing outputs
-
-**Optional but recommended**:
-- `persona_id` - Reference to character/subject being generated
-- `style` - Art style descriptor ("photorealistic", "anime", etc.)
-- `negative_prompt` - Things to avoid in generation
-- `cfg_scale` - Classifier-free guidance strength
-- `steps` - Number of diffusion steps
-
-**Step-specific**:
-- `parent_image_path` - Automatically provided when `needs_parent_image_path: true`
-- Any custom parameters your ComfyUI workflow requires
 
 
 ## Current Status
@@ -851,261 +827,95 @@ All core functionality is implemented and tested. The system can autonomously:
 
 ### Implemented Features
 
-**Pipeline Pack** ✅
-- Core data models (Pipeline, PipelineStep, PipelineRun, ImageCandidate)
-- Database migrations with optimized indexes
-- State machine for ImageCandidate status
-- Tree structure with parent/child relationships
-- ELO scoring system for candidate ranking
-- Comprehensive test coverage
+**Persona Management** ✅
+- CRUD operations for personas
+- Caption config (JSONB) for AI generation preferences
+- Hashtag strategy (JSONB) for hashtag selection
+- Content pillars with weights and priorities
+- Persona-scoped photo library
+- Comprehensive dashboard view
 
-**Pipeline Runs & Variable Templating** ✅
-- PipelineRun model for tracking individual executions
-- JSONB variable storage with GIN indexing
-- Variable requirement flags on PipelineStep
-- Support for running same pipeline 20+ times/day with different inputs
-- Target folder organization for run images
-- One run creates many ImageCandidates (100+) across all pipeline steps
-- Full test coverage
+**Content Strategy** ✅
+- Content pillars with weight-based distribution
+- Priority levels (1-5) for scheduling preference
+- Seasonal pillars with date ranges (start_date, end_date)
+- Active/inactive status per pillar
+- Gap analysis identifying under-represented content
+- Visual gap indicators (red = urgent, green = satisfied)
+- Photo organization by pillar
 
-**Job Orchestration** ✅
-- SelectNextJob command using right-to-left priority algorithm
-- ELO-weighted raffle for probabilistic candidate selection
-- Autonomous deficit mode for base image generation
-- BuildJobPayload command for variable substitution
-- Configuration via environment variables (N=5, T=10)
-- Returns job modes: :child_generation, :base_generation, :no_work
-- Comprehensive test coverage
-
-**ComfyUI Integration** ✅
-- ComfyuiJob model for tracking submitted jobs through lifecycle
-- ComfyUI API client with Faraday HTTP and automatic retry
-- Database schema with JSONB for workflow payload and results
-- Job status tracking: pending → submitted → running → completed/failed
-- Configuration system (base URL, timeouts, retry limits)
-- Full command layer:
-  - SubmitJob: Creates job record and submits to ComfyUI API
-  - PollJobStatus: Checks API for job progress updates
-  - ProcessJobResult: Downloads images and creates ImageCandidates
-- Background workers for autonomous operation:
-  - JobSubmitterWorker: Continuously selects and submits new jobs
-  - JobPollerWorker: Polls in-flight jobs and processes completions
-- Comprehensive test coverage
+**AI Image Generation Pipeline** ✅
+- Multi-stage ComfyUI workflow execution
+- Template-based pipeline definitions with variable substitution
+- Per-parent breadth-first job selection
+- Round-robin run selection across multiple active runs
+- ELO-weighted candidate prioritization
+- Tree structure for managing image candidates
+- Autonomous background workers (Sidekiq)
+- ComfyUI API integration with retry logic
+- State tracking: pending → submitted → running → completed/failed
 
 **Image Voting & Curation** ✅
-- ELO-based A vs B voting interface scoped per-run
-- Per-run voting, gallery, and winners pages
-- Triage-right strategy (prioritizes rightmost/completed images)
-- Kill-left navigation for branch rejection
-- RecordVote command with transaction safety
-- RejectImageBranch command to prune failed branches
-- Secure image serving through Rails (GET /images/:id)
-- Responsive dark UI with Tailwind CSS
-- 82 passing specs including vote recording and image serving
+- ELO-based A vs B voting interface
+- Per-run voting scoped to individual pipeline executions
+- Gallery views with per-step filtering
+- Approval gates for multi-step pipelines
+- Winner selection with persistent flag
+- Branch rejection (kill failed branches)
+- Secure image serving through Rails
+- Live updates via Turbo Streams
+
+**AI Caption & Hashtag Generation** ✅
+- Google Gemini API integration
+- Context-aware caption generation using persona config
+- Pillar-specific prompt generation
+- Hashtag suggestions based on persona strategy
+- Manual caption editing and approval
+- Caption regeneration on demand
+
+**Instagram Scheduling & Posting** ✅
+- Instagram Graph API integration
+- Draft → Scheduled → Posted workflow
+- Visual post creation interface
+- Automatic caption generation during post creation
+- Scheduled posting via cron jobs (hourly)
+- Manual immediate posting option
+- Post status tracking with error handling
+- Provider post ID tracking for analytics
+- Failed post retry capability
 
 **Web Interface** ✅
-- Real-time runs dashboard with Turbo Streams
-- Live updates when new candidates are generated
-- Per-run tree visualization showing parent-child relationships
-- Progress tracking with accurate per-parent counts
-- Vote button auto-disables when no unvoted pairs available
-- Gallery links to latest step with images
-- Beautiful dark theme with Tailwind CSS
-- Full RESTful routing: `/runs/:id/vote`, `/runs/:id/gallery`, `/runs/:id/winners`
+- Dashboard with persona overview and stats
+- Persona show page with pillars, gaps, and content
+- Content pillar management (create/edit/delete)
+- Gap analysis visualization with color coding
+- Run monitoring with live Turbo Stream updates
+- Per-run voting, gallery, and winners pages
+- Post scheduling calendar interface
+- Photo browsing and selection
+- Dark theme with Tailwind CSS v4
+- Mobile-responsive design
 
 **Developer Tools** ✅
-- Rake task: `pipeline:setup_example` - Creates complete 4-step pipeline
-- Rake task: `pipeline:create_run` - Quick run creation from CLI
-- Complete setup guide: `docs/PIPELINE_SETUP.md`
+- Rake tasks for pipeline setup
+- Comprehensive documentation (README, PIPELINE_SETUP, CONVENTIONS)
+- Integration roadmap and migration guides
+- Packwerk pack structure with enforced boundaries
+- RSpec test suite with FactoryBot
+- GLCommand pattern with transaction safety
 
 ### Test Coverage
 
-- **226+ passing specs** across all packs
-- Pipeline pack: 79 specs (including voting tests)
-- Job Orchestration: 25 specs
-- ComfyUI Integration: 51 specs
-- Request specs: 9 specs
-- Developer Tools: 13 specs
-- Zero failures
-- 100% Packwerk compliance
-
-### Example Usage
-
-#### Quick Start with Rake Task
-
-```bash
-# Create complete 4-step portrait pipeline with sample run
-bin/rails pipeline:setup_example
-
-# Create additional runs
-bin/rails pipeline:create_run[3,"Cafe Shoot","person at coffee shop, reading"]
-bin/rails pipeline:create_run[3,"Park Shoot","person in park, walking dog"]
-
-# Start autonomous workers
-bundle exec sidekiq
-```
-
-For detailed setup instructions, see `docs/PIPELINE_SETUP.md`.
-
-#### Pipeline Setup (Manual)
-
-```ruby
-# Define pipeline template once
-pipeline = Pipeline.create!(name: "Portrait Generation")
-
-# Step 1: Base image - needs prompt, seed, run_name from variables
-step1 = pipeline.pipeline_steps.create!(
-  name: "Base Image", 
-  order: 1,
-  comfy_workflow_json: '{
-    "seed_node": {"inputs": {"seed": {{seed}}}},
-    "prompt_node": {"inputs": {"text": "{{prompt}}"}},
-    "save_node": {"inputs": {"filename_prefix": "{{run_name}}_base_"}}
-  }',
-  needs_run_variables: true  # Provides: seed, prompt, run_name, and all other variables
-)
-
-# Step 2: Face fix - needs parent image and seed/run_name
-step2 = pipeline.pipeline_steps.create!(
-  name: "Face Fix",
-  order: 2,
-  comfy_workflow_json: '{
-    "load_node": {"inputs": {"image": "{{parent_image_path}}"}},
-    "seed_node": {"inputs": {"seed": {{seed}}}},
-    "save_node": {"inputs": {"filename_prefix": "{{run_name}}_face_"}}
-  }',
-  needs_run_variables: true,      # Provides: seed, run_name
-  needs_parent_image_path: true   # Provides: parent_image_path
-)
-
-# Step 3: Upscale - needs both prompt and parent image
-step3 = pipeline.pipeline_steps.create!(
-  name: "Upscale",
-  order: 3,
-  comfy_workflow_json: '{
-    "load_node": {"inputs": {"image": "{{parent_image_path}}"}},
-    "prompt_node": {"inputs": {"text": "{{prompt}}"}},
-    "save_node": {"inputs": {"filename_prefix": "{{run_name}}_upscale_"}}
-  }',
-  needs_run_variables: true,      # Provides: prompt, seed, run_name
-  needs_parent_image_path: true   # Provides: parent_image_path
-)
-```
-
-#### Execute Pipeline Runs
-
-```ruby
-# Run multiple times per day with different variables
-gym_run = pipeline.pipeline_runs.create!(
-  name: "Gym Shoot",
-  target_folder: "/storage/runs/2025-11-09/gym-shoot",
-  variables: {
-    seed: 1000001,
-    prompt: "person at the gym, athletic wear",
-    run_name: "gym_shoot",
-    persona_id: 123
-  }
-)
-
-home_run = pipeline.pipeline_runs.create!(
-  name: "Home Shoot",
-  target_folder: "/storage/runs/2025-11-09/home-shoot",
-  variables: {
-    seed: 1000002,
-    prompt: "person at home, casual clothes",
-    run_name: "home_shoot",
-    persona_id: 123
-  }
-)
-
-# Each run's variables are substituted into step workflows
-# All generated images organized in the run's target_folder
-# gym_shoot_base_00001_.png, gym_shoot_face_00001_.png, etc.
-```
-
-#### Select Next Job
-
-```ruby
-# The system intelligently decides which job to run next
-result = SelectNextJob.call
-
-case result.mode
-when :child_generation
-  # Generate child from selected parent candidate
-  parent = result.parent_candidate
-  next_step = result.next_step
-  
-  # Submit job to ComfyUI (workers do this automatically)
-  SubmitJob.call(
-    pipeline_step: next_step,
-    pipeline_run: parent.pipeline_run,
-    parent_candidate: parent
-  )
-
-when :base_generation
-  # No eligible parents, but need more final candidates
-  # Generate new base image
-  step = result.next_step  # First step
-  
-  SubmitJob.call(
-    pipeline_step: step,
-    pipeline_run: PipelineRun.last  # Or create new run
-  )
-
-when :no_work
-  # Pipeline is complete or no deficit
-  # System is satisfied
-end
-```
-
-### Algorithm Highlights
-
-**Right-to-Left Priority**: The system always prioritizes finishing work over starting new branches. A step-3 candidate with low ELO beats a step-1 candidate with high ELO.
-
-**ELO-Weighted Raffle**: Within the same priority group, candidates are selected probabilistically based on their ELO scores. A candidate with ELO 1200 has 60% chance vs one with ELO 800 at 40%.
-
-**Autonomous Deficit Mode**: When the final pipeline step has fewer than T (target) active candidates, the system automatically generates new base images to maintain the funnel.
-
-**Configuration**:
-- `MAX_CHILDREN_PER_NODE` (default: 2) - Each candidate can have up to N children (breadth-first strategy: keep low at 2-3)
-- `TARGET_LEAF_NODES` (default: 10) - Maintain at least T candidates in final step
-- `COMFYUI_BASE_URL` (default: http://localhost:8188) - ComfyUI API endpoint
-- `COMFYUI_POLL_INTERVAL` (default: 5) - Seconds between status checks
-- `COMFYUI_SUBMIT_INTERVAL` (default: 10) - Seconds between job submissions
-- `COMFYUI_TIMEOUT` (default: 300) - API request timeout in seconds
-- `COMFYUI_MAX_RETRIES` (default: 3) - Max retries for failed API calls
-
-### Monitoring
-
-```ruby
-# In Rails console
-
-# Check pipeline status
-pipeline = Pipeline.find(1)
-pipeline.pipeline_runs.each do |run|
-  puts "#{run.name}: #{run.image_candidates.count} images"
-end
-
-# View job queue
-ComfyuiJob.in_flight.count   # Currently processing
-ComfyuiJob.pending.count     # Waiting to submit
-ComfyuiJob.completed.count   # Finished
-
-# See what's next
-result = SelectNextJob.call
-puts "Next: #{result.mode} - #{result.next_step&.name}"
-```
-
-### Next Steps
-
-The system is fully functional! Future enhancements:
-
-- 🎨 Web UI for viewing ImageCandidates
-- 🗳️ A/B voting interface for ELO score updates
-- 📊 Dashboard showing pipeline progress and statistics
-- 🔍 Image gallery with filtering and search
-- 📈 Analytics on generation efficiency and costs
-
+- **Comprehensive RSpec test suite** across all packs
+- Pipeline pack: Model, command, and voting tests
+- Job Orchestration: Job selection and payload building
+- ComfyUI Integration: API client and worker tests
+- Personas: Persona and pillar management tests
+- Content Strategy: Gap analysis and post selection tests
+- Scheduling: Post creation and Instagram integration tests
+- Caption Generation: AI caption and hashtag tests
+- Request specs: Controller integration tests
+- 100% Packwerk compliance with enforced boundaries
 
 ## Development
 
@@ -1133,10 +943,21 @@ See `docs/CONVENTIONS.md` for full details:
 
 ## Project Documentation
 
-- `docs/PIPELINE_SETUP.md` - Complete guide for creating and running pipelines
-- `openspec/project.md` - Project conventions and tech stack details
+### Core Guides
+- `docs/PIPELINE_SETUP.md` - Complete guide for creating and running AI generation pipelines
+- `docs/instagram-scheduling.md` - Instagram API setup and scheduling configuration
 - `docs/CONVENTIONS.md` - Coding conventions and testing strategy
-- `docs/brainstorming.md` - Product description and algorithm details
+- `docs/WORKFLOW_VARIABLES.md` - ComfyUI workflow variable system documentation
+
+### Architecture & Planning
+- `INTEGRATION_ROADMAP.md` - Phased integration plan and feature timeline
+- `INTEGRATION_REPORT.md` - Technical analysis of repository merge
+- `DESIGN_SYSTEM.md` - UI component guidelines and Tailwind conventions
+- `openspec/project.md` - Project conventions and tech stack details
+- `openspec/AGENTS.md` - AI agent collaboration guidelines
+
+### Development
+- `docs/brainstorming.md` - Product vision and algorithm details
 - `openspec/changes/` - Active change proposals
 - `openspec/specs/` - Capability specifications
 

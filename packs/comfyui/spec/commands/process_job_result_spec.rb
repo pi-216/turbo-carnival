@@ -14,43 +14,14 @@ RSpec.describe ProcessJobResult do
       pipeline_step: pipeline_step,
       parent_candidate: parent_candidate,
       result_metadata: {
-        images: [ { url: "/view/output_123.png", filename: "output_123.png" } ]
+        "3" => {
+          "images" => [ { "filename" => "output_123.png", "subfolder" => "test_subfolder", "type" => "output" } ]
+        }
       }
     )
   end
 
-  let(:image_data) { "fake_image_binary_data" }
-
-  before do
-    allow_any_instance_of(ComfyuiClient).to receive(:download_image).and_return(image_data)
-    allow(FileUtils).to receive(:mkdir_p)
-    allow(File).to receive(:binwrite)
-  end
-
   describe "#call" do
-    it "downloads image from ComfyUI" do
-      client = instance_double(ComfyuiClient)
-      allow(ComfyuiClient).to receive(:new).and_return(client)
-      expect(client).to receive(:download_image).with("/view/output_123.png").and_return(image_data)
-
-      described_class.call(comfyui_job: comfyui_job)
-    end
-
-    it "creates target directory" do
-      expect(FileUtils).to receive(:mkdir_p).with(%r{/tmp/test-run/face-fix})
-
-      described_class.call(comfyui_job: comfyui_job)
-    end
-
-    it "saves image to filesystem" do
-      expect(File).to receive(:binwrite).with(
-        a_string_matching(%r{/tmp/test-run/face-fix/.*\.png}),
-        image_data
-      )
-
-      described_class.call(comfyui_job: comfyui_job)
-    end
-
     it "creates ImageCandidate with correct associations" do
       described_class.call(comfyui_job: comfyui_job)
 
@@ -64,10 +35,11 @@ RSpec.describe ProcessJobResult do
       expect(candidate.status).to eq("active")
     end
 
-    it "sets image_path on ImageCandidate" do
+    it "sets image_path on ImageCandidate to the ComfyUI output path" do
       result = described_class.call(comfyui_job: comfyui_job)
 
-      expect(result.image_candidate.image_path).to match(%r{/tmp/test-run/face-fix/.*\.png})
+      expected_path = "/mnt/fscache/essdee/ComfyUI/output/test_subfolder/output_123.png"
+      expect(result.image_candidate.image_path).to eq(expected_path)
     end
 
     it "increments parent child_count" do
@@ -100,7 +72,9 @@ RSpec.describe ProcessJobResult do
           pipeline_step: pipeline_step,
           parent_candidate: nil,
           result_metadata: {
-            images: [ { url: "/view/output_base.png", filename: "output_base.png" } ]
+            "3" => {
+              "images" => [ { "filename" => "output_base.png", "subfolder" => "", "type" => "output" } ]
+            }
           }
         )
       end
@@ -115,61 +89,6 @@ RSpec.describe ProcessJobResult do
         expect do
           described_class.call(comfyui_job: comfyui_job_without_parent)
         end.not_to raise_error
-      end
-    end
-
-    context "when result_metadata has no images" do
-      before do
-        comfyui_job.update!(result_metadata: { images: [] })
-      end
-
-      it "returns failure" do
-        result = described_class.call(comfyui_job: comfyui_job)
-
-        expect(result).to be_failure
-      end
-    end
-
-    context "when download fails" do
-      it "returns failure" do
-        client = instance_double(ComfyuiClient)
-        allow(ComfyuiClient).to receive(:new).and_return(client)
-        allow(client).to receive(:download_image).and_raise(ComfyuiClient::ConnectionError)
-
-        result = described_class.call(comfyui_job: comfyui_job)
-
-        expect(result).to be_failure
-      end
-    end
-
-    context "when file write fails" do
-      it "returns failure" do
-        allow(File).to receive(:binwrite).and_raise(Errno::EACCES, "Permission denied")
-
-        result = described_class.call(comfyui_job: comfyui_job)
-
-        expect(result).to be_failure
-      end
-    end
-
-    context "file path construction" do
-      it "uses parameterized step name for folder" do
-        result = described_class.call(comfyui_job: comfyui_job)
-
-        expect(result.image_candidate.image_path).to include("face-fix")
-      end
-
-      it "generates unique filename with timestamp" do
-        result = described_class.call(comfyui_job: comfyui_job)
-        timestamp = Time.current.to_i
-
-        expect(result.image_candidate.image_path).to match(/#{timestamp}\.png$/)
-      end
-
-      it "includes random hex in filename" do
-        result = described_class.call(comfyui_job: comfyui_job)
-
-        expect(result.image_candidate.image_path).to match(%r{/[a-f0-9]{16}_\d+\.png$})
       end
     end
   end

@@ -1,0 +1,40 @@
+{
+  "key": "render-execution-error",
+  "title": "UNVERIFIED: no render was attempted in the 24h window",
+  "severity": "info",
+  "evidence": "0 render(s) were ATTEMPTED in the last 24h, so the absence of a fresh ComfyUI execution error is UNVERIFIED, not a repair -- an absence claim is only as strong as its interval coverage. Filed so a render drought cannot auto-close an open execution-error item (the mechanism by which the CLIPSeg empty-mask defect left the board on 2026-09-22 20:25Z). Self-closes as soon as a render runs.",
+  "status": "open",
+  "first_seen": "2026-09-21T07:40:00-0400",
+  "last_seen": "2026-10-16T08:01:36-0400",
+  "seen_count": 141,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-26T17:32:39-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T13:36:09-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-03T21:49:23-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-11T01:59:34-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T04:09:25-0400",
+      "note": "UNVERIFIED because the brain never ran this window -- inference capacity block (see brain-gateway-failed). Not an execution error in the harness."
+    }
+  ],
+  "route": "agent",
+  "closed_at": "2026-10-13T23:56:13-0400",
+  "route_source": "explicit"
+}

@@ -1,0 +1,22 @@
+{
+  "key": "queued-post-untagged",
+  "title": "1 unpublished post(s) have no hashtags and will publish without any",
+  "severity": "warn",
+  "evidence": "untagged queue: 340 slot 09-24 17:50; the publisher appends scheduling_posts.hashtags to the caption at send time, so an empty column ships an untagged post (the account's only discoverability lever at 157 followers). Repair: `bundle exec rails hashtags:backfill_queued` (dry-run; APPLY=1 to write) -- bin/scheduled_posting.sh runs it with APPLY=1 ahead of scheduling:post_scheduled, so this clears at the next publishing tick; a row that survives a tick means the engine returned nothing for it.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-20T13:39:21-0400",
+  "last_seen": "2026-09-20T13:39:21-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-20T13:43:07-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-20T13:44:05-0400",
+      "note": "2026-09-20 17:4xZ ops-triage: FIXED end-to-end. DETECTION: bin/tc_ops.py gained check_queued_post_hashtags (+ pure queued_hashtag_verdict, selftest-covered) -- the queue-side counterpart of check_placeholder_caption_queued; it fired on the real condition (post 340, slot 09-24 17:50Z, 0 tags) and auto-closed once repaired. ROOT CAUSE: the 2026-09-19 hashtag repair (71e522e) was producer-side only (engine, persona strategy, generator create, caption at send), so a row already in the queue keeps its empty column and the publisher appends nothing -- post 340 was created 2 min AFTER that fix by a process still running pre-fix code. REPAIR, repo-owned: ContentStrategy::QueuedHashtagBackfill + rake hashtags:backfill_queued (dry-run default, APPLY=1 to write, INCLUDE_DUE=1 for a late tick) -- the previous backfill of the 20 queued rows was a one-off console run nothing could repeat; bin/scheduled_posting.sh now runs it with APPLY=1 INCLUDE_DUE=1 ahead of scheduling:post_scheduled (NON-FATAL, same shape as the caption repair). VERIFIED: dry run named #340 -> would_fill; APPLY=1 wrote 10 tags (#travel #adventure #scenic #locations #exploration + 5 brand tags) and psql reads jsonb_array_length=10 on post 340; 'python3 bin/tc_ops.py probe' no longer fires this check (0 critical / 2 warn / 1 info) and the record auto-closed; specs green (7 new examples + 12 existing in the pacing/salvage specs), bash -n on the publisher OK, selftest 133 assertions 0 failures."
+    }
+  ],
+  "closed_at": "2026-09-20T13:43:07-0400"
+}

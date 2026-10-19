@@ -3,12 +3,13 @@ class ImageCandidate < ApplicationRecord
   belongs_to :pipeline_run, optional: true, touch: true
   belongs_to :parent, class_name: "ImageCandidate", optional: true, counter_cache: :child_count
   has_many :children, class_name: "ImageCandidate", foreign_key: :parent_id, dependent: :nullify
+  has_one :photo, class_name: "ContentPillars::Photo", dependent: :destroy
 
   validates :elo_score, numericality: { only_integer: true }
   validates :status, inclusion: { in: %w[active rejected] }
   validates :child_count, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :vote_count, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
-  
+
   # Broadcast updates to the run when candidates change
   after_create_commit :broadcast_run_update
   after_update_commit :broadcast_run_update
@@ -21,20 +22,54 @@ class ImageCandidate < ApplicationRecord
     event :reject do
       transition active: :rejected
     end
-    
+
     after_transition active: :rejected do |candidate, transition|
       # Decrement parent's child_count when rejecting a child
       if candidate.parent
         candidate.parent.decrement!(:child_count)
       end
-      
+
       # Broadcast run update after rejection
       candidate.broadcast_run_update
     end
   end
 
   scope :active, -> { where(status: "active") }
-  
+  scope :winners, -> { where(winner: true) }
+  scope :not_winners, -> { where(winner: false) }
+
+  # @return [true] the winner was recorded; a failure raises out of the transaction.
+  def mark_as_winner!
+    transaction do
+      # Unmark other candidates in the same run
+      pipeline_run.image_candidates.where.not(id: id).update_all(winner: false, winner_at: nil)
+
+      # Mark this one
+      update!(winner: true, winner_at: Time.current)
+
+      # Create Photo record if run belongs to a content pillar
+      create_photo_record if pipeline_run&.content_pillar_id.present?
+    end
+
+    # The transaction's value is whatever its last expression returned, and that expression is
+    # `create_photo_record` -- which returns nil on every path that creates no row (no pillar on
+    # the run, no image_path, a photo that already exists). This used to be the method's return
+    # by accident, so `AutoSelectWinners` (`photo = candidate.mark_as_winner!`) silently counted
+    # ZERO winners for a run with no content pillar even though every winner was marked, and
+    # dropped their photos from the run's totals. The outcome is reported explicitly instead:
+    # the transaction either completed or raised.
+    true
+  end
+
+  def unmark_as_winner!
+    transaction do
+      update!(winner: false, winner_at: nil)
+
+      # Remove the Photo record if it exists
+      remove_photo_record if pipeline_run&.content_pillar_id.present?
+    end
+  end
+
   def broadcast_run_update
     pipeline_run&.broadcast_refresh
   end
@@ -44,6 +79,48 @@ class ImageCandidate < ApplicationRecord
     expected_score = 1.0 / (1.0 + 10.0**((opponent.elo_score - elo_score) / 400.0))
     actual_score = won ? 1.0 : 0.0
     (k_factor * (actual_score - expected_score)).round
+  end
+
+  private
+
+  def create_photo_record
+    return unless image_path.present?
+    return if photo.present? # Already has a photo record
+    return unless pipeline_run.content_pillar_id.present?
+
+    pillar = ContentPillar.find(pipeline_run.content_pillar_id)
+
+    created_photo = ContentPillars::Photo.create!(
+      persona: pillar.persona,
+      content_pillar: pillar,
+      path: image_path,
+      image_candidate: self
+    )
+
+    # Attach the image file to ActiveStorage
+    if File.exist?(image_path)
+      created_photo.image.attach(
+        io: File.open(image_path),
+        filename: File.basename(image_path),
+        content_type: 'image/png'
+      )
+    end
+
+    created_photo
+  rescue => e
+    Rails.logger.error "Failed to create Photo record: #{e.message}"
+    raise
+  end
+
+  def photo_record_exists?
+    photo.present?
+  end
+
+  def remove_photo_record
+    photo&.destroy
+  rescue => e
+    Rails.logger.error "Failed to remove Photo record: #{e.message}"
+    raise
   end
 
   def self.unvoted_pairs(pipeline_step)
@@ -58,9 +135,9 @@ class ImageCandidate < ApplicationRecord
     existing_votes = Vote.where(winner_id: candidate_ids, loser_id: candidate_ids)
                          .pluck(:winner_id, :loser_id)
                          .to_set
-    
+
     # Also check reverse pairs (loser, winner) since either direction counts as voted
-    reverse_votes = existing_votes.map { |w, l| [l, w] }.to_set
+    reverse_votes = existing_votes.map { |w, l| [ l, w ] }.to_set
     all_voted_pairs = existing_votes + reverse_votes
 
     # Generate all possible pairs
@@ -68,7 +145,7 @@ class ImageCandidate < ApplicationRecord
 
     # Filter out pairs that have already been voted on
     unvoted = all_pairs.reject do |a, b|
-      all_voted_pairs.include?([a.id, b.id])
+      all_voted_pairs.include?([ a.id, b.id ])
     end
 
     # Sort pairs by the sum of vote counts (prioritize pairs with lower total votes)

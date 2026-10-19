@@ -13,7 +13,7 @@ RSpec.describe RejectImageBranch do
     it "decrements parent child_count when rejecting a child" do
       parent = FactoryBot.create(:image_candidate)
       child = FactoryBot.create(:image_candidate, parent: parent)
-      
+
       # Refresh parent to get updated child_count from counter_cache
       parent.reload
       initial_count = parent.child_count

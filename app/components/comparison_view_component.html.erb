@@ -12,7 +12,17 @@
   </div>
 
   <div class="flex justify-center gap-4 mt-4 flex-shrink-0">
-    <%= button_to "Kill Left Image", run_reject_vote_path(run, candidate_a), method: :post, class: "px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm", data: { voting_target: "leftKill" } %>
-    <%= button_to "Kill Right Image", run_reject_vote_path(run, candidate_b), method: :post, class: "px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm", data: { voting_target: "rightKill" } %>
+    <%= button_to run_reject_vote_path(run, candidate_a), 
+        method: :post, 
+        data: { voting_target: "leftKill" },
+        class: "px-6 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-semibold transition-colors inline-flex items-center justify-center gap-2" do %>
+      Kill Left Image
+    <% end %>
+    <%= button_to run_reject_vote_path(run, candidate_b), 
+        method: :post, 
+        data: { voting_target: "rightKill" },
+        class: "px-6 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-semibold transition-colors inline-flex items-center justify-center gap-2" do %>
+      Kill Right Image
+    <% end %>
   </div>
 </div>
