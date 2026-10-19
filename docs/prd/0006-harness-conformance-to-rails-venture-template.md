@@ -5,7 +5,8 @@ source: PROJECT_PLAN
 
 # PRD 0006 — Harness conformance to `rails-venture-template`
 
-> **Status:** CURRENT · parity audit measured 2026-10-19 · opens on the deviations below (Q1–Q5)
+> **Status:** CURRENT · parity audit measured 2026-10-19 · **founder rulings Q1–Q6 landed 2026-10-19** ·
+> ready to cut tickets
 > Plan item: **W1.4** · Track: `core-infrastructure` · Blocks: nothing technically · blocks **every agent
 > that works a ticket** if the rails are wrong
 
@@ -18,6 +19,50 @@ no `app/commands/application_command.rb`, no Sentry initialiser, no `FOUNDERS.md
 PRD runs the template's **parity audit**, records every rail as *conform* / *gap* / *deliberate deviation*,
 and files the gaps as conforming work — so turbo-carnival is on the same harness as the rest of the fleet
 and the fleet stays uniform.
+
+## Founder rulings (2026-10-19)
+
+These close the questions this PRD opened. Recorded verbatim — decisions, not preferences to re-litigate.
+
+**Q1 — HAML.** *"we want to transition. We can prioritize later."* → **Adopt HAML**, as a **transition that
+is explicitly deprioritised**: it lands as its own ticket and is a prerequisite for nothing. ERB stays
+until the conversion lands; new views may be HAML.
+
+**Q2 — Gherkin.** *"We want Gherkin for the web application. This application is not a standard rails
+application, there are a lot of other tools involved. Many PRDs describe their behavior in Gherkin tests,
+but they can't be tested in Ruby that way. I want to make sure that future agents understand that we like
+Gherkin notation for definitions, but the ruby gherkin tests are only required to test the rails
+application itself."*
+
+→ **The two-layer rule — now this repo's convention, and it must be documented where agents read it:**
+
+- **Layer 1 — Gherkin as notation (definitions).** House-wide. Every PRD describes behaviour in Gherkin
+  *notation*, whatever implements it: the Rails app, the Python/ComfyUI render pipeline, the shell
+  harness, the cron jobs. A definition is not a test.
+- **Layer 2 — Gherkin as executable tests (Ruby/Cucumber).** Required for **the Rails application
+  only** — its HTTP surface, its UI, its commands. Behaviour implemented by any other tool is defined in
+  Gherkin and is **not** required to have an executable Ruby Gherkin test; it is tested by that tooling's
+  own suite.
+
+The trap this rule exists to prevent: a future agent reading a render-pipeline scenario in a PRD and trying
+to *execute* it in Ruby. The lane that ships here is scoped to the Rails app, and the scoping is written
+down, not assumed.
+
+**Q3 — Sentry DSN.** *"there is a Sentry token available. You (an agent via a ticket) can provision it."*
+→ **Not `founder_needed`.** The credential already exists; an agent provisions it through a ticket. This
+removes the only blocker that would have parked rail R7, so the observability rail is now ordinary work.
+
+**Q4 — documentation homes.** *"we need to adopt."* → **Adopt the template's homes** — `FOUNDERS.md`,
+`ARCHITECTURE.md`, `CONTRACTS.md`, `OPS.md`, `DESIGN.md`, `.github/pull_request_template.md`,
+`docs/prd/README.md`, `docs/tech_design_docs/`, `packs/README.md` — and reconcile the repo's existing
+`docs/` documents into them under the one-truth-per-topic rule (never a new `v(N+1)` beside an old file).
+
+**Q5 — job substrate.** *"we want to transition to sidekiq."* → **Sidekiq is the single substrate.**
+`solid_queue` / `solid_cache` / `solid_cable` are retired in favour of Sidekiq (+ Redis); the transition is
+a ticket, and **no new work may be added on the `solid_*` substrate**.
+
+**Q6 — scope.** *"This is a new, independent PRD."* → PRD 0006 **stands alone** at W1.4; it is not folded
+into PRD 0003.
 
 ## What the harness is, and the one rule that shapes this PRD
 
@@ -286,12 +331,20 @@ Scenario: the thesis pillar is live
   body attribute — the body attribute is documentation no Turbo version reads.
 - **No rail without its enforcement line.** Adopting a template rail means adopting what holds it (a CI
   job, a `bin/verify` member, a spec). An unenforced pillar rots.
-- **A gate the repo does not run is worse than no gate.** This is why Gherkin is a *question*, not a free
-  adoption: if Q2 rules "adopt", the lane is wired into `bin/verify` **on day one**, or it stays out.
+- **A gate the repo does not run is worse than no gate.** Q2 ruled **adopt**, so the Cucumber lane is
+  wired into `bin/verify` **on day one** — `gherkin_lint` with it. A lane adopted half-way reads as
+  coverage while providing none.
 - **Written or it drifts.** Every deviation gets a row: rail · template requires · this repo does · why ·
   ruling. An unwritten deviation is the drift this PRD exists to remove.
-- **Secrets only in encrypted credentials.** The Sentry DSN is a **credential** — per the authority ladder
-  that is `founder_needed`. An agent may not self-supply it, and "no DSN yet" is a **finding**, not a pass.
+- **Secrets only in encrypted credentials — and the Sentry DSN is now agent work.** The DSN lives in
+  encrypted credentials, never in the repo or in env; the token **already exists** (Q3), so an agent
+  provisions it through a ticket instead of parking the rail for the founder. "No DSN yet" is still a
+  **finding**, not a pass.
+- **Gherkin has two layers; do not collapse them (Q2).** Layer 1 (notation, in PRDs) is house-wide and
+  non-executable. Layer 2 (Cucumber) is required for the **Rails application only**. Never try to execute a
+  non-Rails scenario in Ruby — and conversely, "no executable test" never means "not defined".
+- **One job substrate (Q5).** No new work on `solid_*`; Sidekiq (+ Redis) is the target, and the migration
+  is its own ticket — not a rewrite in passing.
 - **`AGENTS.md` is a protected agent-instruction file.** Any write to it needs explicit operator approval;
   a timed-out consent prompt is not consent — keep the code committed, leave the doc out, surface it.
 - **Do not port `t-chat`'s or `crawlr`'s `AGENTS.md` wholesale.** Port the rules that apply and say which
@@ -306,22 +359,24 @@ Every rail, marked. The dispositions are the input to the tickets.
 
 | rail | template requires | turbo-carnival today (2026-10-19) | disposition |
 |---|---|---|---|
-| R1 stack | Rails 8 · pg · Puma · importmap · Turbo/Stimulus · **HAML** · ViewComponent · Tailwind | Rails 8.1 · pg · Puma · importmap · Turbo/Stimulus · **ERB** · ViewComponent · Tailwind | **DEV — Q1** (ERB). Also **DEV — Q5** (dual job substrate: `solid_queue` **and** `sidekiq`) |
+| R1 stack | Rails 8 · pg · Puma · importmap · Turbo/Stimulus · **HAML** · ViewComponent · Tailwind | Rails 8.1 · pg · Puma · importmap · Turbo/Stimulus · **ERB** · ViewComponent · Tailwind | **ADOPT — Q1** (HAML transition, deprioritised) · **ADOPT — Q5** (retire `solid_*`; Sidekiq only) |
 | R2 Turbo | head `meta` trigger + body marker + importmap/controllers | meta ✓ · controllers (5) ✓ · `importmap.rb` ✓ · body marker ✗ | **GAP** (marker) · **RATIFIED** (trigger present) |
 | R3 command | `GLCommand::Callable` + `ApplicationCommand#run_after_commit` | `GLCommand::Callable` ✓ · `ApplicationCommand` ✗ (F1) | **GAP** — port byte-identical + reparent + spec |
 | R4 packs | packwerk + pack autoload wiring | packwerk ✓ · 12 packs ✓ · wiring via **`packs-rails`** (superset) · 47 offenses | **DEV — RATIFY** (`packs-rails`) · offenses = **PRD 0003 / #46** |
-| R5 BDD | Cucumber + `gherkin_specs/` + lints | absent | **DEV — Q2** (adopt, or ratify the PRD-0003 exemption in writing) |
+| R5 BDD | Cucumber + `gherkin_specs/` + lints | absent | **ADOPT — Q2**, scoped to the **Rails app only** (Layer 1 notation is house-wide; Layer 2 executable is Rails-only) |
 | R6 gates | `bin/verify` incl. bundler-audit · erb_lint | `bin/verify` ✗ (PRD 0003) · bundler-audit ✗ · erb_lint ✗ (F3) | **GAP** (gate members) · `bin/verify` = **PRD 0003 / #47** |
-| R7 observe | Sentry + DSN + `Sentry::Metrics` | no initialiser, no DSN, no reference (F2) | **GAP** — DSN is `founder_needed` |
-| R8 govern | AGENTS · THESIS · FOUNDERS · PR template · docs/prd · tech_design_docs · `bin/lint` | AGENTS ✓ (PRD 0003) · THESIS inert (F7) · FOUNDERS ✗ · PR template ✗ · docs/prd README ✗ · tech_design_docs ✗ · packs/README ✗ · `bin/lint` ✗ | **GAP** (stubs) · **GAP** (thesis) · **Q4** (doc homes) |
+| R7 observe | Sentry + DSN + `Sentry::Metrics` | no initialiser, no DSN, no reference (F2) | **GAP** — DSN provisioned by an **agent ticket** (Q3; the token exists, not `founder_needed`) |
+| R8 govern | AGENTS · THESIS · FOUNDERS · PR template · docs/prd · tech_design_docs · `bin/lint` | AGENTS ✓ (PRD 0003) · THESIS inert (F7) · FOUNDERS ✗ · PR template ✗ · docs/prd README ✗ · tech_design_docs ✗ · packs/README ✗ · `bin/lint` ✗ | **GAP** (stubs) · **GAP** (thesis) · **ADOPT — Q4** (doc homes) |
 | R9 rswag | swagger gen + verify, when `swagger/` exists | no `swagger/` | **N/A** — rail dormant; adopt only if an API surface appears |
 
 **Also missing gems the template pins:** `strong_migrations`, `timecop`, `n_plus_one_control`,
 `database_cleaner(+active_record)`, `rswag-api/specs`, `cucumber(+rails)`, `gherkin_lint`, `haml-rails`,
 `aasm`, `oj`. **Present already:** `gl_command` ✓, `view_component` ✓, `tailwindcss-rails` ✓,
 `dotenv-rails` ✓, `rspec-rails` ✓, `factory_bot_rails` ✓, `shoulda-matchers` ✓, `packwerk` ✓. Each missing
-gem is adopted **only with the rail it serves** (a gem for a rail the repo does not run is the vacuous-gate
-anti-pattern) — so `aasm`/`oj`/`haml-rails`/`rswag` ride on Q1/Q2/Q4, not on a blind "install everything".
+gem is adopted **only with the rail it serves** — a gem for a rail the repo does not run is the
+vacuous-gate anti-pattern. Under the rulings: `haml-rails` rides on **Q1** (HAML transition), `cucumber` +
+`gherkin_lint` on **Q2** (Rails-scoped lane), `strong_migrations` on **R6**; `rswag-api/specs` stays
+**N/A** until a `swagger/` surface exists; `aasm` and `oj` are **not ruled** (see Q7).
 
 ## Metrics / definition of done
 
@@ -345,36 +400,48 @@ maps to an **emitted metric** (`Sentry::Metrics`), or it is untracked.
   exist.** *Gate:* byte-identical to the template's, where the template emits them.
 - **`<body data-turbo-morph>` present, and the layout spec asserts the head `meta` trigger.** *Gate:* a
   spec failing if the meta is removed.
+- **HAML is adopted as a deprioritised transition** — a ticket exists and nothing treats it as a blocker.
+  *Gate:* the ticket is on the board in W1.4. (Q1)
+- **`sidekiq` is the only job substrate.** `config.active_job.queue_adapter` is `:sidekiq`, no
+  `solid_queue`/`solid_cache`/`solid_cable` remains in `Gemfile`, and no new `solid_*` usage is introduced.
+  *Gate:* `bin/verify` fails on a `solid_*` reference and on a non-Sidekiq adapter. (Q5)
+- **The Cucumber lane exists, is scoped to the Rails app, and gates.** `gherkin_specs/` + step definitions
+  + `.gherkin_lint.yml`, in `bin/verify` and CI on day one; a failing Rails-app scenario turns the gate red.
+  Non-Rails behaviour stays Layer-1 only. *Gate:* `cucumber` and `gherkin_lint` are `bin/verify` members.
+  (Q2)
+- **The two-layer Gherkin rule is documented where agents read it** — `AGENTS.md` and `docs/prd/README.md`.
+  *Gate:* the text is present in both. (Q2)
+- **The template's doc homes exist and the repo's `docs/` documents are reconciled into them, one truth per
+  topic.** *Gate:* byte-identical to the template's where the template emits the file. (Q4)
 - **The deviations table is complete** — no rail left without a disposition. *Gate:* the parity script
   reports `DEVIATION(reason)` for every non-conforming rail and `GAP` for none.
 
 ## Open questions
 
-1. **HAML — convert, or ratify ERB?** The template locks HAML; this repo is ERB across the app and its
-   committed view specs. Retrofit cost is real and the payoff is uniformity, not behaviour. *Lean: keep
-   ERB, add a deviation row, and let the template carry HAML for **new** ventures — record it rather than
-   pay for it.* (Founder ruling.)
-2. **Gherkin — adopt the lane, or ratify the exemption?** PRD 0003 declares it out; the template lists it
-   as locked. *Lean: ratify the written exemption (the repo has one test lane, rspec, and the template's
-   own rule is "never add a gate the repo will not run") and add the deviation row.* (Founder ruling.)
-3. **Sentry DSN and project — who provisions it?** Creating the Sentry project and placing the DSN in
-   encrypted credentials is `founder_needed` (a credential). *Lean: founder supplies DSN (or the project
-   slug for an agent to place), then the initialiser + metrics land in the same PR.* (Founder action.)
-4. **`ARCHITECTURE.md` / `CONTRACTS.md` / `OPS.md` / `DESIGN.md` — adopt the template's homes, or keep the
-   repo's `docs/` equivalents?** The repo already has `DESIGN_SYSTEM.md`, `docs/design-system/`, and the
-   authority live in `AGENTS.md` + `PROJECT_PLAN.md`. Template names differ. *Lean: one truth per topic —
-   adopt the template's filenames only where no current home exists (`FOUNDERS.md`, PR template, docs/prd
-   README, tech_design_docs); otherwise record the repo's home as the deviation.* (Founder ruling.)
-5. **Two job substrates — `solid_queue` *and* `sidekiq`.** The template ships Puma + Sidekiq only. The repo
-   carries both `solid_*` gems and `sidekiq` plus `config/initializers/sidekiq.rb`. *Lean: a decision
-   ticket — pick one, record it; a duplicate substrate is a second place for a job to die silently.*
-   (Founder/tech decision.)
-6. **Does this PRD fold into PRD 0003 as a second epic, or stand alone at W1.4?** *Lean: stand alone — 0003
-   is the gate and is already cut into tickets #45–#50; folding would re-open closed scope.* (Director.)
+**Resolved 2026-10-19 — see *Founder rulings* above.** Q1 HAML (adopt, deprioritised) · Q2 Gherkin (adopt,
+scoped to the Rails app; the two-layer rule) · Q3 Sentry DSN (an agent provisions it) · Q4 doc homes
+(adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4).
+
+**Still open:**
+
+1. **`aasm` vs `state_machines` (Q7).** The template pins `aasm`; this repo uses
+   `state_machines-activerecord`. Same role, different library. *Lean: ratify `state_machines` as a
+   recorded deviation — rewriting working state machines buys uniformity, not behaviour.* (Founder.)
+2. **`packs-rails` vs the template's explicit autoload block (Q8).** The repo loads packs through the
+   `packs-rails` gem; the template emits `Dir[Rails.root.join("packs/*/app/*")]` in `config/application.rb`.
+   `packs-rails` is a superset and 12 packs already depend on it. *Lean: ratify `packs-rails` — the rail
+   (pack autoload) is satisfied either way.* (Founder.)
+3. **Where do the non-Rails Gherkin definitions live (Q9)?** Q2 fixes *executability* (Rails-only) but not
+   *location*. **A:** a `gherkin_specs/` tree where non-Rails scenarios live as `@non-executable`, linted
+   but not run. **B:** they stay inline in the PRD, and only Rails-app scenarios are extracted to
+   `.feature`. *Lean: B — one home per definition, and the PRD is where the definition is agreed.*
+   (Founder — asked.)
 
 ---
 
 Drift note (gherkin-specialist): this PRD carries its acceptance criteria as Gherkin **scenarios inside the
-PRD**, per house style (PRD 0003 precedent). If Q2 rules "adopt the BDD lane", these scenarios become the
-first `gherkin_specs/harness/*.feature` files and the PRD's drift note moves into that feature's lineage
-tags — do not maintain two copies.
+PRD** — Layer 1 (notation), per house style. Q2 ruled **adopt**, so the Rails-app-facing scenarios here (the
+parity script, the `ApplicationCommand` after-commit, the Sentry capture, the Turbo `meta` assertion) become
+the first `gherkin_specs/harness/*.feature` files with lineage tags; scenarios describing non-Rails tools
+(the ComfyUI/render stages) stay definitions and are never executed in Ruby. Do not maintain two copies of
+any one scenario.
