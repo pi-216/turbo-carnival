@@ -1,4 +1,5 @@
 require "rails_helper"
+require "sidekiq/api"
 
 RSpec.describe JobPollerWorker do
   let(:completed_job) { FactoryBot.create(:comfyui_job, :completed) }
@@ -6,6 +7,10 @@ RSpec.describe JobPollerWorker do
   let(:submitted_job) { FactoryBot.create(:comfyui_job, :submitted) }
 
   describe "#perform" do
+    before do
+      allow(Sidekiq::ScheduledSet).to receive(:new).and_return([])
+    end
+
     context "when jobs are in-flight" do
       before do
         running_job

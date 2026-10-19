@@ -1,0 +1,41 @@
+{
+  "key": "render-starved",
+  "title": "no photo in 12h while the render request was refused 1x",
+  "severity": "warn",
+  "evidence": "photos_12h=0 refusals_12h=1 sched_job=none; the :8188 instance (pid 3087480, holder operator) was launched WITHOUT --reserve-vram, so `ensure` refuses on the ARGS before it ever asks the scheduler for a claim \u2014 this refusal is about the launch line, not about how much VRAM is free (see COMFY_RESERVE_VRAM). Response: the OPERATOR's interactive session -- a human is using the shared install; yield the window, do not touch/restart/re-flag it (a running process's args are not ours to change); free=15.7GiB vs ask 16GiB; outside-scheduler holders: 2857769 sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25 4.7GiB, 3087480 main.py 2.5GiB (operator-interactive session) -- free 15.7GiB is below the 16GiB ask, and below the harness's fit floor: the ask is not reduced and no render is attempted. A resident co-tenant is not a blocker by itself -- ComfyUI partial-loads the UNet to free VRAM and offloads the rest (it has rendered at a 14.9GiB resident UNet) (card-level peak 23.4 of 24.0GiB measured under contention); card 0% busy over 10s; the :8188 instance is ACTIVELY RENDERING (last prompt 13.6 min ago) -- a batch is driving the card, not idle residue. TWO things must be true before the harness can render through that session, and only the operator can make either true. (1) LAUNCH ARGS: an instance carrying the SAME `--reserve-vram` flag as the harness's own launch line (`bin/comfyui_harness.sh plan` prints the exact args, default `--reserve-vram 5`) is ADOPTED instead of yielded to, so the loop resumes as soon as that session has room; without the flag every tick refuses on the launch args even when the card is otherwise empty. (2) THE CARD ITSELF: the flag alone is NOT sufficient while the instance HOLDS its models -- an adopted instance still has to clear the scheduler's fit floor, and a resident ~17GiB hold leaves free below the 16GiB floor, so `poll` refuses `vram_insufficient` (measured 2026-09-22 14:00:41: a FLAGGED foreign instance, pid 3662070, 17074MiB held, WAS adopted and the 16GiB claim was refused at free=6413MiB -- nothing rendered). Note that freeing its model cache clears only (2) and never (1): while the instance is up and FLAGLESS, `ensure` returns 2 on the launch args BEFORE it ever asks the scheduler for a claim, so no amount of freed VRAM starts a render through it. (If you would rather keep the card for your own session, say so once: the launch line stops being re-raised and the drought is recorded as accepted policy, the zero-output item staying open as its cost.) CLOSING it is the fix and the next tick renders; freeing its model cache is not, because a flagless instance is refused before any claim.",
+  "status": "open",
+  "first_seen": "2026-09-20T02:25:20-0400",
+  "last_seen": "2026-10-16T08:01:48-0400",
+  "seen_count": 116,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-10-11T01:59:34-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-13T23:56:13-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T00:38:38-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-16T07:32:13-0400",
+      "note": "VERIFIED 2nd independent render block: vram_insufficient (free=12.4GiB vs ask 16GiB) at claim time; outside-scheduler holders 1453958 image_embed uvicorn 5.9GiB (operator-interactive, FOREIGN project) + 2857769 ollama caption model 4.8GiB (ours, needed). Caption runs inside the claim hold (generate_one renders THEN captions w/ claim held), so ollama cannot be freed; image_embed is foreign so turbo-carnival must not kill it. Even if brain-gateway-fixed, no render fits until operator frees >=16GiB."
+    },
+    {
+      "ts": "2026-10-16T08:08:37-0400",
+      "note": "ATTRIBUTION SUPERSEDED: image_embed (pid 1453958) is GONE -- the vram_insufficient co-tenant theory is stale. CURRENT live block (re-probe 08:01, harness status): foreign operator ComfyUI pid 3087480 (tmux-spawn scope, started Fri Oct 16 07:18:05, reserve=missing, claim=idle comfyui=up owner=foreign) launched WITHOUT --reserve-vram;  refuses on the ARGS before the scheduler claim. Not ours to kill; operator must restart with --reserve-vram or yield."
+    },
+    {
+      "ts": "2026-10-16T08:09:25-0400",
+      "note": "NOTE-CLEANUP: ATTRIBUTION SUPERSEDED: image_embed (pid 1453958) is GONE, so the vram_insufficient co-tenant theory is stale. CURRENT live block (re-probe 08:01, harness status): foreign operator ComfyUI pid 3087480 (tmux-spawn scope, started Fri Oct 16 07:18:05, reserve=missing, claim=idle comfyui=up owner=foreign) launched WITHOUT --reserve-vram; the harness 'ensure' step refuses on the ARGS before the scheduler claim. Not ours to kill; operator must restart with --reserve-vram or yield."
+    }
+  ],
+  "closed_at": "2026-10-16T00:38:38-0400",
+  "route": "tim",
+  "ask": "If you would rather keep the card for your own session, say so once -- the launch line stops being re-raised and the drought is recorded as accepted policy (this item staying open as its cost). Otherwise CLOSE that :8188 session: the next hourly tick then renders.",
+  "route_source": "check"
+}

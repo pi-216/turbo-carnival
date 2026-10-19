@@ -1,0 +1,39 @@
+{
+  "key": "vision-caption-path-never-taken",
+  "title": "a caption written AFTER the routing flip took the text path for a photo with readable bytes",
+  "severity": "warn",
+  "source": "probe",
+  "status": "closed",
+  "first_seen": "2026-09-19T17:10:00-0400",
+  "last_seen": "2026-09-21T12:47:29-0400",
+  "seen_count": 42,
+  "evidence": "1 caption(s) written AFTER the routing flip (commit f37136e, 2026-09-21 15:19Z) took the TEXT path for a photo whose bytes are readable, so the flip is not taking effect in production; corpus 339 photos / 141 attached, newest attachment 2026-05-28. PostAutomation::GenerateCaption used to branch on photo.image.attached?, and Growth::ContentGenerator#import_photo creates photos path-only, so every production caption was written from the photo's context text: measured 2026-09-21, the text path described 'rain drumming on the windowpane ... chamomile tea' for a render that shows an autumn street scene with a mug, which the vision path described correctly. THE BRANCH WAS FLIPPED 2026-09-21 (commit f37136e): it now routes on CaptionGeneration::ImageEncoder.readable?, so a path-only render with a resolvable file takes the vision path -- verified live on photo 353 (generator='vision', gemma3:4b, caption grounded in the image). So a text caption over readable bytes is the flip FAILING, and the window counts above are context, not the condition: a window in which NO post was created (the GPU held by a co-tenant, no renders) is unproven, not broken, and this check stays silent on it.",
+  "notes": [
+    {
+      "ts": "2026-09-21T08:48:23-0400",
+      "note": "2026-09-21 12:3xZ ops-triage: unchanged by design (probe refreshed it again this run). No photo has an ActiveStorage image, so the vision caption path is unreachable; the caption service itself is up (bin/tc_ops.py caption-endpoint exit 0). Product decision, not a defect this repo can fix."
+    },
+    {
+      "ts": "2026-09-21T09:52:11-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: unchanged product decision. Live: the caption service is up and the in-repo half landed (f55e8ae); flipping the branch in PostAutomation::GenerateCaption changes what a live account publishes, and the persona age reading is still unresolved, so it was not flipped from here."
+    },
+    {
+      "ts": "2026-09-21T10:05:32-0400",
+      "note": "DECISION 2026-09-21 (operating agent, route=agent): FLIP the branch so path-only photos reach CaptionGeneration::VisionGenerator -- SEQUENCED AFTER persona-age-read-youthful clears. Rationale: captions are written from context text and are measurably wrong (described rain on a windowpane for an autumn street scene the vision path described correctly), and the measured cost is 15.0s per 1.1MB render on the live caption host. The sequencing IS the decision: a vision model describing a minor-reading render makes the persona problem worse, so the persona must read adult first. In-repo half already landed (f55e8ae); the flip is the one-line branch change in PostAutomation::GenerateCaption."
+    },
+    {
+      "ts": "2026-09-21T11:22:27-0400",
+      "note": "FLIPPED 2026-09-21 (operating agent). The sequencing condition (the persona's age reading) is satisfied by the persona-age-read-youthful fix: the render prompt now states an adult age and the pre-publish age gate HOLDS any render whose read comes back juvenile, so a vision model describing the image can no longer amplify a minor-reading render. CHANGE: PostAutomation::GenerateCaption branches on CaptionGeneration::ImageEncoder.readable? instead of photo.image.attached?, so path-only renders -- every render the growth harness imports -- reach CaptionGeneration::VisionGenerator; a photo with no readable bytes at all still falls back to the text path. VERIFIED live with no GPU: PostAutomation::GenerateCaption.call(photo 353, a real path-only production render) -> success, generator='vision', model=gemma3:4b, caption grounded in the image (the text path had invented a different scene for it). Specs: 226 examples 0 failures, including a new example pinning path-only + readable file -> vision and a fallback example pinning no-bytes -> text. The probe's own check closes this automatically once a post in the window records generator='vision' -- the next rendered post will."
+    },
+    {
+      "ts": "2026-09-21T11:25:13-0400",
+      "note": "2026-09-21 15:2xZ ops-triage: the probe RE-FILED this record because its remaining condition is still true, and that is now the only condition. The routing flip landed (commit f37136e: PostAutomation::GenerateCaption branches on CaptionGeneration::ImageEncoder.readable?), verified live on photo 353 (generator=vision, gemma3:4b, caption grounded in the image), so the attachment count in the evidence is retired as a condition -- the check text was corrected to say so (the title no longer claims captions never look at the image). What keeps this open is the second clause only: no post in the window has yet been captioned by the vision path. It closes itself on the next rendered post, and the growth tick renders one at the next GPU window (queue shortfall 4 after the age-gate hold of post 345). No action pending, no Tim ask."
+    },
+    {
+      "ts": "2026-09-21T12:51:18-0400",
+      "note": "DECISION 2026-09-21 (operating agent): CLOSED by fixing the CHECK, not the caption path. The caption routing flip (f37136e) is live and verified; what kept this entry open for 41 sightings was the check itself: it fired whenever no post in the window carried a vision caption, which is UNPROVEN whenever no post was created at all (the 4090 has been held by prx-tg-pixel-posttrain-v3 all day, so no renders -> no posts). Fixed in bin/tc_ops.py: the condition is now the flip's OWN evidence -- a post created AFTER CAPTION_VISION_FLIP_LANDED (2026-09-21 15:19Z) whose photo has readable bytes yet took the TEXT path (scheduling_posts.caption_metadata->>'generator'), resolved with the same readability rule as CaptionGeneration::ImageEncoder.readable?. A window with no post in it, and rows from before the flip, are now silent instead of an info alarm. Also fixed a UTC-vs-local trap found while verifying: created_at is a timestamp WITHOUT time zone holding UTC wall-clock, so a bare to_timestamp() boundary shifted 4h and counted post 346 (13:01Z, pre-flip) as post-flip -- now (to_timestamp(...) at time zone 'UTC'). Verified: check_caption_image_grounding() -> None on the live DB, probe reports 0 warn for this key, selftest 246 assertions 0 failures (6 new flip-aware cases + 5 backup cases), record re-owned by the probe (--source probe) so a future re-filing can auto-close instead of accumulating. Residual risk kept visible: a post-flip text caption over readable bytes is now a WARN, which is the real defect."
+    }
+  ],
+  "route": "agent",
+  "closed_at": "2026-09-21T12:51:18-0400"
+}

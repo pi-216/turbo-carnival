@@ -27,7 +27,7 @@ class Base::ModalComponent < ViewComponent::Base
     when :full then "max-w-7xl"
     else "max-w-lg"
     end
-    
+
     "#{base} #{size_class}"
   end
 

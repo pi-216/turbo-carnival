@@ -1,0 +1,21 @@
+<div class="container mx-auto px-4 py-8">
+  <%= link_to " Back to #{@pillar.name}", persona_pillar_path(@persona, @pillar), class: "text-blue-400 hover:underline mb-4 inline-block" %>
+
+  <h1 class="text-2xl font-bold mb-4">Upload Photo</h1>
+
+  <% if flash[:alert].present? %>
+    <div class="mb-4 text-red-400"><%= flash[:alert] %></div>
+  <% end %>
+
+  <%= form_with model: @photo, url: persona_pillar_photos_path(@persona, @pillar), local: true, html: { multipart: true, class: "space-y-4" } do |f| %>
+    <div>
+      <%= f.label :image, "Select image", class: "block text-sm font-medium mb-1" %>
+      <%= f.file_field :image, accept: "image/*", class: "block w-full text-sm" %>
+    </div>
+
+    <div class="mt-4 flex gap-2">
+      <%= f.submit "Upload", class: "bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded" %>
+      <%= link_to "Cancel", persona_pillar_path(@persona, @pillar), class: "text-zinc-400 hover:text-zinc-200" %>
+    </div>
+  <% end %>
+</div>

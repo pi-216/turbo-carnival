@@ -1,0 +1,38 @@
+{
+  "key": "caption-model-cold-load-exceeds-ollama-timeout",
+  "title": "gemma3:27b cannot be cold-loaded on max395: 16.5 GB over NFS at ~40 MB/s exceeds Ollama's ~300s llama-server start timeout",
+  "severity": "info",
+  "source": "manual",
+  "status": "closed",
+  "first_seen": "2026-09-19T17:05:00-0400",
+  "last_seen": "2026-09-19T17:05:00-0400",
+  "seen_count": 1,
+  "evidence": "OUT OF REPO SCOPE (ollama.service + model store on max395) - recorded, not acted on. Measured 2026-09-19 20:2x-20:5x UTC from this box against 192.168.86.137:11434. (1) ollama.service env: OLLAMA_MODELS=/mnt/nas-ai-models/ollama, OLLAMA_KEEP_ALIVE=30m, OLLAMA_CONTEXT_LENGTH=128000, OLLAMA_NUM_PARALLEL=1; OLLAMA_LOAD_TIMEOUT is unset so it defaults to 300s. (2) /mnt/nas-ai-models is NFS4 from 192.168.86.43 with fsc; direct read of the gemma3:27b blob measured 42 MB/s (dd iflag=direct, 600 MiB in 15.1s). (3) The 27B needs ROCm0 model buffer 15768 MiB + 1102 MiB host, i.e. ~16.5 GB at ~40 MB/s = ~375-390s > the 300s llama-server start timeout. (4) Three consecutive cold loads failed: POST /api/chat 499 at 3m0s and again 3m0s (client aborted, journal: 'client connection closed before llama-server finished loading, aborting load'), then POST /api/generate 500 at 5m3s / 5m4s (journal: 'Load failed ... error=\"timed out waiting for llama-server to start - \"'). (5) Control: gemma3:4b (3.3 GB) cold-loaded and answered HTTP 200 in 147s in the same conditions, and ollama ps then showed it resident. (6) Consequence: every caption call is a cold call (the harness renders roughly hourly, KEEP_ALIVE is 30m), so it fails, and both caption paths substitute the placeholder 'Fresh look' - 5 of the 8 posts created in the 24h to 2026-09-19 20:5x UTC. Same mechanism explains the 09-19 15:15-17:15 run of five consecutive placeholders followed by three real captions at 17:23-17:50 (the model became resident) and a placeholder again at 19:56 (evicted).",
+  "notes": [
+    {
+      "ts": "2026-09-19T17:36:29-0400",
+      "note": "2026-09-19 ops-triage: the app-side impact is now ELIMINATED -- CaptionGeneration::ModelConfig.resolve no longer requires the 27B to load (it picks gemma3:4b from /api/ps when the 27B is cold; verified live, real caption in 21.3s). The infra finding itself still reproduces (a cold gemma3:27b load on max395 still cannot finish inside Ollama ~300s llama-server start timeout), but it is now OPTIONAL for this project rather than blocking: nothing in turbo-carnival depends on the 27B loading. Options for Tim, best first: (a) move OLLAMA_MODELS off NFS to local NVMe on max395 -- fixes cold loads for every model; (b) raise OLLAMA_LOAD_TIMEOUT in ollama.service (e.g. 15m) -- caveat: with OLLAMA_NUM_PARALLEL=1 a 6+ minute load holds the only slot; (c) keep the 27B warm with a cheap ping inside KEEP_ALIVE=30m -- only helps after (a) or (b). Left open as a standing infra finding for Tim; no repo action remains."
+    },
+    {
+      "ts": "2026-09-19T19:40:36-0400",
+      "note": "Measured options 2026-09-19 (ops-triage). State: OLLAMA_MODELS=/mnt/nas-ai-models/ollama (NFS4), no OLLAMA_LOAD_TIMEOUT set (default 300s), OLLAMA_KEEP_ALIVE=30m, OLLAMA_MAX_VRAM=110000, /api/ps empty. (a) Local store: max395 root is /dev/nvme0n1p2 3.6T with only 295G free (92% used) while the store holds 20 models totalling ~300G -- a FULL move does NOT fit; a partial move of just the caption models does (gemma3:27b 17G + gemma3:4b 3.3G ~= 20G), but ollama takes one OLLAMA_MODELS dir, so that needs per-blob symlinks or a second instance. (b) OLLAMA_LOAD_TIMEOUT=15m is a one-line Environment= addition to /etc/systemd/system/ollama.service plus a restart; the slot-blocking caveat stands (a ~6 min load holds the only slot with OLLAMA_NUM_PARALLEL=1). (c) keep-warm ping inside the 30m KEEP_ALIVE. IMPACT IS NOW BOUNDED: the app no longer ships placeholders when the 27B is cold -- CaptionGeneration::ModelConfig.resolve falls back to gemma3:4b (verified live, log line 54002) -- so the residual is caption QUALITY (4B vs 27B) plus a ~150s first caption after a 30m idle, not a content outage. Recommend (b) if the 27B's caption quality is wanted back; otherwise this is a documented limitation and can be closed."
+    },
+    {
+      "ts": "2026-09-19T20:49:31-0400",
+      "note": "2026-09-20 00:5xZ: unchanged infra finding for Tim (max395, outside this repo). App impact stays eliminated: ModelConfig.resolve picks the resident model instead of shipping a placeholder. Options unchanged: (a) partial OLLAMA_MODELS move to local NVMe (root has 295G free vs a ~300G store), (b) OLLAMA_LOAD_TIMEOUT=15m, (c) keep-warm ping."
+    },
+    {
+      "ts": "2026-09-19T22:59:25-0400",
+      "note": "2026-09-20 03:0xZ: the earlier 'app-side impact eliminated' no longer holds this hour, so this item is no longer only an optional infra nicety. Measured: ollama 0.32.6 UP on max395, GET /api/ps = {\"models\":[]} (nothing resident), and a gemma3 cold load from the NFS blob store was still in progress at 02:58:24Z (journal: 'loading model via llama-server' + 'translate_clip_metadata: detected Ollama-format gemma3 GGUF used as mmproj' = the gemma3:4b FALLBACK, i.e. the vision-capable one). A caption call made through the new repair path (CaptionGeneration::PlaceholderRefresh, one real call, inside a rolled-back transaction) waited >10 min with no answer -- past BOTH client budgets (180s preferred + 300s fallback) -- and was killed by hand; no production row was touched (posts 333-337 unchanged, metadata still NULL). So the 4B fallback now exceeds its budget when cold too, which is the mechanism that wrote the 5 queued placeholders. Consequence: (1) a render made now would ship the placeholder again, (2) the 5 queued placeholders are NOT repairable while no model is resident -- captions:refresh_placeholders fails and leaves them as they are, by design. Caveat, stated plainly: each client timeout aborts the load, so repeated attempts can prevent ANY load from completing (a livelock) -- my run made 3 attempts in 15 min and the production harness makes one per caption call, hourly. This strengthens option (b) from the earlier notes (OLLAMA_LOAD_TIMEOUT well above 300s) or (a) (OLLAMA_MODELS off NFS): at the measured ~40 MB/s a 16.5 GB cold read is ~390s, so the 300s llama-server start timeout cannot be met reliably no matter which model is chosen. Out of repo scope (max395) -- recorded, not acted on."
+    },
+    {
+      "ts": "2026-09-19T23:55:47-0400",
+      "note": "Superseded by the probe-owned caption-path-cold (filed this run). This manual entry was the root-cause note for the same defect; caption-path-cold turns it into a LIVE, self-clearing check (fires while no caption model is resident on max395, auto-closes when one is) and carries the fresh measurements - gemma3:4b 3.3GB failed cold load at 301.4s twice (03:34Z, 03:40Z) and was still loading at 4m42s (03:45Z) on 2026-09-20, NFS read 51.5 MB/s on max395 vs 112 MB/s from this box. Closing this duplicate so the board has one entry per condition; the history stays here."
+    },
+    {
+      "ts": "2026-09-30T03:20:39-0400",
+      "note": "2026-09-29: MOVED per Tim directive - the caption Ollama now runs on game (192.168.86.49:11434), not max395. Same NAS model store but ~2-3x faster reads (112 MB/s measured from this box), so a 27B cold load now fits inside the 300s budget. Verified live: end-to-end caption on the new endpoint in 81.5s incl. cold load (gemma3:4b), and a full 27B load fits in ~2.6 min at this speed. The max395 finding itself is recorded history (options a/b/c there no longer apply to the caption path)."
+    }
+  ],
+  "closed_at": "2026-09-19T23:55:47-0400"
+}

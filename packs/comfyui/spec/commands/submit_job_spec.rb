@@ -108,6 +108,29 @@ RSpec.describe SubmitJob do
       end
     end
 
+    context "when the run is in a terminal status" do
+      %w[completed failed].each do |status|
+        it "refuses to dispatch a render for a #{status} run" do
+          # update_column: skip the run's status-change callback (Turbo broadcast),
+          # this example only needs the terminal state in place.
+          pipeline_run.update_column(:status, status)
+
+          result = nil
+          expect do
+            result = described_class.call(
+              job_payload: job_payload,
+              pipeline_step: pipeline_step,
+              pipeline_run: pipeline_run
+            )
+          end.not_to change(ComfyuiJob, :count)
+
+          expect(result).to be_failure
+          expect(result.full_error_message).to include("terminal")
+          expect(comfyui_client).not_to have_received(:submit_workflow)
+        end
+      end
+    end
+
     context "when ComfyUI API fails" do
       before do
         allow(comfyui_client).to receive(:submit_workflow).and_raise(ComfyuiClient::ConnectionError, "Connection failed")

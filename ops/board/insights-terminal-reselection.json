@@ -1,0 +1,19 @@
+{
+  "key": "insights-terminal-reselection",
+  "title": "Insights collection re-asked 11 dead media every run, spending 44pc of its 25-row budget",
+  "severity": "warn",
+  "evidence": "Measured 2026-09-22: 11 posts (ids 133-143, 148) answer HTTP 400 / Graph code 100 (media deleted or inaccessible) forever, and the selection orders never-collected rows FIRST, so those 11 sorted to the front of the candidate list and took 11 of the 25 per-run slots on calls that can never succeed -- 55 identical \"can never be refreshed ... they re-enter every run\" warnings in log/development.log. The command own comment named the gap: nothing recorded the terminal state. Cost: 11 wasted API calls per run against a 200/hour limit, and only 14 slots left for real refresh work.",
+  "status": "closed",
+  "first_seen": "2026-09-22T16:48:38-0400",
+  "last_seen": "2026-09-22T16:48:38-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-22T16:49:02-0400",
+      "note": "2026-09-22 20:5xZ ops-triage: FIXED at the root (migration + command + specs), verified against the live DB and the live Instagram API. ROOT CAUSE: the terminal verdict was never persisted, so a row the API will never answer for stayed 'never collected' -- and the selection orders never-collected rows FIRST, so it sorted to the front of every run. CHANGE: new nullable, reversible column scheduling_posts.insights_unavailable_at (migration 20260922210000); CollectPostInsights records it on the :unavailable outcome (update_columns, not update! -- a validation failure on an old row would abort the whole run and cost the other candidates their refresh) and posts_needing_insights skips a marked row for INSIGHTS_RETRY_AFTER=30.days. It is a BACKOFF, not a tombstone: code 100 also covers a media THIS token cannot read, so a permission/token change must be able to recover the row. VERIFIED LIVE (not just in specs): run 1 refreshed 14 of 25 candidates with 11 permanently unavailable and marked exactly ids 133,134,135,136,138,139,140,141,142,143,148; run 2 refreshed 25 of 25 with ZERO unavailable -- the dead rows were not re-asked, so 11 slots moved to real work, and the can-never-be-refreshed warning fired once instead of once per run (dev-log count 55 -> 56). SPECS: 3 new/extended examples (verdict recorded; marked row not re-selected while a live row takes the slot; marked row IS re-probed after the window) -- 7/7 in the file, 126/126 across spec/tasks + packs/scheduling/spec + spec/services/growth. rubocop: no new offenses (the 18 reported in these files are pre-existing at HEAD, identical count). NO interaction with check_insights_stale: the 11 rows keep NULL insights_updated_at, which is what that check counts, and the newest write is fresh (20:00Z)."
+    }
+  ],
+  "closed_at": "2026-09-22T16:49:02-0400"
+}

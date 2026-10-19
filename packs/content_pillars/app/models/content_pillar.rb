@@ -2,15 +2,13 @@
 
 class ContentPillar < ApplicationRecord
   belongs_to :persona
-  has_many :pillar_cluster_assignments, foreign_key: :pillar_id, dependent: :destroy
-  has_many :clusters, through: :pillar_cluster_assignments, class_name: 'Clustering::Cluster'
-  alias_method :content_clusters, :clusters
+  has_many :photos, class_name: 'ContentPillars::Photo', foreign_key: :content_pillar_id, dependent: :restrict_with_error
 
   validates :name, presence: true, uniqueness: { scope: :persona_id }
   validates :weight, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :priority, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 5 }
   validate :end_date_after_start_date
-  validate :total_weight_within_limit, on: :create
+  validate :total_weight_within_limit
 
   scope :active, -> { where(active: true) }
   scope :current, lambda {
@@ -30,6 +28,11 @@ class ContentPillar < ApplicationRecord
 
   def expired?
     end_date.present? && end_date < Date.current
+  end
+
+  # Alias for caption generation compatibility (was cluster.ai_prompt)
+  def ai_prompt
+    guidelines || description
   end
 
   private

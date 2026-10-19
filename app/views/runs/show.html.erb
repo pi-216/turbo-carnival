@@ -9,21 +9,21 @@
             
             <!-- Breadcrumb Navigation -->
             <div class="flex items-center gap-2 text-zinc-400 text-sm mb-2">
-              <% if @run.cluster %>
-                <%= link_to @run.persona.name, persona_path(@run.persona), class: "hover:text-blue-400" %>
+              <% if @run.content_pillar %>
+                <% persona = @run.persona || @run.content_pillar.persona %>
+                <%= link_to persona.name, persona_path(persona), class: "hover:text-blue-400" %>
                 <span>/</span>
-                <%= link_to @run.cluster.content_pillar.name, persona_pillar_path(@run.persona, @run.cluster.content_pillar), class: "hover:text-blue-400" %>
-                <span>/</span>
-                <%= link_to @run.cluster.name, persona_pillar_cluster_path(@run.persona, @run.cluster.content_pillar, @run.cluster), class: "hover:text-blue-400" %>
+                <%= link_to @run.content_pillar.name, persona_pillar_path(persona, @run.content_pillar), class: "hover:text-blue-400" %>
               <% elsif @run.persona %>
                 <%= link_to @run.persona.name, persona_path(@run.persona), class: "hover:text-blue-400" %>
               <% end %>
             </div>
             
             <div class="flex gap-2">
-              <% if @run.cluster %>
-                <%= render ::Base::ButtonComponent.new(variant: :ghost, size: :sm, href: persona_pillar_cluster_path(@run.persona, @run.cluster.content_pillar, @run.cluster)) do %>
-                  ← Back to cluster
+              <% if @run.content_pillar %>
+                <% persona = @run.persona || @run.content_pillar.persona %>
+                <%= render ::Base::ButtonComponent.new(variant: :ghost, size: :sm, href: persona_pillar_path(persona, @run.content_pillar)) do %>
+                  ← Back to pillar
                 <% end %>
               <% elsif @run.persona %>
                 <%= render ::Base::ButtonComponent.new(variant: :ghost, size: :sm, href: persona_path(@run.persona)) do %>

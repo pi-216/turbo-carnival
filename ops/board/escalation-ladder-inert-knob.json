@@ -1,0 +1,20 @@
+{
+  "key": "escalation-ladder-inert-knob",
+  "title": "the escalation ladder's top rung raised a field no production path reads, so reaching the ceiling was a silent no-op",
+  "severity": "warn",
+  "evidence": "Growth::StrategyBrain#escalate had a second rung, `goal.hashtag_count + 5` (up to a ceiling of 30), and NOTHING in the production path reads that field. Measured 2026-09-24 (read-only): `grep -rn hashtag_count` over .rb/.rake/.yml/.py finds readers ONLY inside strategy_brain.rb itself (plus tmp probes and the schema); the tags that actually reach a post come from ContentStrategy::HashtagEngine (config/content_strategy.yml hashtag_count_min/max = 5/12) and from Personas::HashtagStrategy#max_tags, which Growth::PersonaEvolution#enforce_tag_baseline pins to TAG_BASELINE=10 because the 10 -> 30 \"broaden tags\" ramp was DISPROVEN (reviews 2-5, engagement flat under it). So the ladder's top rung recorded an adjustment that changed nothing: live goal state was posts_per_day=3/3 (max), hashtag_count=20 (no consumer), 5 `escalate_cadence` Decisions on record, `strategy_exhausted` count = 0 \u2014 even though the code's own comment calls the exhaustion Decision \"the authority's signal that volume cannot fix the gap\". Inert rungs are exactly what the in-flight change `add-growth-authority` forbids (\"Escalation reaching its ceiling SHALL NOT be a silent no-op\"), and ramping this one POSTPONED that conclusion by two more 7-day evaluations (20 -> 25 -> 30) past the point where the last live knob had been spent. FIX: the ladder is now live-knob-only (StrategyBrain#escalate returns `exhaust` as soon as posts_per_day == max_posts_per_day; the reason text names posts_per_day only, since naming an unread field would move the same unbound signal into the audit trail), the spec delta for add-growth-authority now states that a knob with no production consumer SHALL NOT be a rung, and spec/services/growth/strategy_brain_spec.rb covers it (proven RED against the pre-change code: it returned view=escalate_cadence and left hashtag_count untouched-but-reported). VERIFIED green: strategy_brain_spec 7/0, spec/services/growth 147/0, rubocop 0 offences on both touched files, `openspec validate add-growth-authority --strict` -> valid.",
+  "status": "closed",
+  "first_seen": "2026-09-24T13:39:11-0400",
+  "last_seen": "2026-09-24T13:39:11-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T13:39:18-0400",
+      "note": "DECIDED 2026-09-24 (ops-triage): the escalation ladder is live-knob-only. Fixed at the root cause in packs/growth_harness/app/services/growth/strategy_brain.rb -- escalate() returns exhaust() as soon as posts_per_day == max_posts_per_day (the hashtag_count rung is gone) and exhaust() reason text names posts_per_day only. Recorded as a spec change in the in-flight change add-growth-authority (Escalation-exhaustion is persisted: a knob no production path reads SHALL NOT be an escalation rung), with tasks 1.2/2.2/4.2 ticked; openspec validate add-growth-authority --strict says valid. Specs: spec/services/growth/strategy_brain_spec.rb gains the exhaustion case plus the skip-report key case, proven RED against the pre-change code (it returned escalate_cadence and next_review_at) then GREEN 7 examples 0 failures; spec/services/growth 147 examples 0 failures; rubocop 2 files 0 offences. Live state re-read this pass, read-only: posts_per_day 3/3, hashtag_count 20 with zero consumers, strategy_exhausted Decisions 0, ratio 0.068 -- so the next due evaluation (the brain own throttle, 2026-09-30 17:02Z) now resolves to the persisted exhaustion conclusion instead of a 6th escalate_cadence."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-09-24T13:39:18-0400"
+}

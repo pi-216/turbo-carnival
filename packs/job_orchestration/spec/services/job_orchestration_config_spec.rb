@@ -3,7 +3,7 @@ require "rails_helper"
 RSpec.describe JobOrchestrationConfig do
   describe ".max_children_per_node" do
     it "returns default value of 2" do
-      expect(described_class.max_children_per_node).to eq(2)
+      expect(described_class.max_children_per_node).to eq(3)
     end
 
     it "reads from environment variable" do

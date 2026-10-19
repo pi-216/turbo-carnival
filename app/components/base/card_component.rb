@@ -63,7 +63,7 @@ module Base
 
     def card_classes
       base = "bg-gray-800 rounded-lg overflow-hidden"
-      
+
       variant_classes = case @variant
       when :default
         "border border-gray-700"
@@ -77,7 +77,7 @@ module Base
         "border border-gray-700"
       end
 
-      [base, variant_classes, @custom_classes].join(" ").strip
+      [ base, variant_classes, @custom_classes ].join(" ").strip
     end
 
     def header_classes

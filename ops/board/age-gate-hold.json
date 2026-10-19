@@ -1,0 +1,39 @@
+{
+  "key": "age-gate-hold",
+  "title": "2 render(s) held by the age gate in the last 48h",
+  "severity": "info",
+  "evidence": "2 post(s) held in the window; 3 still in the held state (unpublished, both clocks cleared, so never released by the publisher). The gate holds a post whose render's apparent-age read comes back juvenile and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its clock: that publishes the render the gate rejected. A hold drops the post out of the cadence count, so the producer owes a replacement render; check_future_queue_empty only fires once the queue reaches zero, days later. The INPUT half of the fix is the adult age anchor in the persona's positive prompt (PersonaAgeAnchor); >= 3 holds in the window means that anchor is not landing. Held rows: #378 (photo 253): AGE: teen CUES: Her youthful facial features and skin suggest she is a teenager.; #377 (photo 260): AGE: teen CUES: Her facial features and skin suggest a young teenager.; #345 (photo 353): forced: photo 353 had an independent free-form read of early-teens-to-early-twenties while the structured probe said young adult; the prompt carried n",
+  "status": "auto-closed",
+  "first_seen": "2026-09-21T13:50:20-0400",
+  "last_seen": "2026-10-04T01:40:01-0400",
+  "seen_count": 100,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-22T03:38:14-0400",
+      "note": "Obligation met, no decision needed -- a hold drops its post out of the cadence count and the producer owes a replacement render; verified this pass: tc_ops.py queue publishable=21 at target 21, status_rows=22, held=1 (post 345), dry_out 2026-09-29T10:30Z (7.1d), and the newest renders all passed the gate (the 09-22 hourly ticks produced posts 351/352/353). Window: the only hold is post 345, recorded 09-21 15:04Z, so this entry self-closes once 48h passes with no new hold (~09-23 15:04Z). The hold is a DELIBERATE safety action; never restore its clock."
+    },
+    {
+      "ts": "2026-09-22T16:04:20-0400",
+      "note": "2026-09-22 20:0xZ ops-triage: unchanged and working as designed -- 1 held post (345), both clocks cleared, never released, and a hold correctly drops its row out of the cadence count. No render has been attempted since 07:01Z, so no new hold could arise this window. Probe-owned (48h), self-closes when the hold leaves it."
+    },
+    {
+      "ts": "2026-09-22T22:39:34-0400",
+      "note": "Accepted condition, no action: the one held render is a deliberate safety action by the age gate (both clocks cleared, never released) -- see the publisher's predicate, which is why publishable=20 != status_rows=21. Decision: leave the hold in place; the queue/dry_out accounting already excludes it, so it neither starves the queue nor needs a clock restored (restoring it would publish a render the age gate read as a minor). Probe-owned and self-closing."
+    },
+    {
+      "ts": "2026-09-23T00:36:52-0400",
+      "note": "2026-09-23 04:3xZ ops-triage: accepted by design, and the gate is now caught up on evidence -- read live from the DB this tick: 24 posts carry an age_gate read, 23 adult / 1 juvenile, and pending=0 (every queued post with a future slot has been read). The single juvenile verdict is the deliberate forced hold of post 345 (photo 353), whose independent free-form read was unresolved against the structured probe; both clocks stay cleared, the row stays reversible, and the slot is a cadence question rather than a gate defect. New and worth recording: all 7 post-anchor renders (photos 355-361, rendered 09-22 00:18..07:07) read adult, and the NEWEST read -- photo 361, 09-22 08:00Z -- is 'late twenties' where the pre-anchor reads were uniformly 'early twenties', so the PersonaAgeAnchor is moving the read older, in the intended direction. The residual stands as recorded: the read is noisy call-to-call, so a juvenile verdict is a tripwire (hold + re-render), not a measurement, and a CLUSTER of age_gate_hold decisions is the signal that the anchor needs another turn (currently 1, the forced hold)."
+    },
+    {
+      "ts": "2026-09-23T07:26:32-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-04T06:16:52-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-10-04T06:16:52-0400"
+}

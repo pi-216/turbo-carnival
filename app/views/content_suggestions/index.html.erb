@@ -1,0 +1,188 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to #{@persona.name.titleize}", persona_path(@persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold mb-2">Content Suggestions</h1>
+      <p class="text-zinc-400">
+        <%= pluralize(@pending_suggestions.count, 'pending suggestion') %> • 
+        <%= @used_suggestions.count %> used • 
+        <%= @rejected_suggestions.count %> rejected
+      </p>
+    </div>
+    <%= button_to "Create New Suggestions", persona_gap_analyses_path(@persona), method: :post, 
+                  class: "bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-2 rounded" %>
+  </div>
+
+  <!-- Pending Suggestions -->
+  <% if @pending_suggestions.any? %>
+    <div class="space-y-4 mb-12">
+      <% @pending_suggestions.group_by(&:content_pillar).each do |pillar, suggestions| %>
+        <div>
+          <h3 class="text-xl font-semibold mb-3 text-blue-300"><%= pillar.name %></h3>
+          <div class="space-y-3 ml-4">
+            <% suggestions.each do |suggestion| %>
+              <%= render CardComponent.new do |c| %>
+                <% c.with_body do %>
+                  <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                      <h4 class="font-semibold text-lg mb-2">
+                        <%= suggestion.title %>
+                        <% if suggestion.prompt_data.is_a?(Hash) && suggestion.prompt_data.dig('llm_metadata', 'created_by_llm') %>
+                          <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-900/40 text-purple-300 border border-purple-700/50">
+                            🤖 LLM Campaign
+                          </span>
+                        <% end %>
+                      </h4>
+                      <p class="text-zinc-300 mb-3"><%= suggestion.description %></p>
+                      
+                      <% draft_post = Scheduling::Post.find_by(content_suggestion: suggestion) %>
+                      <% if draft_post %>
+                        <div class="bg-purple-900/20 border border-purple-700/30 rounded-lg p-3 mb-3">
+                          <div class="flex items-start gap-3">
+                            <div class="text-purple-300 text-2xl">📅</div>
+                            <div class="flex-1 text-sm">
+                              <div class="font-semibold text-purple-200 mb-1">Scheduled Post</div>
+                              <div class="text-zinc-300 mb-1">
+                                <%= draft_post.scheduled_at.strftime("%a, %b %d at %I:%M %p") %>
+                              </div>
+                              <div class="text-xs text-zinc-400 mb-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
+                                  <%= draft_post.status == 'draft' ? 'bg-zinc-700 text-zinc-300' : 
+                                      draft_post.status == 'awaiting_image' ? 'bg-yellow-900/40 text-yellow-300' :
+                                      draft_post.status == 'ready' ? 'bg-green-900/40 text-green-300' :
+                                      'bg-blue-900/40 text-blue-300' %>">
+                                  <%= draft_post.status.titleize %>
+                                </span>
+                                <span class="ml-2">Post #<%= draft_post.id %></span>
+                              </div>
+                              <% if draft_post.caption.present? %>
+                                <div class="text-xs text-zinc-400 italic">
+                                  "<%= draft_post.caption.truncate(60) %>"
+                                </div>
+                              <% end %>
+                            </div>
+                          </div>
+                        </div>
+                      <% end %>
+                      
+                      <div class="text-sm text-zinc-400 mb-3">
+                        <strong>From analysis:</strong> <%= time_ago_in_words(suggestion.gap_analysis.analyzed_at) %> ago
+                        <% if suggestion.gap_analysis.recommendations.is_a?(Hash) && suggestion.gap_analysis.recommendations['campaign_name'] %>
+                          <span class="ml-3"><strong>Campaign:</strong> <%= suggestion.gap_analysis.recommendations['campaign_name'] %></span>
+                        <% elsif suggestion.prompt_data['reason'] %>
+                          <span class="ml-3"><strong>Reason:</strong> <%= suggestion.prompt_data['reason'] %></span>
+                        <% end %>
+                      </div>
+                      
+                      <% if suggestion.prompt_data['existing_prompts']&.any? %>
+                        <details class="text-sm text-zinc-500 mb-3">
+                          <summary class="cursor-pointer hover:text-zinc-400">View existing prompts to avoid</summary>
+                          <ul class="mt-2 ml-4 list-disc">
+                            <% suggestion.prompt_data['existing_prompts'].first(5).each do |prompt| %>
+                              <li><%= prompt %></li>
+                            <% end %>
+                          </ul>
+                        </details>
+                      <% end %>
+                      
+                      <div class="bg-zinc-800 p-3 rounded text-sm font-mono">
+                        <strong class="text-zinc-400">Suggested Prompt:</strong><br>
+                        <%= suggestion.prompt_data['prompt'] %>
+                      </div>
+                    </div>
+                    
+                    <div class="ml-4 flex flex-col gap-2">
+                      <%= link_to "✏️ Edit Prompt", edit_content_suggestion_path(suggestion), 
+                                  class: "bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap text-center" %>
+                      <%= button_to "🎨 Generate Images", generate_image_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap font-semibold" %>
+                      <%= button_to "Mark Used", use_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
+                      <%= button_to "Reject", reject_content_suggestion_path(suggestion), 
+                                    method: :post, 
+                                    class: "bg-zinc-600 hover:bg-zinc-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
+                    </div>
+                  </div>
+                <% end %>
+              <% end %>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <p class="text-zinc-400 text-center py-8">
+          No pending suggestions. Click "Create New Suggestions" to run a gap analysis.
+        </p>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <!-- Used Suggestions (Compact) -->
+  <% if @used_suggestions.any? %>
+    <div class="mb-8">
+      <h2 class="text-xl font-semibold mb-3 text-green-400">Used Suggestions (<%= @used_suggestions.count %>)</h2>
+      <%= render CardComponent.new(classes: "bg-green-900/10 border-green-900/30") do |c| %>
+        <% c.with_body do %>
+          <div class="space-y-2">
+            <% @used_suggestions.each do |suggestion| %>
+              <div class="flex items-center justify-between py-2 border-b border-zinc-700 last:border-0">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-sm truncate"><%= suggestion.title %></span>
+                    <span class="text-xs text-zinc-500">• <%= suggestion.content_pillar.name %></span>
+                  </div>
+                  <p class="text-xs text-zinc-400 truncate"><%= suggestion.description %></p>
+                </div>
+                <div class="text-xs text-zinc-500 ml-4 whitespace-nowrap">
+                  <%= time_ago_in_words(suggestion.used_at) %> ago
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+
+  <!-- Rejected Suggestions (Compact) -->
+  <% if @rejected_suggestions.any? %>
+    <div>
+      <h2 class="text-xl font-semibold mb-3 text-zinc-400">Rejected Suggestions (<%= @rejected_suggestions.count %>)</h2>
+      <%= render CardComponent.new(classes: "bg-zinc-900/50 border-zinc-800") do |c| %>
+        <% c.with_body do %>
+          <div class="space-y-2">
+            <% @rejected_suggestions.each do |suggestion| %>
+              <div class="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-sm text-zinc-400 truncate"><%= suggestion.title %></span>
+                    <span class="text-xs text-zinc-600">• <%= suggestion.content_pillar.name %></span>
+                  </div>
+                  <p class="text-xs text-zinc-500 truncate"><%= suggestion.description %></p>
+                </div>
+                <div class="flex items-center gap-3 ml-4">
+                  <span class="text-xs text-zinc-600 whitespace-nowrap">
+                    <%= time_ago_in_words(suggestion.updated_at) %> ago
+                  </span>
+                  <%= button_to "🗑️", content_suggestion_path(suggestion), 
+                               method: :delete,
+                               data: { confirm: "Delete this suggestion permanently?" },
+                               class: "text-red-400 hover:text-red-300 text-sm",
+                               title: "Delete permanently" %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

@@ -1,0 +1,19 @@
+{
+  "key": "legacy-follower-csv-surface",
+  "title": "log/follower_tracking.csv is a dead artifact every monitor re-notices because nothing owns it",
+  "severity": "info",
+  "evidence": "log/follower_tracking.csv: 29 bytes, one row (2026-05-22T17:04:27Z,144,125), mtime May 22, NOT tracked by git (git ls-files --error-unmatch: pathspec did not match). No writer and no reader anywhere in the repo or the profile: grep for follower_tracking across the repo (excluding node_modules/.git) and ~/.hermes/profiles/turbo-carnival returns only MONITOR REPORTS that cite it as misleading -- the overnight watchdog has flagged it as a 'legacy dead artifact ... misleading surface' in at least three separate passes (log/overnight_watchdog.log lines 30/39/1052) and the 2026-09-21 08:56 watchdog entry re-derived it again. The live surface is the growth_snapshots table (30 snapshots/24h, id 968 latest). Nothing re-breaks, nothing is broken -- but the file is re-diagnosed from scratch every pass, which is exactly what the board exists to stop.",
+  "status": "closed",
+  "first_seen": "2026-09-21T10:07:26-0400",
+  "last_seen": "2026-09-21T10:07:26-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-21T10:07:26-0400",
+      "note": "Known-accepted condition, recorded so no pass re-derives it. Verified 2026-09-21 14:0xZ: the file has no producer and no consumer (grep across the repo + the whole profile returns only monitor reports), it is untracked, and growth_snapshots is the real series. The only fix that removes the misleading surface is deleting a 29-byte untracked file, which is Tim's call (destructive actions need explicit confirmation) -- so this is closed as accepted, not fixed. Reports should stop citing it: the growth line already reads growth_snapshots."
+    }
+  ],
+  "closed_at": "2026-09-21T10:07:26-0400"
+}

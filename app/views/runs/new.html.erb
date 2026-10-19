@@ -53,15 +53,15 @@
             <p class="mt-1 text-xs text-zinc-400">Associate this run with a persona</p>
           </div>
 
-          <!-- Cluster Selection -->
-          <div id="cluster-selection" <%= 'style=display:none' unless @run.persona_id.present? %>>
-            <%= f.label :cluster_id, "Cluster (Optional)", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.select :cluster_id, 
-                @run.persona_id.present? ? options_for_select(Clustering::Cluster.where(persona_id: @run.persona_id).order(:name).map { |c| [c.name, c.id] }, @run.cluster_id) : [],
-                { prompt: "Select a cluster...", include_blank: true },
+          <!-- Pillar Selection -->
+          <div id="pillar-selection" <%= 'style=display:none' unless @run.persona_id.present? %>>
+            <%= f.label :content_pillar_id, "Content Pillar (Optional)", class: "block text-sm font-medium text-zinc-300 mb-2" %>
+            <%= f.select :content_pillar_id, 
+                @run.persona_id.present? ? options_for_select(ContentPillar.where(persona_id: @run.persona_id).order(:name).map { |p| [p.name, p.id] }, @run.content_pillar_id) : [],
+                { prompt: "Select a pillar...", include_blank: true },
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent",
-                data: { cluster_select: true } %>
-            <p class="mt-1 text-xs text-zinc-400">Associate this run with a content cluster</p>
+                data: { pillar_select: true } %>
+            <p class="mt-1 text-xs text-zinc-400">Associate this run with a content pillar</p>
           </div>
 
           <!-- Run Name -->

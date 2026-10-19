@@ -4,8 +4,8 @@ FactoryBot.define do
     content_pillar { nil }
     title { "MyString" }
     description { "MyText" }
-    prompt_data { "" }
-    status { "MyString" }
-    used_at { "2025-12-03 18:46:50" }
+    prompt_data { {} }
+    status { "pending" }
+    used_at { nil }
   end
 end

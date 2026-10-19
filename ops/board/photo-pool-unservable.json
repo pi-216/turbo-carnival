@@ -1,0 +1,40 @@
+{
+  "key": "photo-pool-unservable",
+  "title": "only 0 servable unposted photo(s) left -- the corpus is draining",
+  "severity": "warn",
+  "evidence": "pool=0 union=0 unposted=0 (floor 10); each photo can back exactly one post per persona (unique index photo_id+persona_id), so this is the hard ceiling on how many posts the queue can still be filled with; below the floor the shortfall shows up only as an empty queue",
+  "status": "open",
+  "first_seen": "2026-09-20T06:36:46-0400",
+  "last_seen": "2026-10-16T08:01:37-0400",
+  "seen_count": 12,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-10-12T03:14:33-0400",
+      "note": "progress"
+    },
+    {
+      "ts": "2026-10-12T03:14:33-0400",
+      "note": "RE-OPENED 2026-10-12 (first seen 2026-09-20, auto-closed then): union=0 below the floor of 10 -- the spendable render library is exhausted. NOT the arm: a REELS post carries photo_id NULL (post 408 has none), so the reel rail consumes no pool photo. Measured: 44 photos have a path and no post row, but 0 are spendable through the NSFW/sharpness gates; the 4090 is idle (5,420/24,564 MiB used, no scheduler claim), so a FRESH render is available and is the only content lever left. Queue runway ~2.3d, dry_out 2026-10-14T10:30Z. Treated as a FORECAST rather than a defect: past dry-out the rail goes silent with no error of its own, so the actionable step is a render before the last clock, re-checked with tc_ops.py queue."
+    },
+    {
+      "ts": "2026-10-14T00:12:57-0400",
+      "note": "Only the operator can unblock rendering: your foreign ComfyUI (pid 1085282, tmux scope, started Tue Oct 13 22:17:41, reserve=missing) holds 18.9 GB resident at 1% util on the 4090 with NO scheduler claim (scheduler reads idle = false-idle double-book; only ~1.3 GB free). The spendable photo pool is drained (union=0, floor 10) and posting goes silent 2026-10-15T09:00Z (1.2d) with no error. turbo-carnival cannot kill your workload and its reserve-gate fail-closes on the un-reserved instance, so no render fits. Yield the card, or restart ComfyUI with --reserve-vram, and the harness will top up the pool."
+    },
+    {
+      "ts": "2026-10-16T03:44:40-0400",
+      "note": "ASK UPDATED: the foreign-ComfyUI enablement (yield card / restart with --reserve-vram) is RESOLVED -- that instance (pid 1085282) is now down. Pool still drained (union=0) because the brain/render driver cannot start: max395 ds4 inference server saturated (KV 511G/512G, RAM 103Gi/119Gi) -> see brain-gateway-failed. Pool can only be refilled once inference capacity frees and a fresh render lands."
+    },
+    {
+      "ts": "2026-10-16T07:32:14-0400",
+      "note": "SECOND independent blocker confirmed: even after brain-gateway is fixed, the 4090 render claim is denied vram_insufficient (free 12.4GiB < 16GiB ask) -- foreign operator image_embed uvicorn 1453958 (5.9GiB) + our ollama caption model (4.8GiB) co-tenant the card. Caption needs ollama during the claim hold; image_embed is foreign (not ours to kill). Ask Tim: stop/move image_embed (pid 1453958, /home/tim/source/activity/image_embed, port 8001) to free >=16GiB."
+    },
+    {
+      "ts": "2026-10-16T08:08:37-0400",
+      "note": "SUPERSEDE: image_embed (1453958) GONE. CURRENT GPU ask: foreign operator ComfyUI pid 3087480 (tmux, 07:18, reserve=missing) blocks the render claim on ARGS -- restart with --reserve-vram or yield the card. Pool drained union=0; PRIMARY blocker remains brain-gateway-failed (brain cannot start: max395 ds4 saturated)."
+    }
+  ],
+  "closed_at": "2026-10-12T03:14:33-0400",
+  "route": "tim",
+  "route_source": "explicit"
+}

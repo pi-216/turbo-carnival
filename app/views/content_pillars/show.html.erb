@@ -1,46 +1,91 @@
 <div class="container mx-auto px-4 py-8">
-  <!-- Back button -->
-  <div class="mb-4">
-    <%= link_to persona_path(@persona), class: "text-blue-600 hover:text-blue-800" do %>
-      ← Back to <%= @persona.name.titleize %>
+  <%= link_to "← Back to #{@persona.name}", persona_path(@persona), class: "text-blue-400 hover:underline mb-4 inline-block" %>
+  
+  <div class="flex justify-between items-start mb-6">
+    <div>
+      <h1 class="text-3xl font-bold mb-2"><%= @pillar.name %></h1>
+      <% if @pillar.description.present? %>
+        <p class="text-zinc-400"><%= @pillar.description %></p>
+      <% end %>
+      <div class="mt-2 text-sm text-zinc-500">
+        Weight: <%= @pillar.weight %>% | Priority: <%= @pillar.priority %>
+        <% if @pillar.start_date || @pillar.end_date %>
+          <span class="ml-2">
+            | 
+            <% if @pillar.start_date && @pillar.end_date %>
+              <%= @pillar.start_date.strftime('%B %d, %Y') %> - <%= @pillar.end_date.strftime('%B %d, %Y') %>
+            <% elsif @pillar.start_date %>
+              From <%= @pillar.start_date.strftime('%B %d, %Y') %>
+            <% else %>
+              Until <%= @pillar.end_date.strftime('%B %d, %Y') %>
+            <% end %>
+          </span>
+        <% end %>
+      </div>
+      <% if @pillar.expired? %>
+        <div class="mt-2 text-sm text-red-400">⚠️ This pillar has expired</div>
+      <% end %>
+    </div>
+    <div class="flex gap-2">
+      <%= link_to "Upload Photo", new_persona_pillar_photo_path(@persona, @pillar),
+                  class: "bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded inline-block" %>
+      <%= link_to "✏️ Edit", edit_persona_pillar_path(@persona, @pillar), 
+                 class: "bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded inline-block" %>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold"><%= @photos.count %></div>
+        <div class="text-zinc-400">Total Photos</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold text-green-400"><%= @photos.unposted.count %></div>
+        <div class="text-zinc-400">Available</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-2xl font-bold"><%= PipelineRun.where(content_pillar_id: @pillar.id).count %></div>
+        <div class="text-zinc-400">Runs</div>
+      <% end %>
+    <% end %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-sm text-zinc-400">Status</div>
+        <div class="text-lg font-semibold"><%= @pillar.active? ? '✓ Active' : 'Inactive' %></div>
+      <% end %>
     <% end %>
   </div>
 
-  <h1 class="text-3xl font-bold mb-2"><%= @pillar.name %></h1>
-  <% if @pillar.description.present? %>
-    <p class="text-zinc-600 mb-8"><%= @pillar.description %></p>
-  <% end %>
-
-  <!-- Create cluster button -->
-  <div class="mb-6 flex gap-4">
-    <%= link_to "New Cluster", new_persona_pillar_cluster_path(@persona, @pillar), class: "inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" %>
-    <%= link_to "Get AI Suggestions", suggest_persona_pillar_path(@persona, @pillar), class: "inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" %>
-  </div>
-
-  <!-- Clusters -->
-  <h2 class="text-2xl font-semibold mb-4">Clusters</h2>
-  <% if @clusters.any? %>
-    <div class="space-y-4">
-      <% @clusters.each do |cluster| %>
-        <%= render CardComponent.new(classes: "hover:shadow-lg transition") do |c| %>
-          <% c.with_body do %>
-            <%= link_to persona_pillar_cluster_path(@persona, @pillar, cluster), class: "block" do %>
-              <h3 class="text-xl font-semibold mb-2"><%= cluster.name %></h3>
-              <div class="grid grid-cols-3 gap-4 text-sm text-zinc-400">
-                <div>
-                  <span class="font-medium"><%= cluster.photos.count %></span> photos
-                </div>
-                <div>
-                  <span class="font-medium"><%= cluster.pipeline_runs.count %></span> runs
-                </div>
-                <div class="text-right">
-                  <span class="inline-block bg-zinc-700 rounded px-2 py-1"><%= cluster.status %></span>
-                </div>
+  <!-- Photos -->
+  <h2 class="text-2xl font-semibold mb-4">Photos</h2>
+  
+  <% if @photos.any? %>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <% @photos.each do |photo| %>
+        <%= render CardComponent.new(classes: "hover:shadow-lg transition overflow-hidden") do |c| %>
+          <% c.with_body(padding: false) do %>
+            <% if photo.image.attached? %>
+              <%= image_tag photo.image, 
+                            class: "w-full h-48 object-cover" %>
+            <% else %>
+              <div class="w-full h-48 bg-zinc-700 flex items-center justify-center">
+                <span class="text-zinc-500">No Image</span>
               </div>
-              <% if cluster.ai_prompt.present? %>
-                <p class="text-zinc-400 text-sm mt-2 truncate"><%= cluster.ai_prompt %></p>
-              <% end %>
             <% end %>
+            <div class="p-3">
+              <div class="text-xs text-zinc-500">
+                <%= photo.created_at.strftime('%b %d, %Y') %>
+              </div>
+              <% if photo.posted? %>
+                <div class="text-xs text-green-400 mt-1">Posted</div>
+              <% end %>
+            </div>
           <% end %>
         <% end %>
       <% end %>
@@ -48,9 +93,9 @@
   <% else %>
     <%= render CardComponent.new do |c| %>
       <% c.with_body do %>
-        <div class="text-center text-zinc-400">
-          <p>No clusters yet.</p>
-          <p class="text-sm mt-2">Create your first cluster to start organizing content.</p>
+        <div class="text-center text-zinc-400 py-8">
+          <p>No photos yet for this pillar.</p>
+          <p class="text-sm mt-2">Create a pipeline run to generate content.</p>
         </div>
       <% end %>
     <% end %>

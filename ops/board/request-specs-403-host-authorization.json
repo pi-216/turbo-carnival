@@ -1,0 +1,18 @@
+{
+  "key": "request-specs-403-host-authorization",
+  "title": "Request specs are rejected with 403 by HostAuthorization, silently disabling the request-spec suite",
+  "severity": "info",
+  "evidence": "config/application.rb appended .pi216.ai to config.hosts in EVERY environment. In the test environment that turns Rails permissive default into a one-entry allowlist, so any request spec using the default host (www.example.com) is rejected with 403 by ActionDispatch::HostAuthorization before it reaches the app. Observed 2026-09-19 21:4x UTC: spec/requests/scheduling_posts_spec.rb -> 7 failures, all Host Authorization (a 403 and the Rails exception page containing the Host Authorization guide). Pre-existing from the initial commit, unrelated to the caption work shipped in the same run.",
+  "status": "closed",
+  "first_seen": "2026-09-19T17:39:02-0400",
+  "last_seen": "2026-09-19T17:39:02-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "notes": [
+    {
+      "ts": "2026-09-19T17:39:02-0400",
+      "note": "FIXED same run: config/application.rb now appends .pi216.ai unless Rails.env.test?, so the test environment keeps its permissive default and production is untouched. Verified: bundle exec rspec spec/requests/scheduling_posts_spec.rb -> 7 examples, 0 failures (was 7 failures). The request-spec suite can catch regressions again."
+    }
+  ],
+  "closed_at": "2026-09-19T17:39:02-0400"
+}

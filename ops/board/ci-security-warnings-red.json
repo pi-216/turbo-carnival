@@ -1,0 +1,24 @@
+{
+  "key": "ci-security-warnings-red",
+  "title": "CI scan_ruby is red on 4 pre-existing brakeman warnings -- 3x SendFile on DB-stored paths, 1x Rails 8.0.4 EOL",
+  "severity": "warn",
+  "evidence": "Measured 2026-10-12 with the bumped brakeman 8.1.0 (bin/brakeman --no-pager, rc=3 = warnings found; brakeman exits non-zero on warnings by default, so scan_ruby fails): SendFile/Medium on app/controllers/images_controller.rb:6 (ImageCandidate#image_path), app/controllers/media_controller.rb:43 (Photo#servable_file_path -- the STILL path, predates the reel work) and app/controllers/media_controller.rb:75 (Post#reel_path, added 2026-09-24); plus EOLRails/Medium -- Rails 8.0.4 support ends 2026-11-07. All 4 are pre-existing and were invisible for ~6.5 weeks because scan_ruby died at exit 5 on --ensure-latest before it ever scanned. NO config/brakeman.ignore has ever existed here (git log --all: empty), so silencing them introduces a new practice; the send_file pattern is one this codebase deliberately ships (the still path has carried it for months). Recommendation: harden the three send_file sites to assert the resolved path is inside an allowed root, and schedule the Rails upgrade, rather than adding ignore entries.",
+  "status": "closed",
+  "first_seen": "2026-10-12T03:15:16-0400",
+  "last_seen": "2026-10-12T03:15:16-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-10-12T03:15:16-0400",
+      "note": "routed agent: the code fixes are in-repo; the only part needing Tim is any decision to ignore a security warning, which the recommendation avoids"
+    },
+    {
+      "ts": "2026-10-13T03:16:26-0400",
+      "note": "FIXED + VERIFIED. Root cause: 3x SendFile/Medium on DB-stored paths (images_controller:6, media_controller:43 still, media_controller:75 reel) fed unguarded to send_file. Added ApplicationController#send_file_from_allowed_root: expands the path and proves it stays inside the root its writer mints into (COMFYUI_MIRROR_ROOT + ComfyUI mounts for still/image paths, Rails.root/storage/reels for reel) before send_file; anything else 404s. Roots read at request time so specs can stub ENV. Specs rewritten to write fixtures into legit roots + traversal 404 tests. Verified: rspec-media-images 14 examples 0 failures; full rspec 630 examples 0 failures; rubocop 396 files no offenses. 4th warning was EOLRails (Rails 8.0.4 ends 2026-11-07): upgraded rails 8.0.4 -> 8.1.4 (Gemfile ~>8.1.0, bundle update), boot_ok, brakeman now 0 warnings (rc 0). CI scan_ruby should go green."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-10-13T03:16:26-0400"
+}

@@ -1,0 +1,41 @@
+{
+  "key": "photo-corpus-offsite-gap",
+  "title": "Corpus backup has two copies on one site; the off-site leg is built and needs one approval (destination)",
+  "severity": "info",
+  "evidence": "The single-copy risk is CLOSED: bin/corpus_backup.sh keeps a verified second copy of the render corpus at <repo>/corpus-backup/ on the local NVMe, nightly via Hermes cron bae1bd85ec35 (first snapshot 59,704 files / 83.02 GB; DB check verified 171 resolvable corpus file(s), missing=0). OFF-SITE is the remaining bar: the NAS and this box are in the same place, so one fire, flood or theft takes both copies at once. Two independent devices is met; off-site is the next bar and is deliberately not claimed as done.\n\nCORRECTED 2026-09-21 -- this is no longer an unobtainable-credential ask. The app keys stay dead (the key in .env and the one in Rails credentials are the same id, 00437451bb92cd0000000000e: aws s3 ls on fluffy-train-development/-production -> InvalidAccessKeyId; Rails' own b2 service.exist? -> Forbidden; nothing written to B2 since 2026-05-28). But the open claim that \"no agent can obtain those from here\" was WRONG about this box: ~/.aws/credentials carries the profile `b2_tim`, a LIVE key for the SAME B2 account -- `aws s3 ls --profile b2_tim --endpoint-url https://s3.us-west-004.backblazeb2.com` returns 6 buckets with rc=0 and `aws s3api head-bucket --bucket tim-training-data` returns rc=0. Every sibling project already has a prefix under `tim-training-data/` (BreastTissue-Net, crawlr, dino-x, eidolon, eros, ffhq, flenwheel, flux2-lora, gpt-oss-20b-eros, jubilant-palm-tree, leica-look, loras, outputs, processed, prx-tg, stratum-api, therapist-in-a-minor, turbo-octo-funicular); turbo-carnival has none, and no object in B2 matches carnival/corpus/sarah/comfyui. The NAS-side Synology buckets are not covering it either (tim-synology-cloudsync/@SynologyCloudSync/ and /photos/ hold only the 2025-05-13 markers).\n\nTHE OFF-SITE LEG IS BUILT AND VERIFIED IN-REPO: `bin/corpus_backup.sh --offsite [--dry-run]`, or `CORPUS_BACKUP_OFFSITE=1` on the nightly run. It packages the DB-defined corpus (171 resolvable photos.path files + the 339-row manifest) as one tar.gz, uploads to s3://tim-training-data/turbo-carnival/corpus/, then reads the object back and compares ContentLength and the sha256 metadata -- an upload nobody read back is a claim, not a copy. Destination/profile/prefix/endpoint are overridable (CORPUS_BACKUP_BUCKET / _PROFILE / _PREFIX / _ENDPOINT). DEFAULT OFF, because it writes into Tim's B2 account.\n\nWHAT IS NEEDED FROM TIM: approve the destination (default s3://tim-training-data/turbo-carnival/corpus/) or name another S3-compatible target. That is the whole ask -- one yes/no. On approval the wiring is the env var CORPUS_BACKUP_OFFSITE=1 in the tc-corpus-backup tick and nothing else. Scope stays the publishable corpus (~176 MiB); the ~83 GB historical sarah1a3 tree stays on the two local copies, because off-siting it is a recurring-cost decision and it recovers nothing the app published.\n\nSecond half, unchanged and still Tim's file rather than this repo's: /home/tim/backup.sh:27 rsyncs /mnt/fscache/essdee/ with -x and no --copy-links, so ComfyUI/output mirrors as a dangling symlink onto the same NAS volume -- the nightly backup still looks like it covers the images while covering none of them.",
+  "status": "closed",
+  "first_seen": "2026-09-21T12:40:04-0400",
+  "last_seen": "2026-09-23T11:31:08-0400",
+  "seen_count": 3,
+  "source": "manual",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-09-22T05:36:33-0400",
+      "note": "2026-09-22 09:4xZ ops-triage: both legs re-verified today, so the ask stays a pure one-yes/no. Second copy: log/corpus_backup_2026-09-22.log -> verified 178 resolvable corpus file(s); missing=0, EXIT=0, 78G at corpus-backup/snapshots/tue (7 new files, 10 transferred vs the mon link). Off-site package: corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still on disk and intact -- sha256 d5d03c729de8cb9ae49164678629091ee749ca3677aab5250df1c49ca3bc3520, gzip -t OK, 172 entries. Nothing left to build; the only missing fact is the destination."
+    },
+    {
+      "ts": "2026-09-23T08:43:21-0400",
+      "note": "2026-09-23 12:4xZ ops-triage: ask unchanged and re-verified today -- the second copy is healthy and the off-site package is intact, so this remains a pure one-yes/no on the destination. SECOND COPY: log/corpus_backup_2026-09-23.log -> 'verified 178 resolvable corpus file(s); missing=0', EXIT=0, 78G at corpus-backup/snapshots/wed (nightly cron, 09-23 03:15). OFF-SITE PACKAGE: corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still on disk, 183,555,035 bytes, built 09-21 15:52. NOTHING IN-REPO IS BLOCKED ON THIS -- the withhold is deliberate: bin/corpus_backup.sh runs the upload only when CORPUS_BACKUP_OFFSITE=1 because it writes into Tim's own B2 account (aws --profile b2_tim -> s3://tim-training-data/turbo-carnival/corpus), which is his billing surface and therefore his call, not a default to assume."
+    },
+    {
+      "ts": "2026-09-23T18:44:41-0400",
+      "note": "2026-09-23 22:5xZ ops-triage: the destination is VERIFIED REAL and reachable this pass, so this is now purely 'may I write into your B2 account' with no unknown left. Measured read-only (no writes): aws --profile b2_tim --endpoint-url https://s3.us-west-004.backblazeb2.com s3 ls s3://tim-training-data/ -> rc=0, 18 sibling project prefixes (BreastTissue-Net/, crawlr/, dino-x/, eidolon/, prx-tg/, stratum-api/, ...), so the bucket is the ESTABLISHED off-site home and needs no new credential. Our own prefix s3://tim-training-data/turbo-carnival/ does not exist yet -- it is created by the first upload, which is the write awaiting your yes. Upload stays OFF by default (bin/corpus_backup.sh --offsite) and reads the object back, comparing size + sha256, before calling it a copy. NOTE for a reader who might try the same probe: the DEFAULT aws profile is a different account (231074198977) and lists no such bucket -- that is not evidence the destination is missing; the B2 endpoint + b2_tim profile is the only correct way to read it."
+    },
+    {
+      "ts": "2026-10-09T05:08:39-0400",
+      "note": "RE-VERIFIED 2026-10-09 (ask unchanged): off-site package corpus-backup/offsite/corpus-20260921T195212Z.tar.gz still intact (183,555,035 B, sha256 d5d03c729de8...bc3520, gzip -t OK). Second copy still fresh: snapshot corpus-backup/snapshots/fri created today 04:16, 59,746 files / 83.02 GB (now produced by the ds4q producer cron 2e64592d2981 instead of the old agent job -- the log file naming changed, the copy is healthy). Nothing in-repo blocked; the one yes/no is the off-site destination."
+    },
+    {
+      "ts": "2026-10-11T02:27:15-0400",
+      "note": "DECISION: off-site leg is built; needs Tim to approve a destination (external) \u2014 no action from here."
+    },
+    {
+      "ts": "2026-10-12T03:15:10-0400",
+      "note": "DONE 2026-10-12T06:57Z (Tim approved the destination): the off-site leg is armed and executed -- bin/corpus_backup.sh --offsite uploaded and READ THE OBJECT BACK: s3://tim-training-data/turbo-carnival/corpus/corpus-20261012T065722Z.tar.gz, 230,637,381 bytes, sha256 matches. The script compares its own sha256 to the uploaded object, so this is not an upload-sealed claim. Credential check before the write: the live ~/.aws/credentials profile b2_tim listed the 6 buckets in the account, rc=0. Pre-arm smoke: --offsite --dry-run resolved the archive and target without uploading. NOTE: the dry run left TWO built archives in corpus-backup/offsite/ (~414 MiB, gitignored, machine-local) -- the Sep-21 package plus the uploaded Oct-12 one."
+    }
+  ],
+  "ask": "One yes/no: approve the off-site destination s3://tim-training-data/turbo-carnival/corpus/ (the 176 MiB package is built and verified, and the upload is one env var), or name another S3-compatible target. Nothing else is blocked on this.",
+  "route_source": "explicit",
+  "closed_at": "2026-10-12T03:15:10-0400"
+}

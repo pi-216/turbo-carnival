@@ -13,7 +13,7 @@ module Base
     private
 
     def container_classes
-      classes = ["bg-gray-900", "border-r", "border-gray-800", "flex", "flex-col"]
+      classes = [ "bg-gray-900", "border-r", "border-gray-800", "flex", "flex-col" ]
       classes << (wrapper_classes)
       classes.join(" ")
     end

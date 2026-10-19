@@ -14,7 +14,7 @@ module Base
     private
 
     def container_classes
-      classes = ["bg-gray-900", "border-b", "border-gray-800"]
+      classes = [ "bg-gray-900", "border-b", "border-gray-800" ]
       classes << "sticky top-0 z-50" if @fixed
       classes.join(" ")
     end

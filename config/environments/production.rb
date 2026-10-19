@@ -18,9 +18,8 @@ Rails.application.configure do
   # Enable serving of images, stylesheets, and JavaScripts from an asset server.
   # config.asset_host = "http://assets.example.com"
 
-  # Store uploaded files on Backblaze B2 (S3-compatible) in production
-  # Use :local for development/test
-  config.active_storage.service = :b2
+  # Store uploaded files on local disk
+  config.active_storage.service = :local
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
   config.assume_ssl = true

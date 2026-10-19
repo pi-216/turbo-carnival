@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class PersonasController < ApplicationController
-  before_action :set_persona, only: [:show, :edit, :update, :destroy]
+  before_action :set_persona, only: [ :show, :edit, :update, :destroy ]
 
   def index
     @personas = Persona.all.order(:name)
@@ -9,9 +9,22 @@ class PersonasController < ApplicationController
 
   def show
     @pillars = @persona.content_pillars.order(:name)
-    @clusters = @persona.clusters.includes(:pillars).order(created_at: :desc).limit(5)
     @total_photos = @persona.photos.count
-    @total_clusters = @persona.clusters.count
+
+    # Use command to get available photos count
+    result = Photos::ListAvailable.call(persona: @persona)
+    @unposted_photos = result.photos.count
+
+    # Get upcoming scheduled posts
+    @upcoming_posts = Scheduling::Post
+      .where(persona: @persona, status: [ "draft", "scheduled" ])
+      .where("scheduled_at > ?", Time.current)
+      .order(:scheduled_at)
+      .limit(10)
+      .includes(photo: :content_pillar)
+
+    @scheduled_posts = Scheduling::Post.where(persona: @persona, status: [ "draft", "scheduled" ]).count
+    @posted_count = Scheduling::Post.where(persona: @persona, status: "posted").count
   end
 
   def new
@@ -20,9 +33,9 @@ class PersonasController < ApplicationController
 
   def create
     result = Personas.create(name: persona_params[:name])
-    
+
     if result.success?
-      redirect_to persona_path(result.persona), notice: 'Persona was successfully created.'
+      redirect_to persona_path(result.persona), notice: "Persona was successfully created."
     else
       @persona = Persona.new(persona_params)
       @persona.errors.add(:base, result.full_error_message)
@@ -35,7 +48,7 @@ class PersonasController < ApplicationController
 
   def update
     if @persona.update(persona_params)
-      redirect_to persona_path(@persona), notice: 'Persona was successfully updated.'
+      redirect_to persona_path(@persona), notice: "Persona was successfully updated."
     else
       render :edit, status: :unprocessable_entity
     end
@@ -43,7 +56,7 @@ class PersonasController < ApplicationController
 
   def destroy
     @persona.destroy!
-    redirect_to personas_path, notice: 'Persona was successfully deleted.'
+    redirect_to personas_path, notice: "Persona was successfully deleted."
   end
 
   private

@@ -1,0 +1,6 @@
+enforce_dependencies: true
+dependencies:
+  - "."
+  - packs/personas
+  - packs/clustering
+  - packs/scheduling

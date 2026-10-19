@@ -19,7 +19,7 @@ RSpec.describe Persona, type: :model do
       persona.caption_config = { tone: 'warm', style: 'conversational' }
       persona.save!
       persona.reload
-      
+
       expect(persona.caption_config).to be_a(Personas::CaptionConfig)
       expect(persona.caption_config.tone).to eq('warm')
       expect(persona.caption_config.style).to eq('conversational')
@@ -34,10 +34,10 @@ RSpec.describe Persona, type: :model do
     end
 
     it 'can be set with a hash' do
-      persona.hashtag_strategy = { max_tags: 10, brand_tags: ['test'] }
+      persona.hashtag_strategy = { max_tags: 10, brand_tags: [ 'test' ] }
       persona.save!
       persona.reload
-      
+
       expect(persona.hashtag_strategy).to be_a(Personas::HashtagStrategy)
       expect(persona.hashtag_strategy.max_tags).to eq(10)
     end

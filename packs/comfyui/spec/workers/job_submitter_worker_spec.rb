@@ -1,4 +1,5 @@
 require "rails_helper"
+require "sidekiq/api"
 
 RSpec.describe JobSubmitterWorker do
   let(:pipeline) { FactoryBot.create(:pipeline) }
@@ -7,12 +8,17 @@ RSpec.describe JobSubmitterWorker do
   let(:parent_candidate) { FactoryBot.create(:image_candidate, pipeline_step: pipeline_step, pipeline_run: pipeline_run) }
 
   describe "#perform" do
+    before do
+      allow(Sidekiq::ScheduledSet).to receive(:new).and_return([])
+    end
+
     context "when SelectNextJob returns child_generation mode" do
       let(:select_result) do
         SelectNextJob.build_context(
           mode: :child_generation,
           parent_candidate: parent_candidate,
-          next_step: pipeline_step
+          next_step: pipeline_step,
+          pipeline_run: pipeline_run
         )
       end
 
@@ -58,7 +64,8 @@ RSpec.describe JobSubmitterWorker do
         SelectNextJob.build_context(
           mode: :base_generation,
           parent_candidate: nil,
-          next_step: pipeline_step
+          next_step: pipeline_step,
+          pipeline_run: pipeline_run
         )
       end
 

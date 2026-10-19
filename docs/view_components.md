@@ -1,5 +1,7 @@
 # ViewComponent Guide
 
+> **Status:** UNREVIEWED — predates the 2026-10 rebuild
+
 ## Overview
 
 This project uses [ViewComponent](https://viewcomponent.org/) to build reusable, testable UI components. ViewComponents are Ruby objects that encapsulate view logic and templates.

@@ -1,0 +1,20 @@
+{
+  "key": "security-scan-sendfile-pattern",
+  "title": "brakeman (first real run in a month) reports 2 medium SendFile warnings on the public media endpoint",
+  "severity": "info",
+  "evidence": "First real brakeman verdict in at least a month (the scan had never run -- see the brakeman commit: bin/brakeman --ensure-latest exited before scanning). It reports 2 medium-confidence SendFile warnings, \"Model attribute used in file name\", in app/controllers/media_controller.rb -- the photo action (send_file ... servable_file_path, ~line 43) and the reel action (reel_path, ~line 75) -- plus a weak EOLRails notice (Rails 8.0.4 support ends 2026-11-07).\n\nDECIDED: accept, with the reasoning recorded, rather than change a live serving path. Basis, all verified in the file: params[:id] is an integer primary key (`ContentPillars::Photo.find(params[:id])`), so the file name is not attacker-shaped; the path is a DB column written by our own render pipeline, not user input; the endpoint additionally refuses to serve a photo no post references (the 2026-09-23 withhold rule), which is what closed the public-enumeration concern; and this endpoint IS the publisher's public media URL, so a blind containment check that resolves the wrong root would break publishing.\n\nMitigation if provenance ever changes (e.g. a user- or upload-supplied path): a root-containment check on File.expand_path plus a request spec. The scan is live from now on, so any such change re-surfaces this warning rather than hiding in a dark CI job.",
+  "status": "closed",
+  "first_seen": "2026-09-24T16:40:46-0400",
+  "last_seen": "2026-09-24T16:40:46-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T16:40:52-0400",
+      "note": "DECIDED: accepted with the reasoning recorded, not fixed by code. params[:id] is an integer primary key and the path is a DB column written by our own render pipeline, so the file name is not attacker-shaped; the endpoint refuses to serve a photo no post references (the 09-23 withhold rule); and this endpoint IS the publisher public media URL, so a blind root-containment check risks breaking publishing for a low-severity heuristic. Mitigation if provenance changes (user/upload-supplied paths): File.expand_path containment check + request spec. The scan is live from now on, so such a change re-surfaces the warning instead of hiding in a dark CI job."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-09-24T16:40:52-0400"
+}

@@ -1,0 +1,30 @@
+<% pipeline = run.pipeline %>
+<% display_name = run.name || "Run ##{run.id}" %>
+
+<%= render ::Base::CardComponent.new(variant: :default, class: "hover:shadow-lg") do |c| %>
+  <% c.with_body do %>
+    <div class="flex justify-between items-center">
+      <div class="flex-1">
+        <h3 class="text-lg font-semibold text-white mb-1">
+          <%= display_name %>
+        </h3>
+        <div class="flex gap-3 text-sm text-zinc-400">
+          <%= render ::Base::BadgeComponent.new(variant: :default, size: :sm) do %>
+            ✅ Completed
+          <% end %>
+          <span>Pipeline: <%= pipeline.name %></span>
+          <span>Created: <%= run.created_at.strftime('%b %d, %Y') %></span>
+        </div>
+      </div>
+      
+      <div class="flex gap-2">
+        <%= render ::Base::ButtonComponent.new(variant: :secondary, size: :sm, href: run_path(run), data: { turbo_frame: "_top" }) do %>
+          📊 View
+        <% end %>
+        <%= render ::Base::ButtonComponent.new(variant: :secondary, size: :sm, href: winners_run_path(run), data: { turbo_frame: "_top" }) do %>
+          🏆 Winners
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+<% end %>

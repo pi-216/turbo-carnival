@@ -34,6 +34,6 @@ class ButtonComponent < ApplicationComponent
       "bg-gray-600 hover:bg-gray-700 text-white"
     end
 
-    [base_classes, variant_classes, @classes].join(" ")
+    [ base_classes, variant_classes, @classes ].join(" ")
   end
 end

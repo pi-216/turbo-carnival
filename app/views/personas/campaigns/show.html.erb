@@ -1,0 +1,97 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to Campaigns", persona_campaigns_path(@persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold mb-2 flex items-center gap-3">
+      <%= @campaign.recommendations['campaign_name'] %>
+      <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-900/60 text-purple-200 border border-purple-600">
+        🤖 LLM Campaign
+      </span>
+    </h1>
+    <p class="text-zinc-400">
+      <%= pluralize(@suggestions.count, 'post') %> • 
+      Created <%= time_ago_in_words(@campaign.created_at) %> ago
+    </p>
+  </div>
+
+  <div class="space-y-4">
+    <% @suggestions.each_with_index do |suggestion, idx| %>
+      <% draft_post = Scheduling::Post.find_by(content_suggestion: suggestion) %>
+      
+      <%= render CardComponent.new(classes: "border-l-4 #{
+        draft_post&.photo_id.present? ? 'border-green-500' :
+        draft_post&.status == 'awaiting_image' ? 'border-yellow-500' :
+        'border-zinc-600'
+      }") do |c| %>
+        <% c.with_body do %>
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-purple-900/40 flex items-center justify-center text-lg font-bold text-purple-300">
+              <%= idx + 1 %>
+            </div>
+            
+            <div class="flex-1">
+              <div class="flex justify-between items-start mb-3">
+                <div>
+                  <h3 class="text-xl font-semibold mb-1"><%= suggestion.title %></h3>
+                  <p class="text-zinc-400 text-sm mb-2"><%= suggestion.description %></p>
+                  <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-900/40 text-blue-300 border border-blue-700">
+                    <%= suggestion.content_pillar.name %>
+                  </span>
+                </div>
+                
+                <% if draft_post %>
+                  <div class="text-right">
+                    <div class="text-sm font-medium text-zinc-300 mb-1">
+                      📅 <%= draft_post.scheduled_at.strftime("%b %d, %I:%M %p") %>
+                    </div>
+                    <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium
+                      <%= draft_post.status == 'draft' ? 'bg-zinc-700 text-zinc-300' : 
+                          draft_post.status == 'awaiting_image' ? 'bg-yellow-900/40 text-yellow-300' :
+                          draft_post.status == 'ready' ? 'bg-green-900/40 text-green-300' :
+                          draft_post.status == 'scheduled' ? 'bg-blue-900/40 text-blue-300' :
+                          'bg-zinc-700 text-zinc-300' %>">
+                      <%= draft_post.status.titleize %>
+                    </span>
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="bg-zinc-800/50 p-3 rounded text-sm mb-3">
+                <div class="text-zinc-500 text-xs mb-1">Prompt:</div>
+                <div class="font-mono text-zinc-300"><%= suggestion.prompt %></div>
+              </div>
+
+              <% if draft_post&.caption %>
+                <div class="bg-purple-900/20 p-3 rounded text-sm mb-3">
+                  <div class="text-purple-400 text-xs mb-1">Caption:</div>
+                  <div class="text-zinc-300"><%= draft_post.caption %></div>
+                  <% if draft_post.hashtags.any? %>
+                    <div class="mt-2 text-xs text-blue-400">
+                      <%= draft_post.hashtags.join(' ') %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <div class="flex gap-2">
+                <%= link_to "✏️ Edit Prompt", edit_content_suggestion_path(suggestion), 
+                            class: "text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded" %>
+                
+                <% if suggestion.status == 'pending' && !draft_post&.pipeline_run_id %>
+                  <%= button_to "🎨 Generate Image", generate_image_content_suggestion_path(suggestion), 
+                                method: :post,
+                                class: "text-sm bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded font-semibold" %>
+                <% elsif draft_post&.pipeline_run_id %>
+                  <%= link_to "👁️ View Run", run_path(draft_post.pipeline_run), 
+                              class: "text-sm bg-zinc-600 hover:bg-zinc-700 text-white px-3 py-1.5 rounded" %>
+                <% end %>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+</div>

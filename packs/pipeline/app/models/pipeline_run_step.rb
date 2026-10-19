@@ -3,7 +3,7 @@ class PipelineRunStep < ApplicationRecord
   belongs_to :pipeline_step, touch: true
 
   validates :top_k_count, numericality: { only_integer: true, greater_than_or_equal_to: 1 }
-  validates :approved, inclusion: { in: [true, false] }
+  validates :approved, inclusion: { in: [ true, false ] }
   validate :approved_at_required_if_approved
 
   def top_k_candidates

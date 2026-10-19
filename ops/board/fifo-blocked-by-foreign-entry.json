@@ -1,0 +1,21 @@
+{
+  "key": "fifo-blocked-by-foreign-entry",
+  "title": "our 4090 entry is blocked behind another project's abandoned queue entry",
+  "severity": "warn",
+  "evidence": "our entry comfyui-1790583245-3342326-1 queued 206 min ago sits BEHIND prx-tg-guidance-sweep-v1 (project prx-tg), queued 562 min with the 4090 idle and no claim ours \u2014 so that entry is neither running nor being polled, and `poll` refuses us `not_my_turn` until it leaves the queue (24h expiry) or its owner claims it; the card is idle and unusable for every project meanwhile",
+  "status": "auto-closed",
+  "first_seen": "2026-09-28T07:40:01-0400",
+  "last_seen": "2026-09-28T07:40:01-0400",
+  "seen_count": 1,
+  "source": "probe",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-09-29T09:35:12-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "ask": "cancel the queued scheduler entry prx-tg-guidance-sweep-v1 (project prx-tg): it holds the shared 4090 FIFO head while the card is idle, and only the owning project may retire its record",
+  "closed_at": "2026-09-29T09:35:12-0400"
+}

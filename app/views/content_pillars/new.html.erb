@@ -1,0 +1,12 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to #{@persona.name.titleize}", persona_path(@persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <h1 class="text-3xl font-bold mb-8">New Content Pillar</h1>
+
+  <%= render 'form', 
+             url: persona_pillars_path(@persona), 
+             method: :post,
+             button_text: "Create Content Pillar" %>
+</div>

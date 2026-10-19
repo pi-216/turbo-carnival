@@ -2,10 +2,9 @@
 
 class Persona < ApplicationRecord
   has_many :content_pillars, dependent: :restrict_with_error
-  has_many :clusters, class_name: 'Clustering::Cluster', dependent: :restrict_with_error
-  has_many :photos, class_name: 'Clustering::Photo', dependent: :restrict_with_error
+  has_many :photos, through: :content_pillars, class_name: 'ContentPillars::Photo'
   has_many :gap_analyses, dependent: :destroy
-  
+
   validates :name, presence: true, uniqueness: true
 
   def caption_config
@@ -16,7 +15,7 @@ class Persona < ApplicationRecord
   def caption_config=(value)
     config = value.is_a?(Personas::CaptionConfig) ? value : Personas::CaptionConfig.new(value)
     raise ArgumentError, config.errors.join(', ') unless config.valid?
-    
+
     self[:caption_config] = config.to_hash
     @caption_config = config
   end
@@ -29,7 +28,7 @@ class Persona < ApplicationRecord
   def hashtag_strategy=(value)
     strategy = value.is_a?(Personas::HashtagStrategy) ? value : Personas::HashtagStrategy.new(value)
     raise ArgumentError, strategy.errors.join(', ') unless strategy.valid?
-    
+
     self[:hashtag_strategy] = strategy.to_hash
     @hashtag_strategy = strategy
   end

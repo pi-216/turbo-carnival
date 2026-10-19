@@ -1,0 +1,36 @@
+{
+  "key": "reel-arm-unarmed",
+  "title": "the pre-registered pivot to a discovery surface is decided and built but not armed",
+  "severity": "warn",
+  "evidence": "the pre-registered pivot to a discovery surface is still UNARMED after the read it was sequenced after: Growth::ReelBuilder and Instagram::Client#create_reel exist, but no production code calls them, so nothing is publishing to a surface that has non-follower reach. Machinery present: reel_builder.rb; production callers found: none; newest measured non_follower_reach: 0; arm was sequenced after the 2026-10-05 13:00Z gate read so the pre-registered cohort was not confounded",
+  "status": "closed",
+  "first_seen": "2026-10-08T12:03:35-0400",
+  "last_seen": "2026-10-12T02:32:47-0400",
+  "seen_count": 18,
+  "source": "probe",
+  "route": "tim",
+  "notes": [
+    {
+      "ts": "2026-10-08T18:15:19-0400",
+      "note": "DECISION: ARM the pivot. Evidence this pass: pivot decided + committed (5b446f1); ReelBuilder rail fully built + verified (smoke test); sequencing constraint SATISFIED (the 2026-10-05 gate read has happened); live gate verdict :continue (pivot NOT fired -- but the arm is sequenced after the read regardless of verdict); discovery non_follower_reach=0 of 2 (hard zero -- distribution ceiling confirmed, no content lever can move it, the reel is the ONE lever that can); fresh renders available (photo 395 @10-08 19:32); GPU free (18GB) but the arm needs NO GPU (CPU-only ffmpeg). EXECUTION HELD: the first reel publish is an external write to Instagram (first-ever video on the account, strategic pivot, single deliberate publish watched end-to-end). Per Tim's standing directive (external writes require explicit confirmation), the first PUBLISH is held pending confirmation -- this is NOT a deferred decision (the arm decision is made and recorded here), it is a held execution of an external write. On confirmation the publish is one step: the rail is built + verified. Baseline for task 5.2 (nfr) will be re-measured at actual publish, not now (currently nfr=0)."
+    },
+    {
+      "ts": "2026-10-09T05:03:14-0400",
+      "note": "ROUTED to tim (enablement, per standing directive: external writes need explicit confirmation). The arm DECISION is made + recorded here (ARM the pivot); the only thing between decided and done is confirmation of the FIRST reel publish -- an external write to Instagram (first-ever video on the account, strategic pivot, single deliberate publish watched end-to-end). Rail is built + verified; on your yes the publish is one step, then measured against the recorded nfr=0 baseline. This is a held execution of an external write, not a deferred decision."
+    },
+    {
+      "ts": "2026-10-11T02:27:15-0400",
+      "note": "DECISION: pivot is built and ready (Growth::ReelBuilder + Instagram::Client#create_reel); arming means the FIRST Instagram publish, an external write the user directive requires explicit confirmation for before executing. Keep tim."
+    },
+    {
+      "ts": "2026-10-12T03:13:34-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-12T03:14:33-0400",
+      "note": "ARMED 2026-10-12T07:12:50Z (Tim approved the external write; not an auto-close). Production caller added: Scheduling::Commands::SendReelToInstagram + scheduling:post_reels (the reel rail -- the still rail still excludes reel rows) + Growth::ReelArm (asset+record only) + bin/scheduled_posting.sh runs the rail LIMIT=1 after the still rail. FIRST REEL PUBLISHED end to end: post 408 from renders 401/400/399/398 (h264 1080x1920 yuv420p, 10.5s, 3,115,537 B, IPTC mark read back from the bytes), IG media 18117602389787008, media_type VIDEO, permalink https://www.instagram.com/reel/DeYqy8glB_a/. Platform-side reconciliation: instagram:media_inventory listed 250->251, ours 201->202. ARM-TIME BASELINE (the number to EXCEED -- not zero): newest snapshot non_follower_reach=0 (follower=4, total=4, profile_views=5); 83 snapshots since the 2026-10-05 gate read span nfr 0..3, sum 45 of 383 total (~0.54/snapshot). Judge the pivot on post-arm non-follower reach vs that baseline; the reel insights land via scheduling:collect_insights (hourly)."
+    }
+  ],
+  "route_source": "explicit",
+  "closed_at": "2026-10-12T03:14:33-0400"
+}

@@ -70,6 +70,8 @@ RSpec.describe "Runs", type: :request do
         name: "Test Run",
         prompt: "test prompt",
         target_folder: nil,
+        persona_id: nil,
+        content_pillar_id: nil,
         variables: {}
       ).and_call_original
 

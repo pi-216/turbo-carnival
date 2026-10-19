@@ -34,7 +34,7 @@ module Base
 
     def badge_classes
       base = "inline-flex items-center justify-center font-medium transition-colors"
-      
+
       size_classes = case @size
       when :sm
         "px-2 py-0.5 text-xs rounded-[--radius-sm]"
@@ -45,7 +45,7 @@ module Base
       else
         "px-2.5 py-0.5 text-sm rounded-[--radius-base]"
       end
-      
+
       variant_classes = case @variant
       when :default
         "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
@@ -65,7 +65,7 @@ module Base
         "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
       end
 
-      [base, size_classes, variant_classes, @custom_classes].join(" ").strip
+      [ base, size_classes, variant_classes, @custom_classes ].join(" ").strip
     end
   end
 end

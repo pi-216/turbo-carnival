@@ -21,7 +21,7 @@ b2:
   access_key_id: <%= Rails.application.credentials.dig(:b2, :access_key_id) %>
   secret_access_key: <%= Rails.application.credentials.dig(:b2, :application_key) %>
   region: us-west-004
-  bucket: turbo-carnival-<%= Rails.env %>
+  bucket: fluffy-train-<%= Rails.env %>
   endpoint: 'https://s3.us-west-004.backblazeb2.com'
   public: true
 

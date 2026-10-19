@@ -1,0 +1,11 @@
+# typed: strict
+# frozen_string_literal: true
+
+enforce_dependencies: true
+enforce_privacy: true
+
+dependencies:
+  - packs/clustering
+  - packs/scheduling
+  - packs/personas
+  - packs/content_pillars

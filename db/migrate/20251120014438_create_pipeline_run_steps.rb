@@ -9,18 +9,18 @@ class CreatePipelineRunSteps < ActiveRecord::Migration[8.0]
 
       t.timestamps
     end
-    
-    add_index :pipeline_run_steps, [:pipeline_run_id, :pipeline_step_id], unique: true, name: 'index_pipeline_run_steps_on_run_and_step'
-    
+
+    add_index :pipeline_run_steps, [ :pipeline_run_id, :pipeline_step_id ], unique: true, name: 'index_pipeline_run_steps_on_run_and_step'
+
     # Backfill existing runs - auto-approve all steps
     reversible do |dir|
       dir.up do
         # Get max_children_per_node value (N)
         n_value = ENV.fetch('MAX_CHILDREN_PER_NODE', '3').to_i
-        
+
         execute <<-SQL
           INSERT INTO pipeline_run_steps (pipeline_run_id, pipeline_step_id, approved, approved_at, top_k_count, created_at, updated_at)
-          SELECT 
+          SELECT#{' '}
             pr.id as pipeline_run_id,
             ps.id as pipeline_step_id,
             true as approved,

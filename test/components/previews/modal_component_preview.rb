@@ -12,7 +12,7 @@ class ModalComponentPreview < ViewComponent::Preview
   # @label With Footer
   def with_footer
     component = Base::ModalComponent.new(id: "modal-with-footer", title: "Confirm Action")
-    
+
     render_with_template(
       template: "modal_component_preview/with_footer",
       locals: { component: component }
@@ -27,7 +27,7 @@ class ModalComponentPreview < ViewComponent::Preview
   # @label Form Example
   def form_example
     component = Base::ModalComponent.new(id: "form-modal", title: "Create New Item", size: :lg)
-    
+
     render_with_template(
       template: "modal_component_preview/form_example",
       locals: { component: component }

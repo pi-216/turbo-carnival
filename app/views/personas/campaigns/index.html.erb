@@ -1,0 +1,91 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to #{@persona.name}", persona_path(@persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold mb-2">🤖 LLM Campaigns</h1>
+      <p class="text-zinc-400">
+        <%= pluralize(@campaigns.count, 'campaign') %> created by AI
+      </p>
+    </div>
+  </div>
+
+  <% if @campaigns.any? %>
+    <div class="space-y-6">
+      <% @campaigns.each do |campaign| %>
+        <%= render CardComponent.new(classes: "border-purple-700/30 bg-purple-900/10") do |c| %>
+          <% c.with_body do %>
+            <div class="flex justify-between items-start">
+              <div class="flex-1">
+                <div class="flex items-center gap-3 mb-3">
+                  <h2 class="text-2xl font-bold text-purple-200">
+                    <%= campaign.recommendations['campaign_name'] %>
+                  </h2>
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-900/60 text-purple-200 border border-purple-600">
+                    <%= campaign.recommendations['model'] || 'LLM' %>
+                  </span>
+                </div>
+
+                <% if campaign.recommendations['strategy_metadata'] %>
+                  <div class="mb-4 text-sm text-zinc-300">
+                    <% campaign.recommendations['strategy_metadata'].each do |key, value| %>
+                      <span class="mr-4">
+                        <span class="text-zinc-500"><%= key.titleize %>:</span>
+                        <span class="font-medium"><%= value %></span>
+                      </span>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                  <div class="text-center p-3 bg-zinc-800/50 rounded">
+                    <div class="text-2xl font-bold text-purple-300"><%= campaign.content_suggestions.count %></div>
+                    <div class="text-xs text-zinc-400">Posts</div>
+                  </div>
+                  <div class="text-center p-3 bg-zinc-800/50 rounded">
+                    <div class="text-2xl font-bold text-green-300">
+                      <%= Scheduling::Post.where(content_suggestion: campaign.content_suggestions).where.not(photo_id: nil).count %>
+                    </div>
+                    <div class="text-xs text-zinc-400">With Images</div>
+                  </div>
+                  <div class="text-center p-3 bg-zinc-800/50 rounded">
+                    <div class="text-2xl font-bold text-blue-300">
+                      <%= Scheduling::Post.where(content_suggestion: campaign.content_suggestions, status: 'scheduled').count %>
+                    </div>
+                    <div class="text-xs text-zinc-400">Scheduled</div>
+                  </div>
+                </div>
+
+                <div class="text-xs text-zinc-500">
+                  Created <%= time_ago_in_words(campaign.created_at) %> ago
+                </div>
+              </div>
+
+              <div class="ml-4 flex flex-col gap-2">
+                <%= link_to "View Details →", persona_campaign_path(@persona, campaign), 
+                            class: "bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap text-center font-medium" %>
+              </div>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="text-center py-12">
+          <div class="text-6xl mb-4">🤖</div>
+          <h3 class="text-xl font-semibold mb-2">No LLM Campaigns Yet</h3>
+          <p class="text-zinc-400 mb-4">
+            Use the API to create multi-post campaigns with AI assistance.
+          </p>
+          <code class="text-xs bg-zinc-800 px-3 py-2 rounded inline-block">
+            POST /api/campaigns
+          </code>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

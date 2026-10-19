@@ -1,0 +1,134 @@
+<div class="space-y-8">
+  <!-- Page header -->
+  <div class="flex items-start justify-between">
+    <div>
+      <h1 class="text-2xl/8 font-semibold text-zinc-950 dark:text-white">Growth Harness</h1>
+      <p class="mt-2 text-sm/6 text-zinc-500 dark:text-zinc-400">
+        Follower goals, cadence maintenance, and the strategy review loop
+      </p>
+    </div>
+    <% if @goals.any? %>
+      <div class="flex gap-2">
+        <% if @selected_goal %>
+          <%= button_to "Sync Cadence", growth_run_cadence_path(@selected_goal), method: :post,
+                        class: "px-3 py-1.5 text-sm/6 font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors" %>
+          <%= button_to "Capture Snapshot", growth_snapshot_path(@selected_goal), method: :post,
+                        class: "px-3 py-1.5 text-sm/6 font-semibold rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors" %>
+          <%= button_to "Run Review", growth_review_path(@selected_goal), method: :post,
+                        class: "px-3 py-1.5 text-sm/6 font-semibold rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors" %>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <!-- Goal selector / stats -->
+  <% if @goals.any? %>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+      <% @goals.each do |goal| %>
+        <%= link_to growth_path(goal_id: goal.id), class: "block #{goal.id == @selected_goal&.id ? 'ring-2 ring-blue-500' : ''}" do %>
+          <%= render Catalyst::CardComponent.new do %>
+            <div class="p-6">
+              <dt class="text-sm/6 font-medium text-zinc-500 dark:text-zinc-400"><%= goal.persona.name %> · <%= goal.status %></dt>
+              <dd class="mt-2 text-3xl/8 font-semibold text-zinc-950 dark:text-white">
+                <%= goal.latest_followers %><span class="text-lg/8 text-zinc-400"> / <%= goal.target_followers %></span>
+              </dd>
+              <dd class="mt-2 text-xs/5 text-zinc-500 dark:text-zinc-400">
+                <%= goal.days_elapsed %>d elapsed · <%= goal.days_remaining %>d left · cadence <%= goal.posts_per_day %>/day
+              </dd>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+
+    <% if @selected_goal %>
+      <% g = @selected_goal %>
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <%= render Catalyst::CardComponent.new do %>
+          <div class="p-6">
+            <dt class="text-sm/6 font-medium text-zinc-500 dark:text-zinc-400">Required daily growth</dt>
+            <dd class="mt-2 text-2xl font-semibold <%= g.required_daily_growth > 0 ? 'text-amber-500' : 'text-green-500' %>">+<%= sprintf('%.2f', g.required_daily_growth) %></dd>
+          </div>
+        <% end %>
+        <%= render Catalyst::CardComponent.new do %>
+          <div class="p-6">
+            <dt class="text-sm/6 font-medium text-zinc-500 dark:text-zinc-400">Measured daily growth</dt>
+            <dd class="mt-2 text-3xl font-semibold text-zinc-950 dark:text-white"><%= g.average_daily_growth ? sprintf('%.2f', g.average_daily_growth) : 'n/a' %></dd>
+          </div>
+        <% end %>
+        <%= render Catalyst::CardComponent.new do %>
+          <div class="p-6">
+            <dt class="text-sm/6 font-medium text-zinc-500 dark:text-zinc-400">Trajectory ratio</dt>
+            <dd class="mt-2 text-3xl font-semibold <%= g.traj_ratio.nil? ? 'text-zinc-400' : (g.on_track? ? 'text-green-600' : 'text-red-600') %>">
+              <%= g.traj_ratio ? g.traj_ratio.round(2) : 'n/a' %>
+            </dd>
+          </div>
+        <% end %>
+        <%= render Catalyst::CardComponent.new do %>
+          <div class="p-6">
+            <dt class="text-sm/6 font-medium text-zinc-500 dark:text-zinc-400">Projected completion</dt>
+            <dd class="mt-2 text-3xl font-semibold text-zinc-950 dark:text-white">
+              <%= g.projected_completion_date ? g.projected_completion_date.strftime('%b %d, %Y') : 'n/a' %>
+            </dd>
+          </div>
+        <% end %>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <!-- Snapshots -->
+        <%= render Catalyst::CardComponent.new do |card| %>
+          <% card.with_header do %>
+            <h2 class="text-lg/7 font-semibold text-zinc-950 dark:text-white">Follower Snapshots</h2>
+          <% end %>
+          <div class="divide-y divide-zinc-950/5 dark:divide-white/5">
+            <% if @snapshots.empty? %>
+              <div class="p-6 text-sm text-zinc-500">No snapshots yet — run "Capture Snapshot" or wait for the hourly cron.</div>
+            <% else %>
+              <% @snapshots.first(15).each do |s| %>
+                <div class="flex items-center justify-between p-4">
+                  <span class="text-sm text-zinc-500 dark:text-zinc-400"><%= s.taken_at.strftime('%b %d, %H:%M') %></span>
+                  <span class="text-sm font-semibold text-zinc-950 dark:text-white"><%= s.followers %> followers</span>
+                </div>
+              <% end %>
+            <% end %>
+          </div>
+        <% end %>
+
+        <!-- Decisions -->
+        <%= render Catalyst::CardComponent.new do |card| %>
+          <% card.with_header do %>
+            <h2 class="text-lg/7 font-semibold text-zinc-950 dark:text-white">Recent Decisions</h2>
+          <% end %>
+          <div class="divide-y divide-zinc-950/5 dark:divide-white/5">
+            <% if @decisions.empty? %>
+              <div class="p-6 text-sm text-zinc-500">No decisions yet — the brain adjusts strategy when you fall behind the trajectory.</div>
+            <% else %>
+              <% @decisions.each do |d| %>
+                <div class="p-4">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-semibold text-zinc-900 dark:text-white"><%= d.action %></span>
+                    <span class="text-xs text-zinc-400"><%= d.decided_at.strftime('%b %d, %H:%M') %></span>
+                  </div>
+                  <% if d.reason.present? %>
+                    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"><%= d.reason %></p>
+                  <% end %>
+                  <% if d.from_values.present? && d.to_values.present? %>
+                    <p class="mt-1 text-xs text-zinc-400">
+                      <%= d.from_values.inspect %> → <%= d.to_values.inspect %>
+                    </p>
+                  <% end %>
+                </div>
+              <% end %>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  <% else %>
+    <%= render Catalyst::CardComponent.new do %>
+      <div class="p-6">
+        <p class="text-sm text-zinc-500">No growth goals exist yet. Run <code class="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">bin/rails growth:run_all</code> to create one.</p>
+      </div>
+    <% end %>
+  <% end %>
+</div>

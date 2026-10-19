@@ -1,0 +1,19 @@
+{
+  "key": "probe-check-retirement-blind-spot",
+  "title": "A probe check whose DB read breaks retires SILENTLY -- the board reads green while that condition stops being monitored",
+  "severity": "warn",
+  "evidence": "psql()/psql_lines() return None for 'psql missing', 'DB unreadable' AND for a query that no longer parses (renamed table/column), and every check is written to return None on None. cmd_probe files a warning only when a check RAISES (probe-error-<name>), so a check whose query rots stops firing: indistinguishable from a healthy check whose condition is absent. Measured 2026-09-22: all 48 checks ran clean with zero unreadable reads -- but establishing that took a hand-written scratch script, i.e. the audit itself was re-derived per pass and lived in a 72h-pruned directory (genome #13 shape, one level down: inside the monitoring layer).",
+  "status": "closed",
+  "first_seen": "2026-09-22T06:37:59-0400",
+  "last_seen": "2026-09-22T06:37:59-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-22T06:38:16-0400",
+      "note": "FIXED in-repo this pass (commit 5af3e4f) \u2014 the class is now self-detecting, so it cannot depend on an agent remembering to look. (1) psql/psql_lines record every unreadable read to a sink, tagged with the check that made it (None on the normal probe path, so no cost there). (2) cmd_probe arms that sink for the sweep it ALREADY runs and files probe-checks-unreadable when any read came back empty \u2014 probe-owned, so it self-closes when the reads resolve. (3) tc_ops.py checks-audit is the on-demand form: runs all 48 checks and names which RAISED, which fired, and every unreadable read. (4) checks_audit_verdict is pure; selftest grew 11 cases to 312 assertions / 0 failures. VERIFIED BY THE NEGATIVE PATH, not by inspection: the first version of this code armed the sink AFTER the loop, so it reported 0 unreadable reads no matter how broken the DB was \u2014 exactly the gate-that-can-never-fire class the skill catalogues. Running checks-audit with psql off PATH exposed it: 48 ran, 32 unreadable reads, each named with its check (check_backlog_backpressure, check_stuck_comfyui_jobs, ...). After the fix that run still reports the 32, and the live run reports 48 ran / 4 firing / 0 raised / 0 unreadable. The selftest now drives the REAL cmd_probe against a temp board with one check that cannot read and asserts probe-checks-unreadable is filed, open, and names the check \u2014 the branch is exercised, not merely described. Live probe unchanged by the change: 0 critical / 3 warn / 1 info, same 4 conditions, no spurious filing, no auto-closure."
+    }
+  ],
+  "closed_at": "2026-09-22T06:38:16-0400"
+}

@@ -4,10 +4,9 @@ class JobSubmitterWorker
   sidekiq_options queue: :job_submission, retry: 3
 
   def perform
-    # Only submit if no jobs are currently in flight
-    # This ensures we wait for ComfyUI to complete before submitting the next job
-    in_flight_count = ComfyuiJob.in_flight.count
-    
+    # Only block submission if jobs are actively running in ComfyUI (not just pending)
+    in_flight_count = ComfyuiJob.where(status: %w[submitted running]).count
+
     if in_flight_count > 0
       Rails.logger.info("JobSubmitterWorker: #{in_flight_count} jobs in flight, waiting...")
       schedule_next_run
@@ -56,10 +55,10 @@ class JobSubmitterWorker
 
   def schedule_next_run
     require 'sidekiq/api'
-    
+
     scheduled_jobs = Sidekiq::ScheduledSet.new.select { |job| job.klass == self.class.name }
     return if scheduled_jobs.any?
-    
+
     interval = ENV.fetch("COMFYUI_SUBMIT_INTERVAL", 10).to_i
     self.class.perform_in(interval.seconds)
   end

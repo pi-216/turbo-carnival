@@ -1,0 +1,39 @@
+{
+  "key": "comfyui-torch-oom",
+  "title": "a render ran out of VRAM inside ComfyUI (torch OOM)",
+  "severity": "warn",
+  "evidence": "1 ComfyUI torch-OOM(s) in the last 48h; newest comfyui-comfyui-1789999255-213957-1.log (47.1h old); died at 21.32 GiB allocated, 78.00 MiB requested, device limit 23.52 GiB; the budget was 21719.11 MB usable / 21448.72 MB loaded; launch args for THAT log: NONE -- that start carried no --reserve-vram (its launch line has no args=, i.e. the process predates the flag); the 5 launch(es) since held the budget at <= 16896 MB usable. This is the CAUSE of the HTTP-500 / timeout rows tracked as render-execution-error: ComfyUI sizes its dynamic-VRAM budget from FREE memory, so the emptier the card the MORE it loads -- over-committing is fatal, offloading is merely slower. Compare the failing budget ONLY against the launch args named above, which are read from the launch line of the SAME log that carries the OOM -- an older start's budget says nothing about a newer launch's flags. Two questions, in order: (1) did that start carry --reserve-vram (bin/comfyui_harness.sh COMFY_RESERVE_VRAM) at all? (2) if it did and 'usable' still sits at the failing value, the flag did not reach the budget -- check comfy_aimdo's simple_vram_headroom path against the runtime .venv (/mnt/fscache/essdee/ComfyUI/.venv, comfy_aimdo 0.5.5 accepts it; the sibling venv/ holds 0.4.3 and silently falls back). Self-closes when no OOM is inside the window.",
+  "status": "auto-closed",
+  "first_seen": "2026-09-21T21:42:10-0400",
+  "last_seen": "2026-09-23T19:25:39-0400",
+  "seen_count": 96,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-22T14:45:17-0400",
+      "note": "2026-09-22 18:5xZ ops-triage: the accepted fix had a HOLE, now closed -- filed, fixed and closed as comfyui-adoption-bypasses-reserve (read it for the evidence; commit follows). Short version: --reserve-vram 5 is on every launch line WE write, but bin/comfyui_harness.sh ADOPTS any instance already answering :8188 instead of relaunching, so a co-tenant's un-reserved instance (live now: pid 3662070, tmux scope, reserve=missing) would have run our workflow at a card-sized budget. cmd_ensure now refuses to render through a ComfyUI whose /proc/<pid>/cmdline lacks the flag, before requesting a claim, and status reports reserve=<ok|missing>. Verified live (refusal logged, rc=2, scheduler events.log unchanged) and offline (bin/comfyui_harness_test.sh ALL PASS, +8 assertions including the negative control that a FLAGGED instance is still adopted). ACCEPTANCE UNCHANGED: --reserve-vram 5 stays, no flag change; the throughput trade and the 09-24 ~00:01Z self-close window are unaffected. ALSO RECORDED, because the armed reversal trigger named a remedy that was already rejected: 'run the producer detached in its own cgroup' was DECIDED AGAINST (growth-tick-launch-mode, closed 2026-09-21 11:22 -- step 4's GPU release must run after the producer returns). CORRECTED REMEDY LADDER for when the trigger DOES fire (dry_out under 3 days, or a shortfall that fails to close across 2+ consecutive hourly ticks, or 2+ ticks with a completed render unrecovered past 60 min): (1) read the harness log for WHICH refusal it is -- 'vram_insufficient' (card genuinely too full) vs the new reserve-guard line (a foreign un-reserved instance is up); (2) do NOT lower COMFY_RESERVE_VRAM and do NOT lower VRAM_MIN_FIT -- both re-risk the over-commit this item exists for, and a smaller budget also makes the render slower than the growth tick's 360s budget, so it cannot complete inside a tick anyway; (3) do NOT touch the foreign instance; (4) the only lever we do not own is the GPU itself, so at dry_out under 3 days route a tim item (GPU policy, which the loop's scope explicitly allows) carrying the holder evidence (pid/cgroup/args/hours held/free MiB) and the dry-out date -- until then the queue absorbs the skipped windows."
+    },
+    {
+      "ts": "2026-09-22T16:03:50-0400",
+      "note": "2026-09-22 20:0xZ ops-triage: no new event -- the 48h window still holds exactly the one 00:05Z OOM (19.7h old), and the --reserve-vram 5 acceptance is untouched because nothing has rendered since 07:01Z. New and relevant: the card is now held by an ACTIVE foreign batch that our pipeline refuses to adopt WITHOUT the flag (proved from comfy/model_management.py: budget = freshly freed memory - extra_reserved, so unflagged lands ~22.1GiB = the fatal case, flagged ~17.5GiB = the proven envelope). That refusal is the fix working as designed, not a regression. Probe-owned, self-closes ~09-24 00:01Z; corrected remedy ladder recorded 18:5xZ stands."
+    },
+    {
+      "ts": "2026-09-22T22:39:28-0400",
+      "note": "No change to the condition (1 OOM in 48h, 26.3h old, predating --reserve-vram by ~2.5h on the launch line); probe-owned and self-closing ~09-23 20:19Z. The fix holds as measured: every launch since the flag went on the line carries reserve=ok, and the 5 launches since held the budget at <=16896 MB usable with zero OOMs. Evidence remains truthful (args paired to THAT log). No action."
+    },
+    {
+      "ts": "2026-09-23T00:36:45-0400",
+      "note": "2026-09-23 04:3xZ ops-triage: no new event -- the 48h window still holds exactly the one 09-22 00:05Z OOM (28.3h old), which predates the flag by ~2.5h on the launch line. The fix holds as measured: every launch since carries reserve=ok and the budget is held at or below 16896 MB usable. Probe-owned and self-closing when the event ages out of the window."
+    },
+    {
+      "ts": "2026-09-23T03:33:59-0400",
+      "note": "2026-09-23 07:3xZ ops-triage: no new event -- the 48h window still holds exactly the one 09-22 00:05Z OOM (31.2h old, ~17h left in the window), whose launch args were NONE (no --reserve-vram). Probe-owned, self-closing. This event is also the measured basis for the args gate, and this tick's finding sharpens the gate's own escalation: a FLAGGED instance that HOLDS its models is still refused (vram_insufficient, measured 09-22 14:00:41), so the lever text now names both halves instead of promising the flag alone."
+    },
+    {
+      "ts": "2026-09-23T20:25:47-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-09-23T20:25:47-0400"
+}

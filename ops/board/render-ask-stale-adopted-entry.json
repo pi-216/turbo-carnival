@@ -1,0 +1,23 @@
+{
+  "key": "render-ask-stale-adopted-entry",
+  "title": "an adopted queue entry keeps the ask it was minted with, so the adaptive-fit fix could not reach it",
+  "severity": "warn",
+  "evidence": "cmd_ensure computes the ask from LIVE free memory, but when it adopts our own queued record it kept that record's PERSISTED vram_gb -- and gpu_scheduler.py's poll re-checks the persisted number at CLAIM time (read_queue -> job vram_gb, lines 830-855), not the ask the harness just computed. Measured live 2026-09-21: 09:01:09 the harness logged 'adaptive fit - free=13145MiB < full ask 21GiB, so asking 16GiB' and in the same tick 'adopting our own queued entry comfyui-1789992236-4075726-1', whose record asks 21.0GB -- so the entry stays refused for the whole of its life against the ~18.9GiB actually free once prx-tg-pixel-posttrain-v3 releases, is given up at the FIFO head, and is re-requested a whole render window later. Same class as render-ask-poisoned-by-occupancy (81e8c4a), which covered only the fresh-request path.",
+  "status": "closed",
+  "first_seen": "2026-09-21T09:51:15-0400",
+  "last_seen": "2026-09-21T09:51:15-0400",
+  "seen_count": 1,
+  "source": "manual",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-21T09:51:26-0400",
+      "note": "2026-09-21 13:5xZ ops-triage: FIXED in-repo (cb0f36d). New queued_job_vram_gb() reads a record's persisted ask and ask_exceeds() is a pure offline decision (answers 'no' on anything unreadable, so a parse bug can never cost us a FIFO place). cmd_ensure now retires an adopted own record and re-requests at the live ask ONLY when the persisted ask genuinely exceeds it; equal-or-smaller records keep their place. Verified with no GPU and no claim: bin/comfyui_harness_test.sh 18 assertions / 0 failures -- stale 21GiB record cancelled with reason 'ask 21.0GiB above the live-fit ask 16GiB' and re-requested at --vram 16, no --vram 21 request issued, fitting 16GiB record left queued with no request minted; decision table 21>16 / 16=16 / 15.5<16 / unreadable / 21.0>16 => 10001. Negative control: with the guard mutated out of a COPY of the harness, the stale record stays queued and no fresh request is issued (exactly the live defect) -- the new assertions fail. Policy unchanged: plan 13145 => 16GiB, 24564 => 21GiB, 8192 => 16GiB; tc_ops.py selftest 224 assertions / 0 failures. Live effect: our outstanding entry comfyui-1789992236-4075726-1 (21.0GB) is re-minted at 16GiB by the next tick's own code path -- no manual queue surgery performed."
+    },
+    {
+      "ts": "2026-09-21T10:04:24-0400",
+      "note": "LIVE CONFIRMED 2026-09-21 14:00:55Z by the hourly growth tick itself (not a manual run): harness log 'adopted entry comfyui-1789992236-4075726-1 asks 21.0GiB > live-fit ask 16GiB \u2014 retiring it and re-requesting at 16GiB so the record is claimable at what is free' -> record cancelled with that reason -> 'requesting claim comfyui-1789999255-213957-1 (vram 16GB, duration 9h)'. gpu_scheduler.py status now shows our entry at 16.0GB (was 21.0GB), still behind prx-tg-pixel-posttrain-v3 = normal FIFO waiting. Commit cb0f36d. No manual queue surgery, no claim taken, no other project touched."
+    }
+  ],
+  "closed_at": "2026-09-21T10:04:24-0400"
+}

@@ -1,0 +1,38 @@
+{
+  "key": "post-slots-collide",
+  "title": "3 pair(s) of posts created in the last 24h sit inside 60 min of each other",
+  "severity": "warn",
+  "evidence": "colliding: 09-20 15:15/09-20 16:01, 09-20 16:01/09-20 16:25, 09-20 16:25/09-20 17:10; the publisher now releases at most ONE post per tick (Scheduling::PostReleasePlan, 2026-09-20), so bunched slots no longer leave the account as a burst -- what remains here is a PRODUCER-shape smell (the slots are still too close; measured 2026-09-19: 3 posts inside 24 s, before the pacing fix)",
+  "status": "auto-closed",
+  "first_seen": "2026-09-19T21:35:37-0400",
+  "last_seen": "2026-09-20T04:41:47-0400",
+  "seen_count": 21,
+  "source": "probe",
+  "notes": [
+    {
+      "ts": "2026-09-19T23:55:20-0400",
+      "note": "2026-09-20 03:5xZ: unchanged residue; the producer fix (511afaf) still holds and no post has been created since (queue at target 21/21). The 4 pre-fix rows release today 15:15-17:10Z and this entry self-clears as they age out of the 24h window. NEW: proposal recorded for Tim rather than applied - bin/scheduled_posting.sh releases EVERY due post in one tick, so any backlog (not just this residue) burst-publishes; a max-1-per-tick guard in packs/scheduling/lib/tasks/scheduled_posting.rake would pace it without editing any row. Not applied: it changes live publish timing, which is the same class of edit Tim reserved."
+    },
+    {
+      "ts": "2026-09-20T00:40:15-0400",
+      "note": "2026-09-20 04:4xZ ops-triage: self-clearing residue, no repo action left. The 3 counted pairs are all pre-fix rows created before 511afaf (333/334/335/336, due 09-20 15:15-17:10Z); the check counts posts CREATED in the last 24h, so it drains as they age out of that window (last one 09-21), and the probe auto-closes it then. Producers now allocate through Growth::PostSlotPlanner -- verified again this run from the live queue: from 09-22 the queue is 3/day with >=90min spacing, i.e. nothing new collides. The remaining live risk is the publisher releasing two due posts in one hourly tick (see post-schedule-bunched); that is the releaser, not the schedule, and it is Tim's call."
+    },
+    {
+      "ts": "2026-09-20T01:39:46-0400",
+      "note": "2026-09-20 05:4xZ ops-triage: harm mitigated at the source of the burst -- the publisher now paces releases to one post per run (Scheduling::PostReleasePlan), so bunched CREATION no longer becomes a bunched RELEASE. What this check still sees (3 pairs among rows created in the last 24h) is producer shape on pre-fix rows; it ages out of the 24h window by 09-21 17:10Z. No row edits."
+    },
+    {
+      "ts": "2026-09-20T02:36:25-0400",
+      "note": "2026-09-20 06:4xZ ops-triage: the pacing fix is now VERIFIED IN PRODUCTION, not just in specs. posted_at from the DB: 09-18 05:00/06:00/06:00/06:00 (4 in one tick), 09-19 05:00/06:00/06:00/06:00, but 09-20 05:00 -> 314 and 06:00 -> 327 only -- exactly one release per hourly publisher tick, which is Scheduling::PostReleasePlan doing its job on live traffic (scheduled_posting.log confirms 'Found 1 post(s) ready to publish'). What this check still counts is producer shape on PRE-FIX rows created before 511afaf; it ages out of the 24h window by 09-21 17:10Z. No row edits."
+    },
+    {
+      "ts": "2026-09-20T03:52:04-0400",
+      "note": "2026-09-20 07:5xZ ops-triage: unchanged, ages out of the 24h creation window by itself. The 3 counted pairs are all pre-fix rows (333/334/335/336, due 09-20 15:15-17:10Z, created before 511afaf); nothing created since collides, and no post has been created since (queue at target 21/21). No repo action left."
+    },
+    {
+      "ts": "2026-09-20T04:44:33-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "closed_at": "2026-09-20T04:44:33-0400"
+}

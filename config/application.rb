@@ -14,7 +14,16 @@ module TurboCarnival
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
+    # `lib/ai` is deliberately NOT a Zeitwerk root: its files define the
+    # `AI::` namespace, while the directory name leads Zeitwerk to expect
+    # `Ai::` -- so `lib/ai/gemini_client.rb` was reported as not defining
+    # `Ai::GeminiClient` and eager loading ABORTED (`zeitwerk:check` failed in
+    # every env, and `RAILS_ENV=production` could not boot the app at all; the
+    # running service hid it because bin/run_server.sh pins RAILS_ENV=development,
+    # which does not eager load). Every call site already loads these files
+    # explicitly (`load 'lib/ai/ollama_client.rb'`, `require Rails.root.join(...)`),
+    # so ignoring the directory is the accurate declaration, not a workaround.
+    config.autoload_lib(ignore: %w[assets tasks ai])
 
     # Configuration for the application, engines, and railties goes here.
     #
@@ -28,8 +37,17 @@ module TurboCarnival
     # Middleware like session, flash, cookies can be added back manually.
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = false
-    
+
+    # Allow the Cloudflare-tunnel host used to serve media to Instagram.
+    # Test-only guard: in the test environment this append turns Rails' permissive
+    # default into a one-entry allowlist, so every request spec that uses the
+    # default host (www.example.com) is rejected with 403 by
+    # ActionDispatch::HostAuthorization before it reaches the app -- which silently
+    # disabled the whole request-spec suite (7 failures in
+    # spec/requests/scheduling_posts_spec.rb). Production behaviour is unchanged.
+    config.hosts << ".pi216.ai" unless Rails.env.test?
+
     # Configure session store
-    config.session_store :cookie_store, key: '_turbo_carnival_session'
+    config.session_store :cookie_store, key: "_turbo_carnival_session"
   end
 end

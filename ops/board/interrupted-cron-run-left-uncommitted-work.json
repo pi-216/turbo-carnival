@@ -1,0 +1,40 @@
+{
+  "key": "interrupted-cron-run-left-uncommitted-work",
+  "title": "a turbo-carnival cron run was interrupted 14.0h ago and its work is still uncommitted",
+  "severity": "warn",
+  "evidence": "2 interrupted execution(s) in the last 24h; newest: job 9c05f60f5fef started 2026-10-07T05:25:14.876108-04:00, ended 2026-10-07T11:27:14.160808-04:00 (Owner process is still alive but the claim outlived the derived stale bound; treated as wedged (#115692). The process wa). Uncommitted for 19.7h: 2 path(s), oldest ops/board/interrupted-cron-run-left-uncommitted-work.json \u2014 read the tree, then commit or revert the salvaged work. An interrupted run's report was never delivered either, so what it found is only in its output file (cron/output/<job-id>/, status `unknown`).",
+  "status": "auto-closed",
+  "first_seen": "2026-09-24T18:25:26-0400",
+  "last_seen": "2026-10-08T01:28:06-0400",
+  "seen_count": 38,
+  "source": "probe",
+  "route": "agent",
+  "notes": [
+    {
+      "ts": "2026-09-24T18:33:26-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-09-29T22:18:20-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-05T22:01:55-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-06T13:45:36-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-07T05:47:20-0400",
+      "note": "condition no longer reproduces"
+    },
+    {
+      "ts": "2026-10-08T02:58:23-0400",
+      "note": "condition no longer reproduces"
+    }
+  ],
+  "route_source": "check",
+  "closed_at": "2026-10-08T02:58:23-0400"
+}

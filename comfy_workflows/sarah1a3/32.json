@@ -1,0 +1,361 @@
+{
+  "29": {
+    "inputs": {
+      "text": "logo, text, branding, name, sign, signature, asian",
+      "clip": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "49": {
+    "inputs": {
+      "unet_name": "flux1-krea-dev.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "53": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "57": {
+    "inputs": {
+      "clip_name1": "t5xxl_fp16.safetensors",
+      "clip_name2": "clipLFullFP32Zer0int_textImprovedFP32.safetensors",
+      "type": "flux",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "DualCLIPLoader"
+    }
+  },
+  "67": {
+    "inputs": {
+      "unet_name": "srpo-Q8_0.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "77": {
+    "inputs": {
+      "samples": [
+        "119",
+        0
+      ],
+      "vae": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "85": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.5,
+      "width": 824,
+      "height": 1024,
+      "model": [
+        "98",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": {
+      "title": "ModelSamplingFlux"
+    }
+  },
+  "87": {
+    "inputs": {
+      "text": [
+        "121",
+        0
+      ],
+      "clip": [
+        "99",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "95": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.5,
+      "width": 824,
+      "height": 1024,
+      "model": [
+        "99",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": {
+      "title": "ModelSamplingFlux"
+    }
+  },
+  "98": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "flux/sarah1a3.safetensors",
+        "strength": 0.95
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "flux/breast-size2.safetensors",
+        "strength": 0.3
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "flux/tg.safetensors",
+        "strength": 0.4
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "flux/p0k13s_v1.safetensors",
+        "strength": -0.65
+      },
+      "lora_5": {
+        "on": true,
+        "lora": "flux/tiny_waist_flux_v1.safetensors",
+        "strength": 0.1
+      },
+      "lora_6": {
+        "on": true,
+        "lora": "flux/BreastShaper_splendid_droplets_Flux_v3.0-000013.safetensors",
+        "strength": 0.1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "49",
+        0
+      ],
+      "clip": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "99": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "flux/sarah1a3.safetensors",
+        "strength": 0.95
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "flux/breast-size2.safetensors",
+        "strength": 0.3
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "flux/tg.safetensors",
+        "strength": 0.4
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "flux/p0k13s_v1.safetensors",
+        "strength": -0.65
+      },
+      "lora_5": {
+        "on": true,
+        "lora": "flux/tiny_waist_flux_v1.safetensors",
+        "strength": 0.1
+      },
+      "lora_6": {
+        "on": true,
+        "lora": "flux/BreastShaper_splendid_droplets_Flux_v3.0-000013.safetensors",
+        "strength": 0.1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "67",
+        0
+      ],
+      "clip": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "105": {
+    "inputs": {
+      "conditioning": [
+        "29",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "107": {
+    "inputs": {
+      "seed": null
+    },
+    "class_type": "Seed",
+    "_meta": {
+      "title": "Seed"
+    }
+  },
+  "109": {
+    "inputs": {
+      "width": 824,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "110": {
+    "inputs": {
+      "text": [
+        "121",
+        0
+      ],
+      "clip": [
+        "98",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "119": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": [
+        "107",
+        3
+      ],
+      "steps": 50,
+      "cfg": 1.5,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 20,
+      "end_at_step": 52,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "85",
+        0
+      ],
+      "positive": [
+        "110",
+        0
+      ],
+      "negative": [
+        "105",
+        0
+      ],
+      "latent_image": [
+        "120",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "120": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": [
+        "107",
+        3
+      ],
+      "steps": 50,
+      "cfg": 5.5,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 0,
+      "end_at_step": 20,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "95",
+        0
+      ],
+      "positive": [
+        "87",
+        0
+      ],
+      "negative": [
+        "105",
+        0
+      ],
+      "latent_image": [
+        "109",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "121": {
+    "inputs": {
+      "text": "prompt"
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Text Multiline"
+    }
+  },
+  "122": {
+    "inputs": {
+      "filename_prefix": "sarah1a3/{{run_name}}/base",
+      "images": [
+        "77",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

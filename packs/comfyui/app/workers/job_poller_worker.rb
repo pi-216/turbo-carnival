@@ -4,6 +4,17 @@ class JobPollerWorker
   sidekiq_options queue: :job_polling, retry: 3
 
   def perform
+    # Reconcile orphans FIRST. JobSubmitterWorker refuses to submit while any job
+    # is in `submitted`/`running`, so a single phantom row stalls submission
+    # indefinitely -- that is what froze the pipeline for four months and what
+    # blocked the OOM-retry job on 2026-09-19. See ReconcileStaleJobs.
+    ReconcileStaleJobs.call
+
+    # Then the run-level counterpart: a SYNC producer killed mid-render (the
+    # growth tick's foreground timeout) leaves its run non-terminal with no job
+    # in flight, and nothing else re-drives it. See ReconcileStaleRuns.
+    ReconcileStaleRuns.call
+
     # Poll status of in-flight jobs (may transition to completed)
     in_flight_jobs = ComfyuiJob.in_flight
     in_flight_jobs.find_each do |job|
@@ -40,10 +51,10 @@ class JobPollerWorker
 
   def schedule_next_run
     require 'sidekiq/api'
-    
+
     scheduled_jobs = Sidekiq::ScheduledSet.new.select { |job| job.klass == self.class.name }
     return if scheduled_jobs.any?
-    
+
     interval = ENV.fetch("COMFYUI_POLL_INTERVAL", 5).to_i
     self.class.perform_in(interval.seconds)
   end

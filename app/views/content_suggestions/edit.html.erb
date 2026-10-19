@@ -1,0 +1,47 @@
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-4">
+    <%= link_to "← Back to Content Suggestions", persona_content_suggestions_path(@content_suggestion.gap_analysis.persona), class: "text-blue-400 hover:text-blue-300" %>
+  </div>
+
+  <h1 class="text-3xl font-bold mb-8">Edit Content Suggestion</h1>
+
+  <%= form_with model: @content_suggestion, url: content_suggestion_path(@content_suggestion), method: :patch, class: "space-y-6" do |f| %>
+    <%= render CardComponent.new do |c| %>
+      <% c.with_body do %>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-2">Title</label>
+            <%= f.text_field :title, class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-2">Description</label>
+            <%= f.text_area :description, rows: 3, class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500" %>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-2">ComfyUI Prompt</label>
+            <%= f.text_area :prompt, 
+                           value: @content_suggestion.prompt_data&.dig('prompt'), 
+                           rows: 8, 
+                           class: "w-full bg-zinc-800 border border-zinc-700 rounded px-4 py-2 text-white font-mono text-sm focus:outline-none focus:border-purple-500",
+                           placeholder: "Enter the ComfyUI prompt for image generation..." %>
+            <p class="text-sm text-zinc-500 mt-1">This is the prompt that will be used when generating images.</p>
+          </div>
+
+          <% if @content_suggestion.prompt_data&.dig('reason') %>
+            <div class="bg-zinc-800 p-4 rounded">
+              <label class="block text-sm font-medium mb-2 text-zinc-400">Gap Analysis Reason</label>
+              <p class="text-sm text-zinc-300"><%= @content_suggestion.prompt_data['reason'] %></p>
+            </div>
+          <% end %>
+
+          <div class="flex gap-3 pt-4">
+            <%= f.submit "Save Changes", class: "bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-2 rounded cursor-pointer" %>
+            <%= link_to "Cancel", persona_content_suggestions_path(@content_suggestion.gap_analysis.persona), class: "bg-zinc-600 hover:bg-zinc-700 text-white font-medium px-6 py-2 rounded inline-block" %>
+          </div>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

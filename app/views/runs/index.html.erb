@@ -28,18 +28,46 @@
       </div>
     <% end %>
 
-    <!-- Runs List -->
-    <% if @runs.any? %>
-      <div class="grid grid-cols-1 gap-6">
-        <% @runs.each do |run| %>
-          <%= render partial: 'run_card', locals: { run: run } %>
-        <% end %>
-      </div>
-    <% else %>
-      <div class="text-center text-zinc-400 py-12">
-        <p class="text-xl mb-4">No pipeline runs found</p>
-        <p class="text-sm">Create a new run to get started</p>
-      </div>
-    <% end %>
+    <!-- Active Runs -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-semibold text-white mb-4">
+        Active Runs (<%= @active_runs.total_count %>)
+      </h2>
+      
+      <% if @active_runs.any? %>
+        <div class="grid grid-cols-1 gap-6 mb-6">
+          <% @active_runs.each do |run| %>
+            <%= render partial: 'run_card', locals: { run: run } %>
+          <% end %>
+        </div>
+        
+        <%= paginate @active_runs, param_name: :active_page %>
+      <% else %>
+        <div class="text-center text-zinc-400 py-8 bg-zinc-800 rounded-lg">
+          <p class="text-lg">No active runs</p>
+        </div>
+      <% end %>
+    </section>
+
+    <!-- Completed Runs -->
+    <section>
+      <h2 class="text-2xl font-semibold text-white mb-4">
+        Completed Runs (<%= @completed_runs.total_count %>)
+      </h2>
+      
+      <% if @completed_runs.any? %>
+        <div class="space-y-3 mb-6">
+          <% @completed_runs.each do |run| %>
+            <%= render partial: 'run_card_compact', locals: { run: run } %>
+          <% end %>
+        </div>
+        
+        <%= paginate @completed_runs, param_name: :completed_page %>
+      <% else %>
+        <div class="text-center text-zinc-400 py-8 bg-zinc-800 rounded-lg">
+          <p class="text-lg">No completed runs</p>
+        </div>
+      <% end %>
+    </section>
   </div>
 </div>

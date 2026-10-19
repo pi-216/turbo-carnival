@@ -1,0 +1,144 @@
+{
+  "2": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "3": {
+    "inputs": {
+      "gguf_name": "srpo-Q8_0.gguf"
+    },
+    "class_type": "LoaderGGUF",
+    "_meta": {
+      "title": "GGUF Loader"
+    }
+  },
+  "4": {
+    "inputs": {
+      "clip_name1": "t5xxl_fp16.safetensors",
+      "clip_name2": "clipLFullFP32Zer0int_textImprovedFP32.safetensors",
+      "type": "flux",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "DualCLIPLoader"
+    }
+  },
+  "5": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.5,
+      "width": 1024,
+      "height": 1024,
+      "model": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": {
+      "title": "ModelSamplingFlux"
+    }
+  },
+  "6": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "flux/sarah1a3.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "flux/Flux_Skin_Detailer.safetensors",
+        "strength": 0.4
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "uso-flux1-dit-lora-v1.safetensors",
+        "strength": 0.5
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "flux/tg.safetensors",
+        "strength": 0.8
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "3",
+        0
+      ],
+      "clip": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "scale_factor": 2.3,
+      "denoise": 0.4,
+      "tile_size": 1024,
+      "sampler_name": "euler",
+      "scheduler": "FlowMatchEulerDiscreteScheduler",
+      "steps": 10,
+      "dino_enabled": true,
+      "dino_strength": 0.82,
+      "seed": null,
+      "prompt": "high quality, detailed, sharp, sarah1a3, freckles, p0k13s",
+      "image": [
+        "17",
+        0
+      ],
+      "model": [
+        "5",
+        0
+      ],
+      "vae": [
+        "2",
+        0
+      ],
+      "clip": [
+        "6",
+        1
+      ]
+    },
+    "class_type": "DINOUpscale",
+    "_meta": {
+      "title": "DINO Upscale"
+    }
+  },
+  "17": {
+    "inputs": {
+      "image": "{{parent_image_path}}"
+    },
+    "class_type": "LoadImageFromPath",
+    "_meta": {
+      "title": "Load Image From Path"
+    }
+  },
+  "18": {
+    "inputs": {
+      "filename_prefix": "sarah1a3/{{run_name}}/upscale",
+      "images": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}
