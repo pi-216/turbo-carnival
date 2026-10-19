@@ -64,6 +64,10 @@ a ticket, and **no new work may be added on the `solid_*` substrate**.
 **Q6 — scope.** *"This is a new, independent PRD."* → PRD 0006 **stands alone** at W1.4; it is not folded
 into PRD 0003.
 
+**Q7 — `aasm` vs `state_machines`.** *"state_machines over aasm"* → **`state_machines-activerecord` is
+ratified** as this repo's state-machine library; `aasm` is **not** adopted. The template pins `aasm` and this
+repo does not — recorded as a deviation, not a gap.
+
 **Q9 — where the non-Rails Gherkin definitions live.** *"They stay inline in the PRD; only Rails-app
 scenarios become .feature files."* → **Layer-1 definitions live in the PRD, permanently.** Only Rails-app
 scenarios are ever extracted into `.feature` files. There is no `gherkin_specs/` home for behaviour the Rails
@@ -381,7 +385,8 @@ Every rail, marked. The dispositions are the input to the tickets.
 gem is adopted **only with the rail it serves** — a gem for a rail the repo does not run is the
 vacuous-gate anti-pattern. Under the rulings: `haml-rails` rides on **Q1** (HAML transition), `cucumber` +
 `gherkin_lint` on **Q2** (Rails-scoped lane), `strong_migrations` on **R6**; `rswag-api/specs` stays
-**N/A** until a `swagger/` surface exists; `aasm` and `oj` are **not ruled** (see Q7).
+**N/A** until a `swagger/` surface exists; `aasm` is **not adopted** — `state_machines-activerecord` is
+ratified (Q7) — and `oj` remains unruled.
 
 ## Metrics / definition of done
 
@@ -425,18 +430,19 @@ maps to an **emitted metric** (`Sentry::Metrics`), or it is untracked.
 
 **Resolved 2026-10-19 — see *Founder rulings* above.** Q1 HAML (adopt, deprioritised) · Q2 Gherkin (adopt,
 scoped to the Rails app; the two-layer rule) · Q3 Sentry DSN (an agent provisions it) · Q4 doc homes
-(adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4) · Q9 non-Rails Gherkin definitions
-stay **inline in the PRD**; only Rails-app scenarios become `.feature` files.
+(adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4) · Q7 state-machine library
+(`state_machines-activerecord` ratified over `aasm`) · Q9 non-Rails Gherkin definitions stay **inline in the
+PRD**; only Rails-app scenarios become `.feature` files.
 
 **Still open:**
 
-1. **`aasm` vs `state_machines` (Q7).** The template pins `aasm`; this repo uses
-   `state_machines-activerecord`. Same role, different library. *Lean: ratify `state_machines` as a
-   recorded deviation — rewriting working state machines buys uniformity, not behaviour.* (Founder.)
-2. **`packs-rails` vs the template's explicit autoload block (Q8).** The repo loads packs through the
+1. **`packs-rails` vs the template's explicit autoload block (Q8).** The repo loads packs through the
    `packs-rails` gem; the template emits `Dir[Rails.root.join("packs/*/app/*")]` in `config/application.rb`.
-   `packs-rails` is a superset and 12 packs already depend on it. *Lean: ratify `packs-rails` — the rail
-   (pack autoload) is satisfied either way.* (Founder.)
+   Measured 2026-10-19: the railtie (`Packs::Rails::Railtie`, packs-rails 0.1.0) puts **32** pack dirs on the
+   autoload paths and **12** on the view paths, and `Rails.autoloaders.main.eager_load` resolves both
+   `Growth::Goal` and `Scheduling::FailedPostRetry` — so the **mechanism** (pack classes load; packwerk
+   enforces the boundary) is satisfied. The template hand-wires because it pins `packwerk` but does **not**
+   ship `packs-rails`. *Lean: ratify `packs-rails`.* (Founder — asked.)
 
 ---
 
