@@ -74,6 +74,26 @@ RSpec.describe GapAnalysisAi::Suggester do
     expect(suggestions.first[:name]).to eq('New Idea')
   end
 
+  # Founder ruling 2026-10-19: the existing pillars are fair game. The prompt is the
+  # ONLY place the seat can learn that — the nightly plan loop hands it one existing
+  # pillar at a time (Growth::NightlyPlanner), so nothing else in the path could say
+  # it. Intensity and identity stay out of its reach in the same breath.
+  it 'tells the brain the pillar set is not fixed, without handing it intensity or identity' do
+    pillar = build(:content_pillar, name: 'Food & Cooking')
+    persona = build(:persona)
+    persona.caption_config = Personas::CaptionConfig.new(tone: 'warm', style: 'conversational')
+
+    system_seen = nil
+    brain = instance_double(AI::BrainClient, available?: true)
+    allow(AI::BrainClient).to receive(:new).and_return(brain)
+    allow(brain).to receive(:generate) { |_user, system:, **| system_seen = system; '[]' }
+
+    described_class.suggest(pillar: pillar, persona: persona)
+
+    expect(system_seen).to include('pillar set itself is NOT fixed')
+    expect(system_seen).to include('founder rulings')
+  end
+
   it 'falls back to template suggestions when no planner client is configured' do
     pillar = build(:content_pillar, name: 'Food & Cooking')
     persona = build(:persona)

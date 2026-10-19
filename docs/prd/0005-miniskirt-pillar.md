@@ -31,6 +31,9 @@ by platform response per published post over a fixed window.
   (`AGENTS.md` → *the authority ladder*). The wardrobe axis may not be pushed further to improve a number.
 - The persona is **18**, and the visuals must not *read* younger. **No wardrobe rung may trade against the
   age read**, and a rung that trends younger-looking is rejected regardless of its yield.
+- **The existing pillars are fair game** (2026-10-19): the adopted wardrobe may land on an **existing** content
+  pillar the researcher re-scopes, not only on the new pillar this PRD names. Either way the wardrobe ends as
+  a *value in the content configuration*, which is what keeps the deletion test below true.
 
 ## The one varied axis
 
@@ -138,8 +141,9 @@ reads the gates, records the verdict.
 
 ## The exit
 
-- **Adopted:** the highest postable rung becomes the pillar's wardrobe, recorded with the experiment id
-  that caused it.
+- **Adopted:** the highest postable rung becomes the pillar's wardrobe — on the new pillar this PRD names, or
+  on an existing pillar re-scoped to it (founder ruling 2026-10-19) — recorded with the experiment id that
+  caused it.
 - **Rejected:** *no rung above L1 is postable at the pre-registered bar* — a **negative result**, which
   closes the item, with the design and the descriptors kept so the question is not silently re-run.
 - **Indeterminate:** the narrow-the-band re-run is exhausted without leaving the 4/6 band → recorded as
