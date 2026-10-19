@@ -43,6 +43,11 @@ serving:
   batch_size: 2048
   ubatch_size: 512
   flash_attn: "on"
+  # Where the seat listens, for the OpenAI-compatible client (ticket #27). Same
+  # host/port/alias the harness launches with (--host/--port/--alias).
+  endpoint: http://127.0.0.1:8080
+  alias: brain
+  timeout_s: 120
   chosen: 32k_q8
   measured_at: 2026-10-19
   measured_by: ticket #26 (W1.1)
