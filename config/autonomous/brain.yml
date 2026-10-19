@@ -5,60 +5,193 @@
 #
 # PRD   : docs/prd/0001-local-uncensored-brain-and-phase-machine.md
 # Plan  : docs/PROJECT_PLAN.md#w11-local-brain-and-phase-machine
-# Seat  : the Thinker/planner role. Canonical artefact per the founder ruling of
-#         2026-10-19 (PRD 0001 open question 1, commit 7ffcffe).
+# Seat  : the Thinker/planner role.
 #
 # Every value below names where it came from, so it can be re-verified — never assumed.
 # This file is the single home for the seat's data: the harness (#24) reads it and the
-# serving parameters (#26) are added under `serving`, not in a second file.
+# serving parameters live under `serving`, not in a second file.
+#
+# Readers — everything that parses this file. Change its shape and check them:
+#   bin/brain_harness.sh    artefact.path, vision.path, serving.*
+#   lib/ai/brain_client.rb  serving.endpoint, serving.alias, serving.timeout_s  (has a spec)
+#
+# ---------------------------------------------------------------------------
+# 2026-10-19 — ARTEFACT CHANGE. A founder call, NOT a measurement: three axes move
+# together, and PRD 0001 open question 1's tie-break (Q6_K over Q4_K_P, on fidelity
+# alone) never had axes 1 or 3 in it.
+#
+#   1. MTP. The previous artefact is named `noMTP` and that is literal — read from its
+#      header it has ZERO `nextn.*` tensors and no `nextn_predict_layers` key. MTP is not
+#      off on it, it is impossible. Every HauhauCS text GGUF preserves the head
+#      (`nextn_predict_layers: 1`, blk.64.nextn.{eh_proj,enorm,hnorm,shared_head_norm}),
+#      so speculation comes from the model's own head: no sidecar file, no patch, no extra
+#      weights. Our llama.cpp (f174553e / b11736) implements `--spec-type draft-mtp` for
+#      `qwen35` in single-head mode (common/speculative.cpp:1448). The HauhauCS FastMTP
+#      sidecar is deliberately NOT used: it needs their patch, which targets 4df29be4 and
+#      no longer applies to this tree.
+#
+#   2. CONTEXT. 131072. At q8_0 KV that costs 4352 MiB — 16 KV layers x 4 kv heads x
+#      (256+256) dims x 1.0625 B = 34 KiB/token — so with the old 21060 MiB weight set,
+#      full offload needs ~25912 MiB against ~24000 usable. It does not fit, and the
+#      harness log records the price of pretending otherwise: the tuner fell back to 52 of
+#      65 layers, which puts ~a fifth of the stack AND the output projection on CPU, and
+#      the seat ran at 15.6 t/s. Q4_K_P is 17093 MiB and fits with headroom.
+#
+#   3. VISION. For a seat whose product is Instagram posts, a brain that cannot look at a
+#      frame is the larger gap. See `vision:` — it is this artefact's own projector.
+#
+# MEASURED, 2026-10-19 19:29 EDT, under the retained claim (one config, device VRAM sampled
+# at /health — the #26 pattern). Three things had to be corrected against the projection:
+#
+#   a. The projector does NOT fit on the device. The first launch died on exactly that
+#      allocation — the model loaded, the MTP draft context was created, then
+#      `clip_init` aborted: "allocating 887.99 MiB on device 0: cudaMalloc failed".
+#      It is therefore on the CPU (`vision.offload: cpu`), 888 MiB returned to the card.
+#   b. The non-projector footprint is ~1.2 GiB LARGER than projected (see measured_mib
+#      `accounting_difference`). Weights + KV + buffers was never the whole story: the MTP
+#      draft context, the output tensor and the CUDA/cuBLAS workspaces are the rest.
+#   c. Free VRAM ends at 464 MiB, i.e. BELOW this file's own >= 1 GiB rule. It runs, and
+#      image tokens reuse KV cells that are already allocated so a vision request adds no
+#      device memory — but the margin is thin and a growing desktop session can take it.
+#
+# The fix for (c) is a decision, not a typo: step n_gpu_layers down (~263 MiB/block), or
+# move to IQ4_XS (~2115 MiB of weights back = 15.7 GB download). Recorded, not chosen.
+# ---------------------------------------------------------------------------
 
 artefact:
-  # Staged to shared storage by ticket #23 (W1.1). Add-only: nothing was overwritten.
-  path: /mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
-  size_bytes: 22082529760
-  sha256: 4856b645f603d0570a0c9336ebe7ea355473eb586f7811b0afd21aa2c2118b10
-  # GGUF metadata — read from the header, not from the filename (the name is a claim).
-  general_name: "Abl 27b" # abliterated
-  architecture: qwen35 # 64 blocks, full_attention_interval=4 (16 KV layers), ctx train 262144
-  # Verify by hash, never by size: the copy's sha256 was read back off the NAS and
-  # matched the source. A truncated copy reads as present; a size match proves nothing.
-  verified: sha256 match against source (ticket #23)
+  # HauhauCS "Aggressive" Q4_K_P. Already on shared storage; verified by hash read-back
+  # against HauhauCS's signed release manifest. 5.25 bpw — one quant step below the Q6_K
+  # it replaces, which is the fidelity this change spends to buy MTP, context and vision.
+  path: /mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+  size_bytes: 17923393664
+  sha256: ba36dc3c2b2ff5e0aa5d71092a8894546996a6a119ae391803dda07cdc08516d
+  # GGUF metadata — read from the header, not the filename (the name is a claim).
+  general_name: "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive"
+  architecture: qwen35 # 65 blocks (64 repeating + the nextn layer), full_attention_interval=4 -> 16 KV layers, ctx train 262144
+  nextn_predict_layers: 1 # the MTP head; this is what `--spec-type draft-mtp` consumes
+  # Verify by hash, never by size: a truncated copy reads as present; a size match proves
+  # nothing. Read back and matched against the signed manifest on 2026-10-19.
+  verified: sha256 match against HauhauCS-RELEASE-MANIFEST.json (2026-10-19)
   staged_at: 2026-10-19
-  source: /home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
+  source: https://huggingface.co/HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF
+  supersedes: Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf # see the header: noMTP cannot do MTP
 
-# llama.cpp serving parameters — MEASURED on the 4090 by ticket #26 (W1.1), not guessed.
-# The harness (#24) reads these via serving.*; before #26 this block was empty and the
-# harness fell back to unverified defaults. Nothing here is asserted that was not measured.
-#
-# Chosen rule: maximise KV fidelity, then context, subject to >= 1 GiB measured free.
-# At a 439 MiB baseline the 32k/q8_0 config leaves 1218 MiB free — the largest context
-# at the highest KV fidelity that fits. KV is q8_0 (near-lossless); q4_0 KV trades
-# coherence for ~0.5 GiB and buys nothing this seat needs (a plan prompt is a few
-# thousand tokens — see PRD 0001 open question 3, now answered).
+vision:
+  # The projector for THIS artefact. It must be the HauhauCS one. The other projector on
+  # the NAS (`mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf`, general.name "Abl 27b")
+  # belongs to the superseded abliterated export. Structurally they are the same tower —
+  # clip / qwen3vl_merger, 27 blocks, 1152, patch 16, spatial_merge 2, projection_dim
+  # 5120 (= the LM's embedding width), 334 tensors — so the difference is which embedding
+  # space the merger was fit to, and a mis-paired projector writes fluent captions of the
+  # wrong thing rather than failing loudly. Do not cross-pair the two.
+  path: /mnt/nas-ai-models/LLM/gguf/mmproj-Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-BF16.gguf
+  size_bytes: 931146624
+  sha256: 5681b690bcb8eb10cd28d62d078cb4e01521a3ea4880a3fc7d54de72de2dd142
+  verified: sha256 match against HauhauCS-RELEASE-MANIFEST.json (2026-10-19)
+  # Loaded on the device by default (llama-server's --mmproj-offload defaults to enabled):
+  # 888 MiB, plus a transient activation spike per image. `--mmproj-device none` parks the
+  # tower on the CPU and returns that 888 MiB for a few seconds per frame.
+  # Image tokens: patch 16 x spatial_merge 2 => one token per 32x32 px, so a 768x768 frame
+  # is ~576 tokens (~19 MiB of KV at q8_0). Bound it with --image-min/max-tokens.
+  # Grounding stays unverified until one KNOWN render is fed through and the description
+  # checked against what is actually in frame — a mis-paired projector does not error.
+  grounding: unverified
+  # Where the tower runs. On the device costs 888 MiB, and on 2026-10-19 that allocation
+  # is exactly what killed the launch: the model loaded, the MTP draft context was created,
+  # and then `clip_init` aborted —
+  #   GGML_ASSERT(buffer) failed
+  #   allocating 887.99 MiB on device 0: cudaMalloc failed: out of memory
+  # so fewer than 888 MiB were free at that point. On the CPU those 888 MiB come back; the
+  # tower is 461M params and encodes one frame in seconds, which is nothing for a nightly
+  # plan. `device` puts it back on the GPU once the budget is known to hold it.
+  offload: cpu
+  # llama.cpp asks for this at load ("Qwen-VL models require at minimum 1024 image tokens
+  # to function correctly on grounding tasks"). Free, and grounding is the entire point of
+  # this seat having eyes.
+  min_tokens: 1024
+
 serving:
-  n_gpu_layers: 54
+  # MEASURED — see the header, and `measured_mib` / `measured_runtime` at the end of this block.
+  #
+  # `n_gpu_layers` is hard-coded on purpose (founder's call). That also switches off
+  # llama.cpp's own fitter: passing this flag makes it abort ("common_fit_params:
+  # n_gpu_layers already set by user ... abort"), so this number is the only thing between
+  # the seat and an OOM. If it OOMs, step down by one — each block is ~263 MiB.
+  n_gpu_layers: 65 # all 65 blocks incl. the nextn layer: the head must be on the device or MTP runs on CPU
   ctx_size: 131072
   cache_type_k: q8_0
   cache_type_v: q8_0
   batch_size: 2048
   ubatch_size: 512
   flash_attn: "on"
+  # One planner runs at a time. llama-server's --parallel defaults to AUTO = 4, which
+  # allocates four sequences' worth of recurrent state for slots nothing uses (hybrid
+  # arch: 48 SSM layers x 6144 x 128 x 2 B ~= 75 MiB per sequence) and reports
+  # n_ctx_slot = ctx/4, which reads like a cap per request and is not one.
+  parallel: 1
+  # MTP from the model's own NextN head. NO --spec-draft-model: the head is inside
+  # `artefact.path`, and a separate draft would add its weights plus its own KV.
+  spec_type: draft-mtp
+  spec_draft_n_max: 3
   # Where the seat listens, for the OpenAI-compatible client (ticket #27). Same
   # host/port/alias the harness launches with (--host/--port/--alias).
   endpoint: http://127.0.0.1:8080
   alias: brain
   timeout_s: 120
-  chosen: 16k_q4
-  measured_at: 2026-10-19
-  measured_by: ticket #26 (W1.1)
-  # Device VRAM, MiB, from `nvidia-smi memory.used`/`memory.free`, sampled once /health
-  # answered. The matrix is kept so a next agent can downgrade with evidence rather than
-  # re-derive by trial. baseline_used_mib is the card's use before any server started.
-  measured:
-    baseline_used_mib: 439
-    configs:
-      - { config: 32k_q8, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22863, free_mib: 1218, load_s: 6, health: ok }
-      - { config: 32k_q4, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 22351, free_mib: 1730, load_s: 6, health: ok }
-      - { config: 16k_q8, n_gpu_layers: 999, ctx_size: 16384, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22239, free_mib: 1842, load_s: 6, health: ok }
-      - { config: 8k_q8, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 21937, free_mib: 2144, load_s: 6, health: ok }
-      - { config: 8k_q4, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 21809, free_mib: 2272, load_s: 6, health: ok }
+  # Where the 24 GiB actually went, sampled with `nvidia-smi` the moment /health answered.
+  # Every value is an observation, and the arithmetic is left visible so a next agent can
+  # check it instead of trusting it. Rule this file sets for itself: >= 1 GiB headroom.
+  measured_mib:
+    baseline_desktop_used: 559 # with no llama-server resident: gnome-shell 225, alacritty x2 68, Xwayland/portal 20, firefox 8, + driver overhead
+    vram_used_at_health: 23617
+    vram_free_at_health: 464 # BELOW the >= 1 GiB rule — see the header (c)
+    llama_server_footprint: 23058 # = vram_used_at_health - baseline_desktop_used
+    weights: 17093 # = artefact.size_bytes
+    text_kv_q8_0_at_131072: 4352
+    implied_other: 1613 # = footprint - weights - KV: everything the projection did not name
+    compute_buffers_measured_prior: 420 # from the #26 matrix; same batch/ubatch, so it transfers
+    accounting_difference: 1193 # = implied_other - compute_buffers: MTP draft context, output tensor, CUDA/cuBLAS workspaces
+    vision_projector: 0 # on the CPU (vision.offload: cpu); it is 887.99 MiB on the device and that did NOT fit
+  measured_runtime:
+    load_s: 5
+    n_slots: 1
+    n_ctx_slot: 131072 # with --parallel 1, kv_unified is 'false' and one request gets the whole cache
+    kv_unified: false
+    tg_tok_s_text: 51.8 # 47 tokens over 2 short requests — an indication, NOT a benchmark
+    tg_tok_s_vision_request: 58.8 # 75 tokens
+    pp_tok_s_vision_request: 137.9 # 1095 prompt tokens, of which 1024 are image tokens
+    draft_accepted: "28/54 (51.9%) text, 43/93 (46.2%) vision" # this is what proves draft-mtp is live
+    image_encode_wall_s: 9.5 # whole vision request, projector on CPU
+    measured_at: 2026-10-19 19:29 EDT
+  # For scale: the seat this replaced ran 15.6 t/s typical and 3.46 t/s on a long-context
+  # slot, with ~a fifth of the stack on the CPU. 51.8 t/s is ~3.3x, on the same card.
+  #
+  # CAUTION for anyone reading this by API: /props reports `speculative.types: none` while
+  # speculation IS running — that field reflects per-request defaults, not the engine. The
+  # evidence that MTP is live is `draft_n` / `draft_n_accepted` in the response timings.
+  #
+  # Grounding was tested on 2026-10-19 with a corpus frame whose content was known and then
+  # independently checked against the reply: the reply named the light-gray wall, the dark
+  # wood floor, the light-gray sweatpants AND their white drawstring, the hands in the front
+  # pockets, the blonde hair and the freckles — all correct. A drawstring and freckles are
+  # not details a mis-paired projector invents, so the pairing is real.
+  grounded: verified 2026-10-19 # resolves PRD 0001 open question 4
+
+# EVIDENCE, not options. Measured by ticket #26 on the artefact this file has since
+# replaced, so these numbers do NOT transfer to the config above — different weights,
+# different KV budget. Kept because deleting a measurement whenever its artefact moves is
+# how a repo forgets why it chose something.
+measured_superseded_noMTP_q6_k:
+  artefact: Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
+  baseline_used_mib: 439
+  configs:
+    - { config: 32k_q8, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22863, free_mib: 1218, load_s: 6, health: ok }
+    - { config: 32k_q4, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 22351, free_mib: 1730, load_s: 6, health: ok }
+    - { config: 16k_q8, n_gpu_layers: 999, ctx_size: 16384, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22239, free_mib: 1842, load_s: 6, health: ok }
+    - { config: 8k_q8, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 21937, free_mib: 2144, load_s: 6, health: ok }
+    - { config: 8k_q4, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 21809, free_mib: 2272, load_s: 6, health: ok }
+  note: >-
+    The 32k_q8 row is the config PRD 0001 open questions 2 and 3 resolved to. It was later
+    overwritten in place by an unmeasured 54/131072, which cannot fit; the harness log
+    records the fallback to 52 of 65 layers and the resulting 15.6 t/s. That overwrite is
+    why this file now labels its serving block projected-or-measured at all.

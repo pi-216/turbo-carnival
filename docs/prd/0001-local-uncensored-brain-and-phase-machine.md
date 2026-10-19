@@ -5,7 +5,7 @@ source: PROJECT_PLAN
 
 # PRD 0001 — Local uncensored brain + the phase machine
 
-> **Status:** CURRENT · draft for founder review · 2026-10-18
+> **Status:** CURRENT · draft for founder review · 2026-10-18 · revised 2026-10-19
 > Plan item: **W1.1** · Track: `core-infrastructure` · Owner: unassigned
 
 ## Summary
@@ -23,11 +23,13 @@ Two independent facts force this, and neither is a preference:
    "skiddish" failure: the *planning* is timid, while the *render stack* is fine. An uncensored model is
    the fix, and it is the founder's explicit direction.
    *Founder, 2026-10-18:* the same one that replaces them is
-   `Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`.
-2. **The two tenants cannot share the card.** The brain is **22.08 GB** (22,082,529,760 bytes, verified) of
-   a 24 GB card; the render graph peaks at **~23 GB**. Each alone nearly fills the 4090. Co-residency is
-   impossible, so *something* must sequence them — and today nothing does, because the brain isn't served
-   locally at all.
+   `Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`. **Superseded 2026-10-19 — see open question 1.**
+2. **The two tenants cannot share the card.** The render graph peaks at **~23 GB** of a 24 GB card, and the
+   brain's *measured* resident footprint is **23058 MiB** (see open question 2 — 17093 of weights, 4352 of
+   KV, and 1613 that is neither). Each alone nearly fills the 4090. Co-residency is impossible, so
+   *something* must sequence them — and today nothing does, because the brain isn't served locally at all.
+   Note what this replaced: the earlier figure quoted the artefact's *file size* (22.08 GB) as if it were
+   the footprint. Weights are not the footprint, and the difference is what broke the first launch.
 
 A third fact makes this cheap: **half the machine already exists.** `Growth::SchedulerGate` and
 `bin/comfyui_harness.sh` (claim / heartbeat / shutdown / orphan self-heal) already sequence ComfyUI against
@@ -125,12 +127,15 @@ Scenario: a render and a review never overlap the brain
 | the model named by the founder | `/home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — **22,082,529,760 B**, verified present |
 | **staged artefact (destination)** | `/mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — staged by #23, **sha256 read back and matched** (`4856b645…2118b10`); recorded as data in `config/autonomous/brain.yml` |
 | NAS LLM area (exists) | `/mnt/nas-ai-models/LLM/` → `gguf/` holds 12+ GGUFs |
-| **uncensored** sibling on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) — a *different tune* (HauhauCS "Aggressive"), declares `vision` + `mtp` |
+| **canonical artefact (Q1, re-ruled)** | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` — **17,923,393,664 B**, sha256 `ba36dc3c…c08516d` matched against HauhauCS's signed release manifest; `general.name = Qwen3.8-27B-Uncensored-HauhauCS-Aggressive`; declares `vision` and carries the MTP head |
+| superseded artefact | `Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` (22.08 GB) — the earlier canonical. Its MTP head is **stripped**, not disabled |
+| **canonical projector (Q4, resolved)** | `mmproj-Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-BF16.gguf` — **931,146,624 B**, sha256 `5681b690…de2dd142` matched against the same signed manifest. Same release as the artefact, so the pairing is real |
+| projector — **do not cross-pair** | `mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf` (927 MB) — `general.name = Abl 27b`, i.e. the superseded export's |
 | **vanilla** siblings on the NAS | `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) — verified `general.name = Qwen3.8-27B` (Unsloth), **not uncensored**. These are the hedging model this PRD exists to replace and are **not** candidates for this seat |
-| **vision projector, same family** | `mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf` (927 MB) — the Reviewer role needs vision; noted, not specified here |
-| MTP module on the NAS | `mtp-Qwen3.8-27B-Q4_0.gguf` (1.37 GB) — the named model is explicitly **noMTP** |
+| MTP module on the NAS | `mtp-Qwen3.8-27B-Q4_0.gguf` (1.37 GB) — **not used.** The MTP head is inside the canonical artefact, so `--spec-type draft-mtp` needs no sidecar file and no patch |
+| FastMTP sidecar on the NAS | `…-FastMTP-32K.gguf` (903 MB) — **not used, and not currently usable**: it requires HauhauCS's llama.cpp patch, which targets `4df29be4` and no longer applies to our tree |
 | `/mnt/models` | ComfyUI `local_hot`; holds checkpoints/loras/unet/vae/clip only — **no LLM area** |
-| llama.cpp | `/home/tim/source/activity/llama.cpp`, HEAD `4df29be4f` (2026-08-16), build 10454, CUDA libs built; `build/bin/llama-server` present |
+| llama.cpp | `/home/tim/source/activity/llama.cpp`, HEAD **`f174553e` / b11736** (2026-10-19), CUDA libs built; `build/bin/llama-server` present. **Moved from `4df29be4f` / build 10454** — note that `4df29be4f` is exactly the commit the FastMTP patch targets |
 
 **The founder's request is "better from the NAS somewhere or `/mnt/models`".** The exact named file was *not*
 on the NAS — the NAS held siblings — so staging was a real step. **It is staged** (#23): the artefact now sits
@@ -168,6 +173,23 @@ founder on 2026-10-19 (open question 1, below).
    The one condition that would have reversed this: if the Reviewer's vision role rides *this* artefact
    (open question 4), `…Uncensored-HauhauCS-Aggressive-Q4_K_P` is the only candidate declaring `vision`.
    Noted, not chosen — it stays available for a separate vision seat.
+
+   **RE-RULED — founder, 2026-10-19 (same day), axis by axis. Canonical is now
+   `Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf`** (17,923,393,664 B / 16.71 GiB, sha256
+   `ba36dc3c…c08516d`, matched against the signed release manifest). The reasoning above did not become
+   wrong; the *question* was incomplete. Two axes were never in it:
+   - **MTP was not an option — it was impossible.** The artefact above is named `noMTP` and that is
+     literal: read from its header it carries **zero** `nextn.*` tensors and no `nextn_predict_layers` key.
+     Every HauhauCS text GGUF preserves the head (`nextn_predict_layers: 1`,
+     `blk.64.nextn.{eh_proj,enorm,hnorm,shared_head_norm}`), and our llama.cpp implements
+     `--spec-type draft-mtp` for `qwen35` in single-head mode (`common/speculative.cpp:1448`). So the
+     canonical artefact could not be made faster by *any* configuration; a different artefact was the
+     only path. That is a reason the original tie-break could not have weighed, because it read "Q6_K vs
+     Q4_K_P" as a pure fidelity question.
+   - **Vision was already named as the reversing condition** — the last line above — and it arrived. The
+     projector is this release's own, and grounding is verified (open question 4).
+   The fidelity cost is real and paid deliberately: **5.25 bpw where Q6_K was 6.60.** It buys a measured
+   **~3.3x** TG (51.8 tok/s against 15.6), **131072** context, and vision. Measured 2026-10-19.
 2. ~~**Launch parameters are unverified.**~~ **RESOLVED — measured, ticket #26 (2026-10-19).**
    The previously recorded `n_gpu_layers: 65` / `cache_type: q4` was never re-verifiable and is **not**
    used. A five-config matrix was run on the 4090 under one scheduler claim (device VRAM sampled at
@@ -177,10 +199,61 @@ founder on 2026-10-19 (open question 1, below).
    at a 439 MiB baseline (the largest context at the highest KV fidelity that leaves ≥ 1 GiB). A cold
    start from the recorded parameters succeeded (up in 5s), served a real completion, and shut down
    clean (port closed, GPU idle, claim released).
-3. ~~**Context length.**~~ **RESOLVED by #26.** `32768` — it fits with ≥ 1 GiB free and is ~5× the
+
+   **SUPERSEDED 2026-10-19 — and the matrix above is NOT transferable.** Three corrections, because this
+   is the section a next agent will otherwise trust:
+   - **The `serving:` block was later overwritten in place** with `n_gpu_layers: 54` / `ctx_size: 131072`,
+     which is *not* one of the five rows above and **cannot fit**: full offload at 131k needs ~25912 MiB
+     against ~24000 usable. The harness log records what happened instead — the tuner fell back to **52 of
+     65 layers**, putting ~a fifth of the stack *and the output projection* on the CPU, and the seat ran at
+     15.6 t/s with 3.46 t/s on a long-context slot. Those numbers were guesses, not measurements. That is
+     why `brain.yml` now labels every figure measured-or-projected.
+   - **All five rows were measured on `noMTP-Q6_K`**, so they do not carry across a change of weight set.
+     They are retained in `brain.yml` as `measured_superseded_noMTP_q6_k` — evidence about a different
+     artefact, not a menu of options.
+   - **The KV arithmetic in open question 1 is right; the "leftover" arithmetic was not.** KV really is
+     64 KiB/token at f16 — verified twice, because 131072 tokens at q8_0 is exactly 4352.00 MiB and
+     262144 tokens is exactly 8704.00 MiB, which is what the kernel's own allocation failures name. What
+     was missing is a **~1.6 GiB cost that is neither weights nor KV**: the MTP draft context, the output
+     tensor, and the CUDA/cuBLAS workspaces. Measured on 2026-10-19: footprint **23058 MiB = 17093 weights
+     + 4352 KV + 1613 other**. Budget from weights + KV alone and the launch dies on its last allocation —
+     which is exactly what happened (`clip_init` → `cudaMalloc failed` at 887.99 MiB, with the model and
+     the draft already resident).
+3. ~~**Context length.**~~ **RESOLVED by #26** as `32768` — it fits with ≥ 1 GiB free and is ~5× the
    plan-plus-ledger prompt (a few thousand tokens). Smaller contexts (16 K at 1842 MiB free, 8 K at
    2144 MiB free) are measured and recorded in `brain.yml` for a downgrade, but the seat needs neither.
-4. **Does the Reviewer get the vision projector from the start**, or is it a second PRD?
+   **RE-RULED 2026-10-19: `131072`** (founder). The row above is preserved as the record of the earlier
+   call. It costs **4352 MiB** of KV at q8_0 — affordable on Q4_K_P and not on Q6_K, which is how this
+   question and question 1 became one question. Two serving details travel with it:
+   - **`--parallel 1`.** llama-server's default is AUTO = 4 slots. Those slots split the number
+     (`n_ctx_slot = ctx/4`) and allocate four sequences' worth of recurrent state for slots nothing uses —
+     this is a hybrid arch, so each sequence carries 48 SSM layers x 6144 x 128 x 2 B ≈ 75 MiB. One
+     planner needs one slot. Measured with `--parallel 1`: `n_slots 1`, `n_ctx_slot 131072`,
+     `kv_unified false`, so a single request gets the whole cache.
+   - **Do not read `n_ctx_slot` as a cap.** It is not a 4x reservation: the KV pool is exactly
+     `--ctx-size` in tokens, proven by the two allocation sizes above.
+4. ~~**Does the Reviewer get the vision projector from the start**, or is it a second PRD?~~
+   **RESOLVED — 2026-10-19: yes, from the start, on this artefact.** It is not a second PRD; vision is a
+   property of the canonical seat. `mmproj-Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-BF16.gguf`
+   (931,146,624 B, sha256 `5681b690…de2dd142`, same signed release manifest) loads with the seat.
+   Recorded so the next agent does not re-derive it:
+   - **The projector must be this artefact's own.** The NAS also holds
+     `mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf`, whose `general.name` is `Abl 27b` — the superseded
+     export's. Structurally the two are the same tower (`clip` / `qwen3vl_merger`, 27 blocks, 1152,
+     patch 16, spatial_merge 2, projection_dim 5120 = the LM's embedding width, 334 tensors); what
+     differs is the embedding space the merger was fit to. **A mis-paired projector does not error — it
+     writes fluent captions of the wrong thing.** Do not cross-pair them.
+   - **Grounding is verified, not assumed.** One corpus frame was described by the seat, then the reply
+     was checked against the frame: the light-gray wall, the dark wood floor, the light-gray sweatpants
+     *and their white drawstring*, the hands in the front pockets, the blonde hair and the freckles were
+     all correct. A drawstring and freckles are not details a mis-paired projector invents.
+   - **It runs on the CPU, and that is a measured decision.** On the device the tower costs 887.99 MiB,
+     and that allocation is precisely what killed the first launch. `vision.offload: cpu` returns those
+     888 MiB; a 768x768 frame encodes in **~9.5 s**, which is nothing for a nightly plan. Also set
+     `--image-min-tokens 1024`, which llama.cpp asks for at load — grounding is the point of having eyes.
+   - **Cost per frame:** patch 16 x spatial_merge 2 ⇒ one token per 32x32 px, so ~1024 image tokens
+     (~35 MiB of KV). Image tokens occupy KV cells that are already allocated, so a vision request adds
+     **no** device memory at request time — which is what makes this seat survivable at 464 MiB free.
 
 ## Planner cadence — founder ruling (2026-10-19)
 
