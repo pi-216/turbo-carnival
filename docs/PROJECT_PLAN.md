@@ -167,7 +167,7 @@ their tickets not yet cut._
 |---|---|---|---|
 | W2.1 | **the experiment lane** — the contract every experiment must satisfy | `docs/prd/0004-…` | **spec written** 2026-10-19 |
 | W2.2 | the E-lane discipline (pre-registration, blinding, decoders) | — | folds into W2.1 |
-| W2.3 | **experiment: the revealing-miniskirt pillar** | `docs/prd/0005-…` | **spec written** 2026-10-19 · folder `experiments/0005-miniskirt-pillar/` |
+| W2.3 | **experiment: the revealing-miniskirt pillar** | `docs/prd/0005-…` | **spec written** · epic #51, tickets #52–#60 · `experiments/0005-miniskirt-pillar/` |
 | — | render-axis experiment, parked | *its own PRD required* | un-run; keep/drop is the founder's call (§8) |
 
 - **W2** — the lane is a **contract**, not a list of experiments. Each experiment gets **its own PRD**, its
