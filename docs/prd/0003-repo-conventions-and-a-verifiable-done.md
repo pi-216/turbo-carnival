@@ -29,16 +29,23 @@ a ticket today reads instructions for something we no longer use.
 pass/fail answer. So an agent's definition of done is its own assertion, which is precisely the failure
 the house conventions exist to prevent.
 
-**3. CI is red, and has been.** The push that landed these PRDs triggered CI at `2026-10-19T00:03:32Z`
-and it **failed** — as did every other recent run, including all four dependabot PRs. Cause, from the log:
+**3. A trivial offense reached `main`, because no local gate exists.** The push landing these PRDs
+triggered CI at `2026-10-19T00:03:32Z` and it **failed** — as did all four dependabot PRs from the same
+window. Cause, from the CI log and reproduced locally:
 
 ```
-##[error]Style/StringLiterals: Prefer double-quoted strings unless you need single quotes …
-##[error]Process completed with exit code 1.
+9  Style/StringLiterals [Safe Correctable]
+9  Total in 1 files        -- lib/tasks/pipeline_workflows.rake
 ```
 
-Lint fails at the first style rule, so **CI has never reached the test step**. A gate that is permanently
-red is indistinguishable from no gate, and worse: it trains everyone to ignore it.
+Nine single-quoted strings in **one newly added file**: an offense rubocop autofixes without judgement,
+that a local `bin/verify` would have caught **before** the push, and that instead surfaced only in CI. The
+lint step also runs **ahead of** the test step, so a lint failure masks the test lane entirely.
+
+*Scope note — this PRD does not claim CI has been red for a long time.* That was not verified, and the one
+instance measured traces to a single file added the same day. **The finding is the absence of a local
+gate, not a chronic condition.** Stating it as chronic would be exactly the kind of unearned claim this
+repo's own rules forbid.
 
 **4. CI does not run the repo's real tests.** The test step is
 `bin/rails db:test:prepare test` — **Minitest**, over `test/` (28 files). The substantive suite is
