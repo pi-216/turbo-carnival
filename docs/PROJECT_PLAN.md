@@ -135,7 +135,7 @@ their tickets not yet cut._
 |---|---|---|---|
 | **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **spec written** · tickets #20, #22–#27 · **blocked on #22** (founder) |
 | W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **spec written** · epic #36, tickets #37–#43 |
-| W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **spec written** |
+| W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **rulings in** · OpenSpec dropped · tickets next |
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
   legal and in-lane. The replacement is the local uncensored Qwen3.8-27B. Intake confirmed the brain
@@ -145,10 +145,14 @@ their tickets not yet cut._
 - **W1.2** — raw capture (models, prompts, **prompt parts**, seeds, time-of-day, weekday) keyed on
   `sha256`, so one query answers *which combination produced the images that earned the most
   non-follower reach*. **Serves:** attribution — the difference between evidence and anecdote.
-- **W1.3** — turbo-carnival's `AGENTS.md` is still the OpenSpec block; OpenSpec is dropped. Port the
-  house conventions and the board wiring. `publish_prd` is **deliberately not ported** (founder,
-  2026-10-18) — tickets are cut by the agent against this plan. **Serves:** an agent that can be
-  trusted with a ticket.
+- **W1.3** — the OpenSpec estate is **gone**: dropped by the founder 2026-10-19, `AGENTS.md` rewritten as
+  this repo's house conventions, `openspec/` (114 files) and its three workflow prompts removed,
+  `agents_md` repointed at something true. What remains is the **gate**: a `bin/verify` over the **rspec**
+  suite (630 examples — CI today runs an empty Minitest lane and reports green while executing nothing), a
+  **clean** `packwerk check` (46 offenses today), and `plan:check` as a **rake task** (the app runs anyway
+  to serve IG assets through the Cloudflare tunnel). `publish_prd` is **deliberately not ported** (founder,
+  2026-10-18) — tickets are cut by the agent against this plan. **Serves:** an agent that can be trusted
+  with a ticket.
 
 ### W2 — experiment
 

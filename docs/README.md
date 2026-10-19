@@ -84,6 +84,6 @@ acting.** Each should be promoted to CURRENT or moved to `archive/` at the next 
 | `THESIS.md` | the original thesis. Its content-strategy section is superseded by `strategy-v2.md`; one of its red lines (the Pornmaster prohibition) was **agent-authored, not founder-authored**, and was withdrawn 2026-10-18 |
 | `brainstorming.md` | early ideation |
 | `post-creation-interface.md` | an implementation-progress log, not a spec |
-| `AGENTS.md` (root) | the OpenSpec managed block. **OpenSpec is dropped.** Replaced under `PROJECT_PLAN.md` W1.3 |
-| `openspec/` (114 files) | the OpenSpec estate. Superseded; retained pending an archival pass |
+| `AGENTS.md` (root) | **CURRENT** — house conventions for this repo. Replaced the OpenSpec block 2026-10-19 |
+| ~~`openspec/`~~ (114 files) | **REMOVED 2026-10-19** — dropped in favour of the PRD/ticket system. Recoverable from git history (`git log -- openspec`) |
 | `archive/` | documents moved here during cleanup |
