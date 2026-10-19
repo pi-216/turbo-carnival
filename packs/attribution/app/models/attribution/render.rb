@@ -47,6 +47,53 @@ module Attribution
       "#{width}x#{height}"
     end
 
+    # The names whose prompt text differs between this render and `other`, read from rows
+    # only -- no assembled prompt is compared, because there is not one to compare.
+    #
+    # A name carried by one render and not the other COUNTS AS DIFFERING: an absent part is
+    # not the same fact as a written one, so silence must not read as agreement.
+    def varying_parts(other)
+      mine = prompt_parts.pluck(:name, :text).to_h
+      theirs = other.prompt_parts.pluck(:name, :text).to_h
+
+      (mine.keys | theirs.keys).reject { |name| mine[name] == theirs[name] }.sort
+    end
+
+    # The prompt-level analogue of the render-graph leaf diff (#38 criterion 1): true when
+    # this render and `other` carry the SAME set of part names and exactly one of those
+    # names holds different text. A pair admitted here differs in one addressable axis and
+    # nothing else, which is what makes a one-part comparison a comparison.
+    def differs_in_exactly_one_part?(other)
+      return false unless prompt_parts.pluck(:name).sort == other.prompt_parts.pluck(:name).sort
+
+      varying_parts(other).length == 1
+    end
+
+    # Renders that differ from `render` in EXACTLY ONE named prompt part -- the same set of
+    # names, exactly one text changed, and nothing else about the prompt different.
+    #
+    # This is a query over rows, not a scan in Ruby: the anchor's parts are left-joined onto
+    # every candidate render and the differences are counted, so "differing in exactly one
+    # part" is decided by the database. The count of parts is compared too, which is what
+    # excludes a render that is simply MISSING a name (a missing part is absent, never a
+    # match).
+    def self.varying_one_part_from(render)
+      anchor = render.id
+      part_count = render.reload.prompt_parts.count
+      return none if part_count.zero?
+
+      joins("LEFT JOIN render_prompt_parts part ON part.render_id = renders.id")
+        .joins(sanitize_sql_array(
+                 [ "LEFT JOIN render_prompt_parts anchor_part ON anchor_part.name = part.name " \
+                   "AND anchor_part.render_id = ?", anchor ]
+               ))
+        .where.not(id: anchor)
+        .group("renders.id")
+        .having("COUNT(*) = ?", part_count)
+        .having("COUNT(*) FILTER (WHERE anchor_part.id IS NULL) = 0")
+        .having("COUNT(*) FILTER (WHERE anchor_part.text IS DISTINCT FROM part.text) = 1")
+    end
+
     # The full input set, from columns and rows only -- no blob is parsed to answer it.
     def inputs
       {

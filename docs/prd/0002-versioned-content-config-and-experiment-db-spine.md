@@ -218,10 +218,20 @@ Scenario: the existing rows are not corrupted by the migration
    the in-app ladder.** The internal `elo_score` / `vote_count` / `winner` columns stop being read and
    written; elo-picker becomes the rating instrument. Retirement is sequenced (see the red lines):
    stop using → prove no readers → export → remove. Not a silent drop.
-2. **Where do prompt parts come from?** The graph assembles its text from the identity block (node 88),
-   the scene file, and the negative (node 79). Parts must therefore be written by whatever *creates* the
-   run, not extracted after the fact. This PRD needs a parts contract with the generator — which is
-   W1.1's Thinker. Sequence: cheap now, complete after W1.1.
+2. ~~**Where do prompt parts come from?**~~ **Contract landed 2026-10-19 (#38).** The graph assembles its
+   text from the identity block (node 88), the scene file, and the negative (node 79), so a part is
+   written by whatever *creates* the run — never extracted after the fact. The contract now is:
+   - the vocabulary is closed and lives in `Attribution::PromptPart::NAMES` (`identity`, `scene`,
+     `wardrobe`); `negative` is deliberately **not** a part — it is the `renders.negative_prompt` column;
+   - the creator hands over named parts as an `Attribution::PromptParts`, which is the only accepted
+     source of a part;
+   - `Attribution::RecordRender` is the single writer, and it **refuses** an assembled string, an empty
+     part set, and any rewrite of already-recorded parts (recorded attribution is immutable);
+   - `Attribution::Render#varying_parts`, `#differs_in_exactly_one_part?` and `.varying_one_part_from`
+     make "two renders differing in exactly one part" a query, and the assembled string a derived,
+     non-authoritative convenience.
+   Still open, and deliberately so: no production path writes parts yet, because the **generator** that
+   will emit them is W1.1's Thinker. The interface is landed and unused by design, not forgotten.
 3. **Do the existing blob columns get migrated or kept?** `image_candidates.quality_metrics` and
    `pipeline_runs.quality_metrics` hold real data of a narrower shape. Migrate into `assessments`, or
    leave and expose a view? *Lean: leave the columns, write new metrics to the normalized table, and
