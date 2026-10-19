@@ -43,10 +43,13 @@ labels:
   agent_working: "Claimed by an autonomous agent (in progress)"
   agent_blocked: "Blocked — agent may not work"
   agent_needs_review: "Needs human review before done"
-  # `founder_needed` is deliberately distinct from `approved`: `approved` means an agent may start;
-  # `founder_needed` means only the founder can — a ruling, or an action outside the repo (credential,
+  # `pm-suggested` is the PM agent's proposal awaiting a founder ruling (fleet label, t-chat).
+  pm-suggested: "Suggested by the PM agent; awaiting product-owner ruling (do NOT add 'approved')"
+  # `needs-founder` is deliberately distinct from `approved`: `approved` means an agent may start;
+  # `needs-founder` means only the founder can — a ruling, or an action outside the repo (credential,
   # platform setting, GPU policy, physical action). Never overload one for the other.
-  founder_needed: "Only the founder can do this — a decision or an action outside the repo"
+  # (Renamed from `founder_needed` on 2026-10-19 to match the crawlr/t-genetics fleet label.)
+  needs-founder: "Open product question — founder ruling required before implementation"
 
 # Where generated tickets point for repo conventions.
 # AGENTS.md is now the real house conventions for this repo (rewritten 2026-10-19, PRD 0003):
