@@ -381,7 +381,7 @@ Every rail, marked. The dispositions are the input to the tickets.
 | R5 BDD | Cucumber + `gherkin_specs/` + lints | absent | **ADOPT — Q2**, scoped to the **Rails app only** (Layer 1 notation is house-wide; Layer 2 executable is Rails-only) |
 | R6 gates | `bin/verify` incl. bundler-audit · erb_lint | `bin/verify` ✗ (PRD 0003) · bundler-audit ✗ · erb_lint ✗ (F3) | **GAP** (gate members) · `bin/verify` = **PRD 0003 / #47** |
 | R7 observe | Sentry + DSN + `Sentry::Metrics` | no initialiser, no DSN, no reference (F2) | **GAP** — DSN provisioned by an **agent ticket** (Q3; the token exists, not `founder_needed`) |
-| R8 govern | AGENTS · THESIS · FOUNDERS · PR template · docs/prd · tech_design_docs · `bin/lint` | AGENTS ✓ (PRD 0003) · THESIS inert (F7) · FOUNDERS ✗ · PR template ✗ · docs/prd README ✗ · tech_design_docs ✗ · packs/README ✗ · `bin/lint` ✗ | **GAP** (stubs) · **GAP** (thesis) · **ADOPT — Q4** (doc homes) |
+| R8 govern | AGENTS · THESIS · FOUNDERS · PR template · docs/prd · tech_design_docs · `bin/lint` | AGENTS rewritten (PRD 0003) but **missing the content-contract rules** — no `bin/lint`, no no-exfiltration policy, no comment policy, no generated-files rule → #91 · THESIS inert (F7) → #81 · FOUNDERS ✗ · PR template ✗ · docs/prd README ✗ · tech_design_docs ✗ · packs/README ✗ → #80 · doc homes → #82 | **GAP** → #80, #91 · **GAP** → #81 · **ADOPT — Q4** → #82 |
 | R9 rswag | swagger gen + verify, when `swagger/` exists | no `swagger/` | **N/A** — rail dormant; adopt only if an API surface appears |
 
 **Also missing gems the template pins:** `strong_migrations`, `timecop`, `n_plus_one_control`,
@@ -399,8 +399,14 @@ ratified (Q7) — and `oj` remains unruled.
 Each line maps to an **enforced gate** (the harness DoD→gate rule); a line naming a **number** additionally
 maps to an **emitted metric** (`Sentry::Metrics`), or it is untracked.
 
-- **A parity audit script exists** and prints one line per rail; it exits non-zero while any rail is `GAP`.
-  *Gate:* the script is run in CI and its output is attached to the conforming PR.
+**Ticket map:** #76 (command rail) · #77 (Sentry) · #78 (gate members) · #79 (Turbo) · #80 (governance
+stubs) · #81 (thesis) · #82 (doc homes) · #83 (Gherkin lane) · #84 (HAML) · #85 (Sidekiq) · #90 (parity
+audit script) · #91 (AGENTS.md content contract + `bin/lint`). Not re-cut here, because they belong to
+PRD 0003 or predate this PRD: `bin/verify` (**#47**), the CI rewire (**#45**), the packwerk offences
+(**#46**), and the agent test-signal port (**#19**).
+
+- **A parity audit script exists** (→ **#90**) and prints one line per rail; it exits non-zero while any rail
+  is `GAP`. *Gate:* the script is run in CI and its output is attached to the conforming PR.
 - **`ApplicationCommand` exists, is byte-identical to the template's, and every command subclasses it.**
   *Gate:* a spec asserting an after-commit side effect does not fire on rollback.
 - **Sentry initialises and captures an event when a DSN is present.** *Gate:* a spec raising in a
