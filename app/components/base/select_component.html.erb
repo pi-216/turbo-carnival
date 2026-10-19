@@ -14,12 +14,11 @@
     class="<%= select_classes %>"
     <%= "required" if @required %>
     <%= "disabled" if @disabled %>
-    <%= "multiple" if @multiple %>
-  >
+    <%= "multiple" if @multiple %>>
     <% if @prompt %>
       <option value=""><%= @prompt %></option>
     <% end %>
-    
+
     <% normalize_options.each do |label, value| %>
       <option value="<%= value %>" <%= "selected" if selected?(value) %>>
         <%= label %>

@@ -1,7 +1,7 @@
 <div class="container mx-auto px-4 py-8">
   <div class="flex justify-between items-center mb-6">
     <h1 class="text-3xl font-bold">Posts & Photos - <%= @persona.name.titleize %></h1>
-    
+
     <!-- Strategy Suggestion Button -->
     <%= form_with url: suggest_next_persona_scheduling_posts_path(@persona), method: :post, class: "inline" do |f| %>
       <%= f.submit "🎯 Get Next Post Suggestion",
@@ -19,10 +19,10 @@
             <% c.with_body do %>
               <!-- Photo Preview -->
               <% if photo.image.attached? %>
-                <%= image_tag photo.image, 
+                <%= image_tag photo.image,
                              class: "w-full h-64 object-cover rounded-t-lg mb-4" %>
               <% end %>
-              
+
               <!-- Photo Info -->
               <div class="space-y-2 mb-4">
                 <% if photo.content_pillar %>
@@ -31,14 +31,14 @@
                     <span class="text-zinc-400"><%= photo.content_pillar.name %></span>
                   </div>
                 <% end %>
-                
+
                 <div class="text-sm text-zinc-500">
                   Created <%= time_ago_in_words(photo.created_at) %> ago
                 </div>
               </div>
-              
+
               <!-- Create Post Button -->
-              <%= link_to "Create Post", 
+              <%= link_to "Create Post",
                          new_persona_scheduling_post_path(@persona, photo_id: photo.id),
                          class: "block w-full text-center px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors" %>
             <% end %>
@@ -60,7 +60,7 @@
                 <!-- Photo Preview -->
                 <% if post.photo&.image&.attached? %>
                   <div class="flex-shrink-0">
-                    <%= image_tag post.photo.image, 
+                    <%= image_tag post.photo.image,
                                  class: "w-32 h-32 object-cover rounded-lg" %>
                   </div>
                 <% elsif post.photo %>
@@ -72,7 +72,7 @@
                     <span class="text-zinc-600">No Photo</span>
                   </div>
                 <% end %>
-                
+
                 <!-- Post Details -->
                 <div class="flex-1">
                   <div class="flex justify-between items-start mb-2">
@@ -95,18 +95,18 @@
                       <%= post.status.titleize %>
                     </span>
                   </div>
-                  
+
                   <p class="text-zinc-300 text-sm mb-2">
                     <%= truncate(post.caption, length: 150) %>
                   </p>
-                  
+
                   <% if post.hashtags.present? %>
                     <div class="text-xs text-zinc-500 mb-2">
                       <%= post.hashtags.map { |tag| "##{tag}" }.join(' ') %>
                     </div>
                   <% end %>
-                  
-                  <%= button_to "🗑️ Delete", 
+
+                  <%= button_to "🗑️ Delete",
                                persona_scheduling_post_path(@persona, post),
                                method: :delete,
                                data: { turbo_confirm: "Are you sure you want to delete this post?" },
@@ -140,7 +140,7 @@
                     <span class="text-zinc-600">⏳ Awaiting Image</span>
                   </div>
                 <% end %>
-                
+
                 <!-- Post Details -->
                 <div class="flex-1">
                   <div class="flex justify-between items-start mb-2">
@@ -158,20 +158,20 @@
                       <%= post.photo&.image&.attached? ? 'Draft' : 'Draft - Needs Image' %>
                     </span>
                   </div>
-                  
+
                   <p class="text-zinc-300 text-sm mb-2">
                     <%= truncate(post.caption, length: 150) %>
                   </p>
-                  
+
                   <div class="flex gap-3 items-center">
                     <% if post.content_suggestion %>
-                      <%= link_to "🎨 Generate Image", 
+                      <%= link_to "🎨 Generate Image",
                                  generate_image_content_suggestion_path(post.content_suggestion),
                                  method: :post,
                                  class: "text-sm text-purple-400 hover:text-purple-300" %>
                     <% end %>
-                    
-                    <%= button_to "🗑️ Delete", 
+
+                    <%= button_to "🗑️ Delete",
                                  persona_scheduling_post_path(@persona, post),
                                  method: :delete,
                                  data: { turbo_confirm: "Are you sure you want to delete this draft post?" },
@@ -198,11 +198,11 @@
                 <!-- Photo Preview -->
                 <% if post.photo&.image&.attached? %>
                   <div class="flex-shrink-0">
-                    <%= image_tag post.photo.image, 
+                    <%= image_tag post.photo.image,
                                  class: "w-32 h-32 object-cover rounded-lg" %>
                   </div>
                 <% end %>
-                
+
                 <!-- Post Details -->
                 <div class="flex-1">
                   <div class="flex justify-between items-start mb-2">
@@ -215,12 +215,12 @@
                       Posted
                     </span>
                   </div>
-                  
+
                   <p class="text-zinc-300 text-sm mb-2">
                     <%= truncate(post.caption, length: 150) %>
                   </p>
-                  
-                  <%= button_to "🗑️ Delete", 
+
+                  <%= button_to "🗑️ Delete",
                                persona_scheduling_post_path(@persona, post),
                                method: :delete,
                                data: { turbo_confirm: "Are you sure you want to delete this posted record?" },

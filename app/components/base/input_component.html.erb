@@ -17,8 +17,7 @@
     class="<%= input_classes %>"
     <%= "required" if @required %>
     <%= "disabled" if @disabled %>
-    <%= "autocomplete=\"#{@autocomplete}\"" if @autocomplete %>
-  />
+    <%= "autocomplete=\"#{@autocomplete}\"" if @autocomplete %>>
 
   <% if @error %>
     <p class="<%= error_classes %>">

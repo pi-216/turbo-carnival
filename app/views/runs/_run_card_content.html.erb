@@ -1,14 +1,14 @@
 <% pipeline = run.pipeline %>
-<% 
+<%
   max_children = JobOrchestrationConfig.max_children_per_node
-    
+
     step_stats = pipeline.pipeline_steps.order(:order).map do |step|
       active_count = ImageCandidate.where(
         pipeline_step: step,
         pipeline_run: run,
         status: 'active'
       ).count
-      
+
       # Calculate target based on approved top-K parents from previous step
       if step.order == 1
         # First step: just need N base images
@@ -17,7 +17,7 @@
         # Other steps: need to check if previous step is approved
         prev_step = pipeline.pipeline_steps.find_by(order: step.order - 1)
         prev_prs = run.pipeline_run_steps.find_by(pipeline_step: prev_step)
-        
+
         if prev_prs&.approved?
           # Use top_k_count from approval (how many parents can advance)
           eligible_parent_count = [prev_prs.top_k_count, prev_prs.top_k_candidates.count].min
@@ -27,7 +27,7 @@
           target = 0
         end
       end
-      
+
       {
         order: step.order,
         name: step.name,
@@ -36,24 +36,24 @@
         approved: (step.order == 1 || run.pipeline_run_steps.find_by(pipeline_step: step)&.approved?)
       }
     end
-    
+
     # Only count approved steps toward completion
     approved_steps = step_stats.select { |s| s[:approved] }
     completed_steps = approved_steps.count { |s| s[:target] > 0 && s[:active_count] >= s[:target] }
     completion_pct = approved_steps.any? ? (completed_steps.to_f / approved_steps.size * 100).round : 0
-    
+
     # Display name: use name column, fall back to run_name from variables, or show ID
     display_name = run.name || "Run ##{run.id}"
-    
+
     # Check if there are any unvoted pairs for this run
     has_votes = pipeline.pipeline_steps.order(order: :desc).any? do |step|
-      pairs = ImageCandidate.unvoted_pairs(step).select { |a, b| 
-        a.pipeline_run_id == run.id && b.pipeline_run_id == run.id 
+      pairs = ImageCandidate.unvoted_pairs(step).select { |a, b|
+        a.pipeline_run_id == run.id && b.pipeline_run_id == run.id
       }
       pairs.any?
     end
-  %>
-  
+%>
+
   <%= render ::Base::CardComponent.new(variant: :elevated, class: "hover:shadow-2xl") do |c| %>
     <% c.with_header do %>
       <div class="flex justify-between items-start">
@@ -79,7 +79,7 @@
             </span>
           </div>
         </div>
-        
+
         <div class="text-right">
           <div class="text-4xl font-bold <%= completion_pct == 100 ? 'text-green-400' : 'text-yellow-400' %>">
             <%= completion_pct %>%
@@ -93,7 +93,7 @@
     <div class="mb-4">
       <div class="flex gap-2 mb-2">
         <% step_stats.each do |stat| %>
-          <% 
+          <%
             if stat[:target] > 0
               percentage = (stat[:active_count].to_f / stat[:target] * 100)
               width = [percentage, 100].min
@@ -104,7 +104,7 @@
               width = 0
               is_complete = false
             end
-            
+
             # Determine status icon
             if stat[:approved] && is_complete
               status_icon = "✅"
@@ -125,7 +125,7 @@
               <%= status_icon %> <%= stat[:name] %>
             </div>
             <div class="h-2 bg-zinc-700 rounded-full overflow-hidden">
-              <div class="h-full <%= bar_color %>" 
+              <div class="h-full <%= bar_color %>"
                    style="width: <%= width %>%"></div>
             </div>
             <div class="text-xs text-zinc-500 mt-1">
@@ -142,7 +142,7 @@
       </div>
     </div>
 
-    <% 
+    <%
       # Find latest step with images
       latest_step_with_images = step_stats.reverse.find { |s| s[:active_count] > 0 }
       gallery_step = latest_step_with_images ? latest_step_with_images[:order] : step_stats.last[:order]
@@ -168,9 +168,9 @@
       <%= render ::Base::ButtonComponent.new(variant: :warning, href: winners_run_path(run), data: { turbo_frame: "_top" }) do %>
         🏆 Winners
       <% end %>
-      
+
       <% if run.status != 'completed' %>
-        <%= button_to "✅ Mark Complete", complete_run_path(run), 
+        <%= button_to "✅ Mark Complete", complete_run_path(run),
             method: :post,
             class: "px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors",
             data: { turbo_confirm: "Mark this run as complete? It will be excluded from job generation.", turbo_frame: "_top" } %>

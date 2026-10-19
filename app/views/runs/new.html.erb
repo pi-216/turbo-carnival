@@ -33,7 +33,7 @@
           <!-- Pipeline Selection -->
           <div>
             <%= f.label :pipeline_id, "Pipeline", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.select :pipeline_id, 
+            <%= f.select :pipeline_id,
                 options_for_select(@pipelines.map { |p| [p.name, p.id] }, @run.pipeline_id),
                 { prompt: "Select a pipeline..." },
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent" %>
@@ -45,7 +45,7 @@
           <!-- Persona Selection -->
           <div>
             <%= f.label :persona_id, "Persona (Optional)", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.select :persona_id, 
+            <%= f.select :persona_id,
                 options_for_select(@personas.map { |p| [p.name.titleize, p.id] }, @run.persona_id),
                 { prompt: "Select a persona...", include_blank: true },
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent",
@@ -56,7 +56,7 @@
           <!-- Pillar Selection -->
           <div id="pillar-selection" <%= 'style=display:none' unless @run.persona_id.present? %>>
             <%= f.label :content_pillar_id, "Content Pillar (Optional)", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.select :content_pillar_id, 
+            <%= f.select :content_pillar_id,
                 @run.persona_id.present? ? options_for_select(ContentPillar.where(persona_id: @run.persona_id).order(:name).map { |p| [p.name, p.id] }, @run.content_pillar_id) : [],
                 { prompt: "Select a pillar...", include_blank: true },
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent",
@@ -67,7 +67,7 @@
           <!-- Run Name -->
           <div>
             <%= f.label :name, "Run Name", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.text_field :name, 
+            <%= f.text_field :name,
                 placeholder: "e.g., Gym Shoot - Morning Session",
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent" %>
             <p class="mt-1 text-xs text-zinc-400">Leave blank for auto-generated name</p>
@@ -76,7 +76,7 @@
           <!-- Prompt -->
           <div>
             <%= f.label :prompt, "Prompt", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.text_area :prompt, 
+            <%= f.text_area :prompt,
                 placeholder: "e.g., at the gym",
                 rows: 3,
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent" %>
@@ -86,7 +86,7 @@
           <!-- Target Folder -->
           <div>
             <%= f.label :target_folder, "Target Folder", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.text_field :target_folder, 
+            <%= f.text_field :target_folder,
                 placeholder: "/storage/runs/my-shoot",
                 class: "w-full px-4 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent" %>
             <p class="mt-1 text-xs text-zinc-400">Leave blank for auto-generated folder path</p>
@@ -95,7 +95,7 @@
           <!-- Variables (JSON) -->
           <div>
             <%= f.label :variables, "Additional Variables (JSON)", class: "block text-sm font-medium text-zinc-300 mb-2" %>
-            <%= f.text_area :variables, 
+            <%= f.text_area :variables,
                 value: @variables_json,
                 placeholder: '{"style": "cinematic", "mood": "dark"}',
                 rows: 4,
@@ -105,9 +105,9 @@
 
           <!-- Submit Button -->
           <div class="flex gap-4 pt-4">
-            <%= f.submit "Create Run", 
+            <%= f.submit "Create Run",
                 class: "flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors cursor-pointer" %>
-            <%= link_to "Cancel", runs_path, 
+            <%= link_to "Cancel", runs_path,
                 class: "flex-1 px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-semibold rounded-lg transition-colors text-center" %>
           </div>
         <% end %>
