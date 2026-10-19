@@ -5,8 +5,8 @@ source: PROJECT_PLAN
 
 # PRD 0006 — Harness conformance to `rails-venture-template`
 
-> **Status:** CURRENT · parity audit measured 2026-10-19 · **founder rulings Q1–Q6 landed 2026-10-19** ·
-> ready to cut tickets
+> **Status:** CURRENT · parity audit measured 2026-10-19 · **founder rulings Q1–Q9 landed** · no open
+> questions · tickets cut at #75–#85
 > Plan item: **W1.4** · Track: `core-infrastructure` · Blocks: nothing technically · blocks **every agent
 > that works a ticket** if the rails are wrong
 
@@ -67,6 +67,12 @@ into PRD 0003.
 **Q7 — `aasm` vs `state_machines`.** *"state_machines over aasm"* → **`state_machines-activerecord` is
 ratified** as this repo's state-machine library; `aasm` is **not** adopted. The template pins `aasm` and this
 repo does not — recorded as a deviation, not a gap.
+
+**Q8 — pack autoload wiring.** *"we like packs-rails"* → **`packs-rails` is ratified.** The repo keeps the
+gem and does **not** hand-wire `Dir[Rails.root.join("packs/*/app/*")]` in `config/application.rb`. The
+template hand-wires only because it ships `packwerk` **without** `packs-rails`; the mechanism — pack classes
+load, packwerk enforces the boundary — is measured equivalent either way (32 pack dirs on the autoload paths,
+12 on the view paths, `eager_load` resolving pack constants).
 
 **Q9 — where the non-Rails Gherkin definitions live.** *"They stay inline in the PRD; only Rails-app
 scenarios become .feature files."* → **Layer-1 definitions live in the PRD, permanently.** Only Rails-app
@@ -371,7 +377,7 @@ Every rail, marked. The dispositions are the input to the tickets.
 | R1 stack | Rails 8 · pg · Puma · importmap · Turbo/Stimulus · **HAML** · ViewComponent · Tailwind | Rails 8.1 · pg · Puma · importmap · Turbo/Stimulus · **ERB** · ViewComponent · Tailwind | **ADOPT — Q1** (HAML transition, deprioritised) · **ADOPT — Q5** (retire `solid_*`; Sidekiq only) |
 | R2 Turbo | head `meta` trigger + body marker + importmap/controllers | meta ✓ · controllers (5) ✓ · `importmap.rb` ✓ · body marker ✗ | **GAP** (marker) · **RATIFIED** (trigger present) |
 | R3 command | `GLCommand::Callable` + `ApplicationCommand#run_after_commit` | `GLCommand::Callable` ✓ · `ApplicationCommand` ✗ (F1) | **GAP** — port byte-identical + reparent + spec |
-| R4 packs | packwerk + pack autoload wiring | packwerk ✓ · 12 packs ✓ · wiring via **`packs-rails`** (superset) · 47 offenses | **DEV — RATIFY** (`packs-rails`) · offenses = **PRD 0003 / #46** |
+| R4 packs | packwerk + pack autoload wiring | packwerk ✓ · 12 packs ✓ · wiring via **`packs-rails`** railtie (32 autoload + 12 view paths) · 47 offenses | **ADOPT — Q8** (ratify `packs-rails`; no hand-wiring) · offenses = **PRD 0003 / #46** |
 | R5 BDD | Cucumber + `gherkin_specs/` + lints | absent | **ADOPT — Q2**, scoped to the **Rails app only** (Layer 1 notation is house-wide; Layer 2 executable is Rails-only) |
 | R6 gates | `bin/verify` incl. bundler-audit · erb_lint | `bin/verify` ✗ (PRD 0003) · bundler-audit ✗ · erb_lint ✗ (F3) | **GAP** (gate members) · `bin/verify` = **PRD 0003 / #47** |
 | R7 observe | Sentry + DSN + `Sentry::Metrics` | no initialiser, no DSN, no reference (F2) | **GAP** — DSN provisioned by an **agent ticket** (Q3; the token exists, not `founder_needed`) |
@@ -431,18 +437,12 @@ maps to an **emitted metric** (`Sentry::Metrics`), or it is untracked.
 **Resolved 2026-10-19 — see *Founder rulings* above.** Q1 HAML (adopt, deprioritised) · Q2 Gherkin (adopt,
 scoped to the Rails app; the two-layer rule) · Q3 Sentry DSN (an agent provisions it) · Q4 doc homes
 (adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4) · Q7 state-machine library
-(`state_machines-activerecord` ratified over `aasm`) · Q9 non-Rails Gherkin definitions stay **inline in the
-PRD**; only Rails-app scenarios become `.feature` files.
+(`state_machines-activerecord` ratified over `aasm`) · Q8 pack autoload wiring (`packs-rails` ratified) ·
+Q9 non-Rails Gherkin definitions stay **inline in the PRD**; only Rails-app scenarios become `.feature`
+files.
 
-**Still open:**
-
-1. **`packs-rails` vs the template's explicit autoload block (Q8).** The repo loads packs through the
-   `packs-rails` gem; the template emits `Dir[Rails.root.join("packs/*/app/*")]` in `config/application.rb`.
-   Measured 2026-10-19: the railtie (`Packs::Rails::Railtie`, packs-rails 0.1.0) puts **32** pack dirs on the
-   autoload paths and **12** on the view paths, and `Rails.autoloaders.main.eager_load` resolves both
-   `Growth::Goal` and `Scheduling::FailedPostRetry` — so the **mechanism** (pack classes load; packwerk
-   enforces the boundary) is satisfied. The template hand-wires because it pins `packwerk` but does **not**
-   ship `packs-rails`. *Lean: ratify `packs-rails`.* (Founder — asked.)
+**No open questions.** The only unmatched gem is `oj` (the template pins it; this repo does not use it) — a
+gem with no rail attached, so there is nothing to rule on.
 
 ---
 
