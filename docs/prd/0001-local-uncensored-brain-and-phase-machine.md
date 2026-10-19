@@ -1,3 +1,8 @@
+---
+venture: turbo-carnival
+source: strategy-v3
+---
+
 # PRD 0001 — Local uncensored brain + the phase machine
 
 > **Status:** CURRENT · draft for founder review · 2026-10-18
