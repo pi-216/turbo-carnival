@@ -168,12 +168,18 @@ founder on 2026-10-19 (open question 1, below).
    The one condition that would have reversed this: if the Reviewer's vision role rides *this* artefact
    (open question 4), `…Uncensored-HauhauCS-Aggressive-Q4_K_P` is the only candidate declaring `vision`.
    Noted, not chosen — it stays available for a separate vision seat.
-2. **Launch parameters are unverified.** Neither `config-user.yaml` nor `config.yaml` in the NAS LLM area
-   carries a Qwen3.8-27B entry, and `CMD_FLAGS.txt` is empty. A previously recorded `n_gpu_layers: 65` /
-   `cache_type: q4` **could not be re-verified in this pass**, so it is treated as unproven: derive the
-   parameters empirically and record them. The hard constraint is that a 22.08 GB model needs a quantised KV
-   cache to leave room for context.
-3. **Context length.** Long enough for a plan-plus-ledger prompt, short enough to fit beside the weights.
+2. ~~**Launch parameters are unverified.**~~ **RESOLVED — measured, ticket #26 (2026-10-19).**
+   The previously recorded `n_gpu_layers: 65` / `cache_type: q4` was never re-verifiable and is **not**
+   used. A five-config matrix was run on the 4090 under one scheduler claim (device VRAM sampled at
+   `/health`), and the chosen parameters are recorded as data in `config/autonomous/brain.yml`
+   (`serving:`), each with the VRAM it cost. **Chosen: `n_gpu_layers: 999`, `ctx_size: 32768`,
+   `cache_type_k/v: q8_0`, `batch_size: 2048`, `ubatch_size: 512`** → **22863 MiB used / 1218 MiB free**
+   at a 439 MiB baseline (the largest context at the highest KV fidelity that leaves ≥ 1 GiB). A cold
+   start from the recorded parameters succeeded (up in 5s), served a real completion, and shut down
+   clean (port closed, GPU idle, claim released).
+3. ~~**Context length.**~~ **RESOLVED by #26.** `32768` — it fits with ≥ 1 GiB free and is ~5× the
+   plan-plus-ledger prompt (a few thousand tokens). Smaller contexts (16 K at 1842 MiB free, 8 K at
+   2144 MiB free) are measured and recorded in `brain.yml` for a downgrade, but the seat needs neither.
 4. **Does the Reviewer get the vision projector from the start**, or is it a second PRD?
 
 ---

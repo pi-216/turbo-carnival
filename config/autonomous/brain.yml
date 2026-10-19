@@ -26,7 +26,34 @@ artefact:
   staged_at: 2026-10-19
   source: /home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf
 
-# llama.cpp serving parameters (layer split, KV-cache quantisation, context, batch) are
-# recorded by ticket #26 once MEASURED on the 4090. Deliberately empty — nothing is
-# asserted here until it has been measured and a cold start succeeds from it.
-serving: {}
+# llama.cpp serving parameters — MEASURED on the 4090 by ticket #26 (W1.1), not guessed.
+# The harness (#24) reads these via serving.*; before #26 this block was empty and the
+# harness fell back to unverified defaults. Nothing here is asserted that was not measured.
+#
+# Chosen rule: maximise KV fidelity, then context, subject to >= 1 GiB measured free.
+# At a 439 MiB baseline the 32k/q8_0 config leaves 1218 MiB free — the largest context
+# at the highest KV fidelity that fits. KV is q8_0 (near-lossless); q4_0 KV trades
+# coherence for ~0.5 GiB and buys nothing this seat needs (a plan prompt is a few
+# thousand tokens — see PRD 0001 open question 3, now answered).
+serving:
+  n_gpu_layers: 999       # all layers on the GPU; measured to fit (22.3 GiB used of 24)
+  ctx_size: 32768
+  cache_type_k: q8_0
+  cache_type_v: q8_0
+  batch_size: 2048
+  ubatch_size: 512
+  flash_attn: "on"
+  chosen: 32k_q8
+  measured_at: 2026-10-19
+  measured_by: ticket #26 (W1.1)
+  # Device VRAM, MiB, from `nvidia-smi memory.used`/`memory.free`, sampled once /health
+  # answered. The matrix is kept so a next agent can downgrade with evidence rather than
+  # re-derive by trial. baseline_used_mib is the card's use before any server started.
+  measured:
+    baseline_used_mib: 439
+    configs:
+      - { config: 32k_q8, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22863, free_mib: 1218, load_s: 6, health: ok }
+      - { config: 32k_q4, n_gpu_layers: 999, ctx_size: 32768, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 22351, free_mib: 1730, load_s: 6, health: ok }
+      - { config: 16k_q8, n_gpu_layers: 999, ctx_size: 16384, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 22239, free_mib: 1842, load_s: 6, health: ok }
+      - { config: 8k_q8, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q8_0, cache_type_v: q8_0, used_mib: 21937, free_mib: 2144, load_s: 6, health: ok }
+      - { config: 8k_q4, n_gpu_layers: 999, ctx_size: 8192, cache_type_k: q4_0, cache_type_v: q4_0, used_mib: 21809, free_mib: 2272, load_s: 6, health: ok }
