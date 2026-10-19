@@ -126,6 +126,9 @@ Ordering is the part the board cannot express, so it is stated here explicitly.
   no experiment is attributable — and blocks **W3**, which must point at a *version*.
 - **W1.3** (repo conventions) blocks no capability but blocks **every agent working a ticket**, so it
   is on the critical path for autonomy even though nothing depends on it technically.
+- **W1.4** (harness conformance) — like W1.3, blocks no capability; it blocks **fleet uniformity**. It
+  touches W1.3 only where the template names a gate member (`bundler-audit`, `erb_lint`) that W1.3's
+  `bin/verify` composes, and it does not touch the test-signal layer (issue #19).
 - **W3.5** (close the render loop) depends on **W2.1** — a rail that dies at random on an empty mask
   cannot be the engine of an unattended pipeline.
 
@@ -143,6 +146,7 @@ their tickets not yet cut._
 | **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **building** · tickets #20, #22–#27, #64, #66 · #22 (ruling) #23 (staged) #24 (harness) #25 (handoff) #26 (params) #27 (planner) #64 (nightly plan) #66 (idempotence) done · cadence: **nightly** (ruling 2026-10-19) |
 | W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **building** · epic #36, tickets #37–#43 · #37 (attribution spine) done · #38 (prompt parts + the spine writer) done · #39 (per-post instrument, option B) done |
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **OpenSpec dropped** `7e5ccee` · epic #44, tickets #45–#50 |
+| W1.4 | harness conformance to `rails-venture-template` | `docs/prd/0006-…` | **spec written** 2026-10-19 · parity audit measured · rails R3/R6/R7/R8 open · awaits founder rulings Q1–Q5 |
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
   legal and in-lane. The replacement is the local uncensored Qwen3.8-27B. Intake confirmed the brain
@@ -160,6 +164,15 @@ their tickets not yet cut._
   to serve IG assets through the Cloudflare tunnel). `publish_prd` is **deliberately not ported** (founder,
   2026-10-18) — tickets are cut by the agent against this plan. **Serves:** an agent that can be trusted
   with a ticket.
+- **W1.4** — turbo-carnival is the one pi-216 venture that was **not** scaffolded from
+  `rails-venture-template`, and the template is a **snapshot, not a sync** (existing ventures are never
+  re-scaffolded). So the divergence is closed deliberately: a per-rail **parity audit** against the
+  template's nine rails, the gaps filed as tickets (the command base `ApplicationCommand`, the Sentry
+  pillar, the missing gate members `bundler-audit`/`erb_lint`, the governance stubs), and the
+  **deviations ratified in writing** (ERB not HAML; no Gherkin lane; `packs-rails` wiring; two job
+  substrates). Overlaps W1.3 only where the template names a gate member `bin/verify` composes; the
+  test-signal layer is issue #19. **Serves:** fleet uniformity — a parity audit that returns
+  deviations-by-choice, not gaps-by-accident.
 
 ### W2 — experiment
 
