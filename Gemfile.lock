@@ -472,12 +472,12 @@ GEM
       sidekiq (>= 5.0)
     shoulda-matchers (6.5.0)
       activesupport (>= 5.2.0)
-    sidekiq (7.3.9)
-      base64
-      connection_pool (>= 2.3.0)
-      logger
-      rack (>= 2.2.4)
-      redis-client (>= 0.22.2)
+    sidekiq (8.1.7)
+      connection_pool (>= 3.0.0)
+      json (>= 2.16.0)
+      logger (>= 1.7.0)
+      rack (>= 3.2.0)
+      redis-client (>= 0.29.0)
     smart_properties (1.17.0)
     solid_cable (4.1.0)
       actioncable (>= 7.2)
@@ -598,7 +598,7 @@ DEPENDENCIES
   sentry-ruby
   sentry-sidekiq
   shoulda-matchers (~> 6.0)
-  sidekiq (~> 7.0)
+  sidekiq (~> 8.1)
   solid_cable
   solid_cache
   solid_queue
