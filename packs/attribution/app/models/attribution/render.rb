@@ -21,6 +21,12 @@ module Attribution
     belongs_to :asset, class_name: "Attribution::Asset", optional: true, inverse_of: :renders
     belongs_to :pipeline_run, optional: true
 
+    # The candidate this render produced -- i.e. the image that was actually published.
+    # Declared on THIS side because the reverse (ImageCandidate -> render) would make
+    # packs/pipeline reference packs/attribution while attribution already depends on
+    # pipeline, which is a cycle. Growth::RenderReach walks it from here.
+    belongs_to :image_candidate, optional: true
+
     has_many :prompt_parts, -> { order(:position, :name) },
              class_name: "Attribution::PromptPart", dependent: :destroy, inverse_of: :render
     has_many :loras, -> { order(:layer, :position, :name) },

@@ -23,6 +23,21 @@ module Scheduling
       # warnings in the dev log) -- and 44% of the 25-row per-run budget.
       INSIGHTS_RETRY_AFTER = 30.days
 
+      # `views` is Meta's promoted primary metric (it replaced impressions/plays) and it
+      # answers for EVERY media product type, so it rides in the primary call.
+      #
+      # The stills-only metrics do NOT, and that is a measured trap rather than a
+      # preference: on 2026-10-19 the account's reel answered
+      #   400 code 100 "The Media Insights API does not support the follows,
+      #   profile_visits metric for this media product type"
+      # and in the same probe ONE unsupported metric failed the WHOLE request
+      # (`...shares,views,follows,profile_visits` -> 400 where `...shares,views` -> 200).
+      # Asking for all three together would therefore lose `reach` on every reel -- and
+      # because code 100 is ALSO this command's terminal verdict, it would have recorded
+      # every reel as permanently uncollectable and stopped refreshing it forever.
+      PRIMARY_METRICS = "likes,comments,reach,saved,shares,views"
+      STILLS_ONLY_METRICS = "follows,profile_visits"
+
       # The counts the caller needs to tell "nothing to do" from "the API failed":
       # a run with candidates but zero refreshes is a failure, not a no-op.
       # `unavailable` is the third outcome -- candidates the API will never serve
@@ -119,15 +134,17 @@ module Scheduling
         conn = Faraday.new(url: BASE_URL) { |f| f.request :url_encoded; f.response :json }
 
         resp = conn.get("#{media_id}/insights") do |req|
-          req.params["metric"] = "likes,comments,reach,saved,shares"
+          req.params["metric"] = PRIMARY_METRICS
           req.params["access_token"] = token
         end
 
         return [ api_outcome(resp), nil ] unless resp.status == 200
 
-        data = resp.body["data"] || []
-        metrics = data.each_with_object({}) { |m, h| h[m["name"]] = m["values"].first&.dig("value") || 0 }
+        metrics = parse_metrics(resp.body["data"])
 
+        # Absent means zero for these three: they answer for every media product type,
+        # so the API omitting one is a real 0. That is deliberately NOT true of `views`
+        # or of the stills-only metrics -- see parse_metrics.
         likes    = metrics["likes"] || 0
         comments = metrics["comments"] || 0
         # nil == the API did not report reach. Recorded as UNKNOWN, never as a
@@ -140,6 +157,16 @@ module Scheduling
         # 1s, which is exactly why the default cannot be a number.
         reach    = metrics["reach"]
         saved    = (metrics["saved"] || 0) + (metrics["shares"] || 0)
+        # nil, NOT 0. `views` answers for every media product type, but an absent key
+        # still means "the API did not report it", and a stored 0 there would be a
+        # fabricated measurement -- the red line of #39.
+        views    = metrics["views"]
+
+        # FEED-only metrics, in their own call on purpose (see PRIMARY_METRICS). A reel
+        # the repo already knows about is not asked at all, which saves the call; an
+        # unmarked reel is asked and refused, and fetch_stills_only handles that
+        # refusal so it can never become a terminal verdict.
+        stills = post.reel_path.blank? ? fetch_stills_only(conn, media_id, token, post) : {}
 
         if reach.nil?
           Rails.logger.warn(
@@ -155,12 +182,58 @@ module Scheduling
           comments_count: comments,
           reach: reach,
           saved_count: saved,
+          views: views,
+          follows: stills["follows"],
+          profile_visits: stills["profile_visits"],
           engagement_rate: engagement,
           insights_updated_at: Time.current
         } ]
       rescue Faraday::Error => e
         Rails.logger.warn("CollectPostInsights API error for post #{post.id}: #{e.message}")
         [ :failed, nil ]
+      end
+
+      # No `|| 0` here, and that is the whole point. A metric the API did not report must
+      # stay ABSENT so the caller decides what absence means: for likes/comments/saved it
+      # means zero (they answer for every media), but for `views` and the stills-only
+      # metrics an absent key can mean "not applicable to this media product type", and a
+      # stored 0 there would be a fabricated measurement (#39's red line).
+      def parse_metrics(data)
+        Array(data).each_with_object({}) { |m, h| h[m["name"]] = m["values"].first&.dig("value") }
+      end
+
+      # `follows` and `profile_visits` answer only for FEED media. Measured 2026-10-19
+      # against the account's reel: 400 / code 100, "The Media Insights API does not
+      # support the follows, profile_visits metric for this media product type".
+      #
+      # A refusal here is NOT the terminal verdict. `api_outcome` maps code 100 to
+      # :unavailable, which RECORDS insights_unavailable_at and stops the row being
+      # refreshed -- routing this call through it would mark every reel permanently
+      # uncollectable. A refusal means "not applicable", so the answer is nil (unknown),
+      # printed rather than swallowed, and the primary metrics that DID arrive are kept.
+      def fetch_stills_only(conn, media_id, token, post)
+        resp = conn.get("#{media_id}/insights") do |req|
+          req.params["metric"] = STILLS_ONLY_METRICS
+          req.params["access_token"] = token
+        end
+
+        unless resp.status == 200
+          error = resp.body.is_a?(Hash) ? resp.body["error"] : nil
+          code = error.is_a?(Hash) ? error["code"] : nil
+          Rails.logger.info(
+            "CollectPostInsights: post #{post.id} has no #{STILLS_ONLY_METRICS} " \
+            "(HTTP #{resp.status}, code #{code.inspect}) -- recorded nil, not 0"
+          )
+          return {}
+        end
+
+        parse_metrics(resp.body["data"])
+      rescue Faraday::Error => e
+        # Transient, and it must not turn the post into a :failed row: the primary
+        # metrics are already in hand and discarding them would cost real data for a
+        # secondary metric.
+        Rails.logger.warn("CollectPostInsights stills-only call failed for post #{post.id}: #{e.message}")
+        {}
       end
 
       # The Graph error body is the only place the reason lives, so it is logged
