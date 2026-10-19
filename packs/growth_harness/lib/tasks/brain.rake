@@ -36,4 +36,21 @@ namespace :brain do
       puts "brain:checkin OK — #{state} (normal) | #{gate.raw}"
     end
   end
+
+  # The NIGHTLY planner window (PRD 0001, ticket #64; founder ruling 2026-10-19: the
+  # planner runs once a night). The GPU claim + the seat's lifecycle belong to
+  # bin/brain_plan_nightly.sh, which calls this task; here we only plan and persist,
+  # so this is runnable with no GPU and no claim.
+  desc 'Nightly planner: propose content clusters on the LOCAL BRAIN (fail-soft if the seat is down)'
+  task :plan, [ :persona_name ] => :environment do |_t, args|
+    result = Growth::NightlyPlanner.new(persona_name: args[:persona_name]).call
+
+    if result.seat_up
+      puts "brain:plan DONE — personas=#{result.personas} pillars=#{result.pillars} " \
+           "suggestions=#{result.suggestions}"
+    else
+      puts "brain:plan SKIPPED — seat not answering: no proposals written. " \
+           "Normal outcome; the hourly loop never depends on this window."
+    end
+  end
 end
