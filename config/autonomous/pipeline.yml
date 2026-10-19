@@ -1,22 +1,15 @@
 # Autonomous feature pipeline config (turbo-carnival)
-# Consumed by bin/publish_prd, bin/check_placement and the worker cron agents.
+# Consumed by the ticket tooling and the worker cron agents.
 #
 # BOARD: org-owned project 5 under the pi-216 umbrella, alongside crawlr (#4), elo-picker (#3),
 # t-genetics (#2) and t-chat (#1). Founder's preference, 2026-10-18.
 #
-# ── READ BEFORE PORTING bin/publish_prd ────────────────────────────────────────────────────
-# REPO OWNERSHIP DIFFERS FROM BOARD OWNERSHIP.
-#   board owner : pi-216                     (org)
-#   repo        : timlawrenz/turbo-carnival  (personal — pi-216/turbo-carnival does NOT exist)
-# t-chat and crawlr carry a single `owner:` key used for both, because for them the board owner
-# and the repo owner are the same account. They are not the same here, so the two are split into
-# `board_owner` and `repo`. A port that keeps the single `owner:` key points `gh issue create` at
-# pi-216/turbo-carnival, fails, and leaves the board silently empty.
-#
-# Item addition is unaffected: an org project accepts items from any repo the caller can see, via
-# an explicit `gh project item-add --url <issue-url>`.
-board_owner: pi-216
-repo: timlawrenz/turbo-carnival
+# The repo moved from `timlawrenz/turbo-carnival` to `pi-216/turbo-carnival` on 2026-10-18, so the board
+# owner and the repo owner are now the SAME account and this file has the same shape as t-chat's and
+# crawlr's. Before the move it needed a split `board_owner`/`repo` pair — a personal repo was feeding an
+# org board. `owner` is unambiguous again; do not reintroduce the split without the same reason.
+owner: pi-216
+repo: turbo-carnival
 
 project_number: 5
 project_id: PVT_kwDOE00cLc4BnqRm
@@ -50,9 +43,13 @@ labels:
   agent_working: "Claimed by an autonomous agent (in progress)"
   agent_blocked: "Blocked — agent may not work"
   agent_needs_review: "Needs human review before done"
+  # `founder_needed` is deliberately distinct from `approved`: `approved` means an agent may start;
+  # `founder_needed` means only the founder can — a ruling, or an action outside the repo (credential,
+  # platform setting, GPU policy, physical action). Never overload one for the other.
+  founder_needed: "Only the founder can do this — a decision or an action outside the repo"
 
 # Where generated tickets point for repo conventions.
-# NOTE: turbo-carnival's AGENTS.md is still the OpenSpec managed block — this project no longer
-# uses OpenSpec. It must be replaced with the house conventions (pack boundaries, command
-# pattern, two-role BDD, factory truth, PR gate) before any agent works a ticket here.
+# AGENTS.md is now the real house conventions for this repo (rewritten 2026-10-19, PRD 0003):
+# pack boundaries, the gate, the traps that have cost time, and how a ticket is claimed. The OpenSpec
+# managed block it replaced is gone, along with the `openspec/` directory.
 agents_md: AGENTS.md

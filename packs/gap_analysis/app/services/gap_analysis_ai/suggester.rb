@@ -10,25 +10,30 @@
 # module" instead of suggestions. Keep the namespace distinct from the model.
 module GapAnalysisAi
   class Suggester
-    def self.suggest(pillar:, persona:, existing_clusters: [], existing_photos: [])
-      new(pillar: pillar, persona: persona, existing_clusters: existing_clusters, existing_photos: existing_photos).suggest
+    def self.suggest(pillar:, persona:, existing_clusters: [], existing_photos: [], existing_suggestions: [])
+      new(pillar: pillar, persona: persona, existing_clusters: existing_clusters,
+          existing_photos: existing_photos, existing_suggestions: existing_suggestions).suggest
     end
 
-    def initialize(pillar:, persona:, existing_clusters: [], existing_photos: [])
+    def initialize(pillar:, persona:, existing_clusters: [], existing_photos: [], existing_suggestions: [])
       @pillar = pillar
       @persona = persona
       @existing_clusters = existing_clusters
       @existing_photos = existing_photos
+      # Prior ContentSuggestions for this pillar. Fed into the prompt so the brain
+      # does not re-propose what is already on the board (PRD 0001 nightly planner).
+      @existing_suggestions = existing_suggestions
     end
 
     def suggest
       context = build_context
-
-      if ai_available?
-        generate_suggestions_with_ai(@pillar, context)
-      else
-        generate_fallback_suggestions
+      client = planner_client
+      unless client
+        Rails.logger.warn("no planner client (brain down, no hosted key) — template suggestions")
+        return generate_fallback_suggestions
       end
+
+      generate_suggestions_with_ai(@pillar, context, client)
     rescue StandardError => e
       Rails.logger.error("AI suggestion failed: #{e.message}")
       generate_fallback_suggestions
@@ -36,15 +41,22 @@ module GapAnalysisAi
 
     private
 
-    def ai_available?
-      ENV['GEMINI_API_KEY'].present?
+    # Prefer the LOCAL UNCENSORED BRAIN (PRD 0001, ticket #27). The hosted model is
+    # only a fallback while it is being retired; when neither answers, the template
+    # suggestions keep the caller working rather than failing the action.
+    def planner_client
+      require Rails.root.join('lib', 'ai', 'brain_client') unless defined?(AI::BrainClient)
+      brain = AI::BrainClient.new
+      return brain if brain.available?
+
+      require Rails.root.join('lib', 'ai', 'gemini_client') unless defined?(AI::GeminiClient)
+      ENV['GEMINI_API_KEY'].present? ? AI::GeminiClient.new : nil
+    rescue StandardError => e
+      Rails.logger.warn("planner client unavailable: #{e.message}")
+      ENV['GEMINI_API_KEY'].present? ? AI::GeminiClient.new : nil
     end
 
-    def generate_suggestions_with_ai(pillar, context)
-      require Rails.root.join('lib', 'ai', 'gemini_client') unless defined?(AI::GeminiClient)
-
-      client = AI::GeminiClient.new
-
+    def generate_suggestions_with_ai(pillar, context, client)
       prompt = build_prompt(pillar, context)
 
       content = client.generate(
@@ -60,11 +72,34 @@ module GapAnalysisAi
     def build_context
       {
         persona_name: @persona.name,
-        persona_topics: @persona.caption_config&.dig('topics') || [],
-        existing_cluster_keywords: @existing_clusters.flat_map { |c| c.keywords || [] }.uniq,
+        persona_topics: persona_topics,
+        existing_cluster_keywords: existing_keywords,
+        existing_titles: @existing_suggestions.map(&:title),
         existing_photo_count: @existing_photos.size,
         recent_photo_descriptions: @existing_photos.last(10).map { |p| p.caption || 'untitled' }
       }
+    end
+
+    # Keywords the brain should treat as already-consumed, from both the cluster
+    # objects and any prior proposals' stored keywords (jsonb → string keys).
+    def existing_keywords
+      from_clusters = @existing_clusters.flat_map { |c| c.keywords || [] }
+      from_suggestions = @existing_suggestions.flat_map { |s| s.prompt_data&.dig("keywords") || [] }
+      (from_clusters + from_suggestions).uniq
+    end
+
+    # `caption_config` is a Personas::CaptionConfig (tone/style/voice), NOT a Hash —
+    # calling `.dig('topics')` on it raised NoMethodError, which `suggest` rescued
+    # into the template fallback, so this planner NEVER reached any model. Read
+    # topics defensively across the Hash and object shapes; absence is not an error.
+    def persona_topics
+      config = @persona.caption_config
+      topics = if config.is_a?(Hash)
+                 config['topics'] || config[:topics]
+      elsif config.respond_to?(:topics)
+                 config.topics
+      end
+      Array(topics)
     end
 
     def build_prompt(pillar, context)
@@ -87,6 +122,9 @@ module GapAnalysisAi
 
         Existing clusters in this pillar:
         #{context[:existing_cluster_keywords].any? ? context[:existing_cluster_keywords].join(', ') : 'None yet'}
+
+        Titles already proposed for this pillar (do NOT repeat these, or lightly reword them):
+        #{context[:existing_titles].any? ? context[:existing_titles].join(', ') : 'None yet'}
 
         Recent content themes:
         #{context[:recent_photo_descriptions].join("\n")}

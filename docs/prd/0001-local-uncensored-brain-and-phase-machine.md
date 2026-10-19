@@ -1,3 +1,8 @@
+---
+venture: turbo-carnival
+source: PROJECT_PLAN
+---
+
 # PRD 0001 — Local uncensored brain + the phase machine
 
 > **Status:** CURRENT · draft for founder review · 2026-10-18
@@ -118,16 +123,20 @@ Scenario: a render and a review never overlap the brain
 | | |
 |---|---|
 | the model named by the founder | `/home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — **22,082,529,760 B**, verified present |
+| **staged artefact (destination)** | `/mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — staged by #23, **sha256 read back and matched** (`4856b645…2118b10`); recorded as data in `config/autonomous/brain.yml` |
 | NAS LLM area (exists) | `/mnt/nas-ai-models/LLM/` → `gguf/` holds 12+ GGUFs |
-| same family already on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) · `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) |
+| **uncensored** sibling on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) — a *different tune* (HauhauCS "Aggressive"), declares `vision` + `mtp` |
+| **vanilla** siblings on the NAS | `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) — verified `general.name = Qwen3.8-27B` (Unsloth), **not uncensored**. These are the hedging model this PRD exists to replace and are **not** candidates for this seat |
 | **vision projector, same family** | `mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf` (927 MB) — the Reviewer role needs vision; noted, not specified here |
 | MTP module on the NAS | `mtp-Qwen3.8-27B-Q4_0.gguf` (1.37 GB) — the named model is explicitly **noMTP** |
 | `/mnt/models` | ComfyUI `local_hot`; holds checkpoints/loras/unet/vae/clip only — **no LLM area** |
 | llama.cpp | `/home/tim/source/activity/llama.cpp`, HEAD `4df29be4f` (2026-08-16), build 10454, CUDA libs built; `build/bin/llama-server` present |
 
-**The founder's request is "better from the NAS somewhere or `/mnt/models`".** The exact named file is *not*
-on the NAS today — the NAS holds siblings — so staging is a real step, and which artefact ends up canonical
-is an open question (below).
+**The founder's request is "better from the NAS somewhere or `/mnt/models`".** The exact named file was *not*
+on the NAS — the NAS held siblings — so staging was a real step. **It is staged** (#23): the artefact now sits
+at `/mnt/nas-ai-models/LLM/gguf/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`, its sha256 verified against the source,
+and the path is recorded as data in `config/autonomous/brain.yml`. The canonical artefact was decided by the
+founder on 2026-10-19 (open question 1, below).
 
 ## Metrics / definition of done
 
@@ -139,16 +148,56 @@ is an open question (below).
 
 ## Open questions
 
-1. **Which artefact is canonical?** The named `noMTP-Q6_K` (22.08 GB, on local disk) or a NAS sibling
-   (`Q4_K_P` 17.92 GB / `UD-Q5_K_XL` 20.88 GB)? Q6_K is the best quality that fits; the Q4s free ~4 GB of
-   headroom that the render phase could use. **Founder call** — it sets the plan's tonal range.
-2. **Launch parameters are unverified.** Neither `config-user.yaml` nor `config.yaml` in the NAS LLM area
-   carries a Qwen3.8-27B entry, and `CMD_FLAGS.txt` is empty. A previously recorded `n_gpu_layers: 65` /
-   `cache_type: q4` **could not be re-verified in this pass**, so it is treated as unproven: derive the
-   parameters empirically and record them. The hard constraint is that a 22.08 GB model needs a quantised KV
-   cache to leave room for context.
-3. **Context length.** Long enough for a plan-plus-ledger prompt, short enough to fit beside the weights.
+1. ~~**Which artefact is canonical?**~~ **RESOLVED — founder ruling, 2026-10-19.**
+   **Canonical: `Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`** (`general.name = "Abl 27b"`, abliterated;
+   22,082,529,760 B / 20.57 GiB). The NAS siblings are **not** alternatives for this seat.
+   Reasoning, in the order it decided the call:
+   - **The headroom argument for a Q4 is void.** The phase machine exists so the brain and ComfyUI are
+     never co-resident, so the ~4 GB a Q4 releases can never be used by the render phase. The PRD's own
+     headline reason for preferring a Q4 does not survive its own design.
+   - **Context cannot break the tie either.** This is a hybrid model — `qwen35`, 64 blocks,
+     `full_attention_interval = 4`, so only **16** layers hold a KV cache and the other 48 are SSM
+     linear-attention with a context-independent state. KV is **64 KiB/token at f16**. Against the
+     measured 23.02 GiB free, Q6_K leaves a 1.56 GiB KV budget → **~25.6 K tokens at f16 KV**, ~51 K at
+     q8, ~102 K at q4. A plan-plus-ledger prompt is a few thousand tokens. The tightest candidate is not
+     tight.
+   - **Two of the three "siblings" are the vanilla model, not alternatives.** `Qwen3.8-27B-UD-Q5_K_XL`
+     and `UD-Q4_K_XL` read `general.name = Qwen3.8-27B` (Unsloth quants, no `uncensored` tag). They are
+     the hedging model this PRD exists to replace. Struck from the candidate list.
+   - What remains is fidelity, and Q6_K is two quant steps above the Q4_K_P.
+   The one condition that would have reversed this: if the Reviewer's vision role rides *this* artefact
+   (open question 4), `…Uncensored-HauhauCS-Aggressive-Q4_K_P` is the only candidate declaring `vision`.
+   Noted, not chosen — it stays available for a separate vision seat.
+2. ~~**Launch parameters are unverified.**~~ **RESOLVED — measured, ticket #26 (2026-10-19).**
+   The previously recorded `n_gpu_layers: 65` / `cache_type: q4` was never re-verifiable and is **not**
+   used. A five-config matrix was run on the 4090 under one scheduler claim (device VRAM sampled at
+   `/health`), and the chosen parameters are recorded as data in `config/autonomous/brain.yml`
+   (`serving:`), each with the VRAM it cost. **Chosen: `n_gpu_layers: 999`, `ctx_size: 32768`,
+   `cache_type_k/v: q8_0`, `batch_size: 2048`, `ubatch_size: 512`** → **22863 MiB used / 1218 MiB free**
+   at a 439 MiB baseline (the largest context at the highest KV fidelity that leaves ≥ 1 GiB). A cold
+   start from the recorded parameters succeeded (up in 5s), served a real completion, and shut down
+   clean (port closed, GPU idle, claim released).
+3. ~~**Context length.**~~ **RESOLVED by #26.** `32768` — it fits with ≥ 1 GiB free and is ~5× the
+   plan-plus-ledger prompt (a few thousand tokens). Smaller contexts (16 K at 1842 MiB free, 8 K at
+   2144 MiB free) are measured and recorded in `brain.yml` for a downgrade, but the seat needs neither.
 4. **Does the Reviewer get the vision projector from the start**, or is it a second PRD?
+
+## Planner cadence — founder ruling (2026-10-19)
+
+**The planner runs once a night.** The brain owns the 4090 for one bounded nightly planning window
+(plan → render → review under a single claim, per the phase machine above); it does not contend with
+the hourly cadence tick. This is the ruling the local-brain routing needed, because the seat is
+~22.3 GiB of a 24 GiB card and cannot be resident at tick time.
+
+Consequences, so the next agent does not re-derive them:
+
+- The **hourly** loop stays on the host (snapshot, cadence top-up, publish) and does **not** need the
+  brain. It calls the brain only through the in-app planner path (#27), which is pull-based and
+  returns template suggestions if the seat is down — so the day-to-day flow never waits on it.
+- The **nightly** window is where a planning prompt may be issued against the seat; it takes the
+  claim once and yields nothing between phases (PRD 0001 Director story).
+- Pointing the growth cron agent's model at the local endpoint is therefore a **nightly** job, not an
+  hourly one. Any such cron must be pinned to provider+model (an unpinned job drift-skips silently).
 
 ---
 Drift note (gherkin-specialist): record every deviation when translating this into `.feature` files.

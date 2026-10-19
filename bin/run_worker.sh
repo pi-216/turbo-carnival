@@ -19,6 +19,10 @@ export GEM_HOME="/usr/share/rvm/gems/ruby-3.4.5"
 export GEM_PATH="/usr/share/rvm/gems/ruby-3.4.5:/usr/share/rvm/gems/ruby-3.4.5@global"
 
 export RAILS_ENV=development
+# See bin/run_server.sh: the Sentry pillar enables on a configured environment, and this
+# host's "production" IS RAILS_ENV=development. Sidekiq is where a failed job's exception
+# actually surfaces, so without this the worker stays invisible.
+export SENTRY_ENVIRONMENT=production
 
 cd /home/tim/source/activity/turbo-carnival
 exec "$(command -v bundle 2>/dev/null || echo /usr/share/rvm/gems/ruby-3.4.5/bin/bundle)" \

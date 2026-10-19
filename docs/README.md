@@ -20,8 +20,9 @@ Every document carries a one-line status directly under its title:
 | **SUPERSEDED BY …** | kept for provenance only. Do not act on it. |
 
 **When you change how the project works, update the CURRENT document. Do not write a new `v(N+1)`
-alongside it.** `strategy-v2.md` + `strategy-v3.md` + `THESIS.md` all describing the operating model is
-exactly how this file became necessary.
+alongside it.** `strategy-v2.md` + `THESIS.md`, and at one point a third operating-model document,
+all describing the same thing is exactly how this file became necessary. One of them has since
+been removed for precisely that reason — see the inventory below.
 
 ---
 
@@ -30,7 +31,7 @@ exactly how this file became necessary.
 | question | the authoritative document | do not use |
 |---|---|---|
 | What work exists, in what order, and why? | **`PROJECT_PLAN.md`** | — |
-| How does the project operate (blocks, authority, promotion)? | **`strategy-v3.md`** | `strategy-v2.md` §8–13, `THESIS.md` |
+| How does the project operate (blocks, authority, promotion)? | **`AGENTS.md`** (*the authority ladder*) + **`PROJECT_PLAN.md`** §2–3 | `strategy-v2.md` §8–13, `THESIS.md` |
 | Why is the strategy what it is (distribution diagnosis, venues, platforms)? | **`strategy-v2.md` §1–7, §12.4** | `THESIS.md` |
 | What is the validated render configuration? | **`baseline-config.md`** | any render doc predating 2026-10-18 |
 | What experiments exist and what did they decide? | **`experiment-backlog.md`** | — |
@@ -47,12 +48,13 @@ exactly how this file became necessary.
 | document | what it is |
 |---|---|
 | `PROJECT_PLAN.md` | **the spine.** Workstreams, ordering, ticket linkage contract, standing obligations |
-| `strategy-v3.md` | the operating model — three blocks, risk ladder, raw-data capture, promotion |
+| ~~`strategy-v3.md`~~ | **REMOVED 2026-10-19** — the operating model was duplicated across three documents, which is the drift this index exists to prevent. The authority ladder moved to `AGENTS.md`; the workstream contracts and the two founder requirements to `PROJECT_PLAN.md` §2; promotion to `PRD 0004`. Recoverable via `git log -- docs/strategy-v3.md` |
 | `strategy-v2.md` | distribution diagnosis, the two-venue design, platform findings, salvage map. *(§8–13 process sections are superseded by v3)* |
 | `experiment-backlog.md` | every experiment: pre-registration, verdict, and why. The evidence ledger |
 | `baseline-config.md` | the validated baseline workflow: node ids, shas, attribution table |
 | `scene-notes-bedroom-front.md` | design notes for the active scene (scene text is the prompt; notes live here) |
 | `design-system/` | ViewComponent + navigation guidelines for the app UI |
+| `prd/` | the PRDs. `0001` local brain + phase machine · `0002` versioned content config + experiment DB spine · `0003` repo conventions + a verifiable done · `0004` the experiment lane — the contract every experiment must satisfy · `0005` the revealing-miniskirt pillar — the first experiment, and the contract's first test case · `0006` harness conformance to `rails-venture-template` — the parity audit and the rails this repo lacks. Cut into board tickets per the plan's linkage contract |
 
 ### Reference
 
@@ -83,6 +85,6 @@ acting.** Each should be promoted to CURRENT or moved to `archive/` at the next 
 | `THESIS.md` | the original thesis. Its content-strategy section is superseded by `strategy-v2.md`; one of its red lines (the Pornmaster prohibition) was **agent-authored, not founder-authored**, and was withdrawn 2026-10-18 |
 | `brainstorming.md` | early ideation |
 | `post-creation-interface.md` | an implementation-progress log, not a spec |
-| `AGENTS.md` (root) | the OpenSpec managed block. **OpenSpec is dropped.** Replaced under `PROJECT_PLAN.md` W1.3 |
-| `openspec/` (114 files) | the OpenSpec estate. Superseded; retained pending an archival pass |
+| `AGENTS.md` (root) | **CURRENT** — house conventions for this repo. Replaced the OpenSpec block 2026-10-19 |
+| ~~`openspec/`~~ (114 files) | **REMOVED 2026-10-19** — dropped in favour of the PRD/ticket system. Recoverable from git history (`git log -- openspec`) |
 | `archive/` | documents moved here during cleanup |

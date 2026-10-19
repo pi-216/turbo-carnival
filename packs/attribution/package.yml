@@ -1,0 +1,15 @@
+# Package for the attribution spine.
+#
+# One row per distinct produced asset (content-addressed on sha256) plus the render that
+# produced it, the prompt in named parts, the LoRA set with strengths, and the per-render
+# assessments. PRD 0002 / plan item W1.2.
+#
+# `packs/pipeline` is a dependency because a render belongs to a `PipelineRun`; the edge runs
+# one way (attribution -> pipeline), so there is no cycle.
+
+enforce_dependencies: true
+dependencies:
+  - "."
+  - "packs/pipeline"
+metadata:
+  owner: Attribution

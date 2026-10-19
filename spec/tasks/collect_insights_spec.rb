@@ -162,4 +162,163 @@ RSpec.describe 'scheduling:collect_insights' do
     expect(post.likes_count).to eq(2)
     expect(post.engagement_rate).to eq(0.0) # no denominator => no rate, not a fabricated one
   end
+
+  # ─── #39 (option B): the per-post instrument ─────────────────────────────────
+  #
+  # `views` is Meta's promoted primary metric (it replaced impressions/plays) and it
+  # answers for EVERY media product type, so it rides in the primary call.
+  # `follows`/`profile_visits` answer only for FEED media: measured 2026-10-19 the
+  # account's reel answers 400 code 100 "The Media Insights API does not support the
+  # follows, profile_visits metric for this media product type" -- and in the same
+  # probe ONE unsupported metric failed the WHOLE request. Asking for all three
+  # together would therefore lose `reach` on every reel, and because code 100 is also
+  # this command's TERMINAL verdict it would have recorded every reel as permanently
+  # uncollectable and stopped refreshing it. Hence two calls, and a refusal on the
+  # second means "not applicable", never "unavailable".
+
+  def data(*pairs)
+    { 'data' => pairs.map { |name, value| { 'name' => name, 'values' => [ { 'value' => value } ] } } }
+  end
+
+  # Stubs the insights endpoint per (media, metric set) and RECORDS every metric string
+  # requested, so a spec can assert the call shape as well as the parsed values.
+  def stub_insights_per_metric(&responder)
+    requested = []
+    connection = double('faraday')
+    allow(connection).to receive(:get) do |path, &blk|
+      req = Struct.new(:params).new({})
+      blk&.call(req)
+      metric = req.params['metric'].to_s
+      requested << metric
+      body, status = responder.call(path.to_s.split('/').first, metric)
+      double('response', status: status, body: body)
+    end
+    allow(Faraday).to receive(:new).and_return(connection)
+    allow(Rails.application.credentials).to receive(:dig).and_call_original
+    allow(Rails.application.credentials).to receive(:dig)
+      .with(:instagram, :access_token).and_return('test-token')
+    requested
+  end
+
+  it 'asks for `views` in the primary call, and the stills-only metrics only in their own' do
+    posted(at: 3.days.ago)
+    requested = stub_insights_per_metric { |_media, _metric| [ data([ 'reach', 6 ]), 200 ] }
+
+    run_task
+
+    expect(requested.first).to eq('likes,comments,reach,saved,shares,views')
+    expect(requested.first).not_to include('follows')
+    expect(requested[1..]).to all(eq('follows,profile_visits'))
+  end
+
+  it 'records the promoted `views` metric per post' do
+    post = posted(at: 3.days.ago)
+    stub_insights_per_metric { |_media, _metric| [ data([ 'reach', 6 ], [ 'views', 11 ]), 200 ] }
+
+    run_task
+
+    expect(post.reload.views).to eq(11)
+  end
+
+  # The red line of this ticket, as a pair: a stored 0 and a missing measurement are
+  # different facts. `views` is the metric where that distinction is load-bearing,
+  # because the API can omit it (not applicable) as well as report it as 0.
+  it 'records an absent metric as unknown (nil) and an explicit zero as zero' do
+    absent = posted(at: 3.days.ago)
+    zero = posted(at: 2.days.ago)
+    stub_insights_per_metric do |media, metric|
+      if metric.include?('follows')
+        [ data, 200 ]
+      elsif media == zero.provider_post_id
+        [ data([ 'reach', 6 ], [ 'views', 0 ]), 200 ]
+      else
+        [ data([ 'reach', 6 ]), 200 ]
+      end
+    end
+
+    run_task
+
+    expect(absent.reload.views).to be_nil # UNKNOWN -- the API never reported it
+    expect(zero.reload.views).to eq(0)    # a real measured zero
+  end
+
+  it 'collects the stills-only metrics on a still' do
+    still = posted(at: 3.days.ago)
+    stub_insights_per_metric do |_media, metric|
+      if metric.include?('follows')
+        [ data([ 'follows', 2 ], [ 'profile_visits', 5 ]), 200 ]
+      else
+        [ data([ 'reach', 6 ], [ 'views', 11 ]), 200 ]
+      end
+    end
+
+    run_task
+
+    still.reload
+    expect(still.follows).to eq(2)
+    expect(still.profile_visits).to eq(5)
+  end
+
+  # reel_path is the repo's own marker for a reel, so a known reel is not asked the
+  # question at all -- the call is saved. Correctness does NOT rest on the marker;
+  # the next example covers a reel the marker does not know about.
+  it 'does not spend a stills-only call on a known reel' do
+    reel = posted(at: 3.days.ago)
+    reel.update_columns(reel_path: '/tmp/reel.mp4')
+    requested = stub_insights_per_metric do |_media, metric|
+      # Emulates the MEASURED api: asking a reel for follows/profile_visits is a 400
+      # code 100 for the whole call. A known reel is never asked, so this branch must
+      # never fire -- if anyone ever merges the metric sets, this example fails on
+      # `reach` instead of passing by accident.
+      if metric.include?('follows')
+        [ { 'error' => { 'code' => 100,
+                         'message' => '(#100) The Media Insights API does not support the ' \
+                                      'follows, profile_visits metric for this media product type.' } }, 400 ]
+      else
+        [ data([ 'reach', 13 ], [ 'views', 16 ]), 200 ]
+      end
+    end
+
+    run_task
+
+    reel.reload
+    expect(requested.size).to eq(1)
+    expect(reel.reach).to eq(13)
+    expect(reel.views).to eq(16)
+    expect(reel.follows).to be_nil
+    expect(reel.profile_visits).to be_nil
+    expect(reel.insights_updated_at).to be_present
+    expect(reel.insights_unavailable_at).to be_nil
+  end
+
+  it "keeps a reel's reach and views when the stills-only call is refused, and never calls it terminal" do
+    reel = posted(at: 3.days.ago)
+    allow(Rails.logger).to receive(:info)
+    stub_insights_per_metric do |_media, metric|
+      if metric.include?('follows')
+        [ { 'error' => { 'code' => 100,
+                         'message' => '(#100) The Media Insights API does not support the ' \
+                                      'follows, profile_visits metric for this media product type.' } }, 400 ]
+      else
+        [ data([ 'reach', 13 ], [ 'views', 16 ]), 200 ]
+      end
+    end
+
+    expect { run_task }.not_to raise_error
+
+    # A refusal is printed, not swallowed -- and it is INFO, because it is the
+    # expected answer for a non-FEED media rather than a failure.
+    expect(Rails.logger).to have_received(:info).with(/has no follows,profile_visits/).at_least(:once)
+
+    reel.reload
+    expect(reel.reach).to eq(13)   # the primary call still landed
+    expect(reel.views).to eq(16)
+    expect(reel.follows).to be_nil # not applicable to a reel => UNKNOWN, not 0
+    expect(reel.profile_visits).to be_nil
+    expect(reel.insights_updated_at).to be_present
+    # The trap this example exists for: code 100 is ALSO this command's terminal
+    # verdict, so routing the refusal through api_outcome would have recorded every
+    # reel as permanently uncollectable and stopped refreshing its reach forever.
+    expect(reel.insights_unavailable_at).to be_nil
+  end
 end

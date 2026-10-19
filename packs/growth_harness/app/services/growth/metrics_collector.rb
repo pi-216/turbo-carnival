@@ -17,6 +17,15 @@ module Growth
         followers: count, taken_at: Time.current, **fetch_reach_attribution, **fetch_media_count
       )
       update_start_followers(count)
+      # Emit the charter reading on the same tick that measures it (PRD 0006 R7 · #77).
+      # The snapshot is stored either way; this is what makes the number *tracked* — the
+      # gauge is emitted after the snapshot is persisted and after start_followers is
+      # settled, so it reports the same figures `Growth::Goal` will report.
+      CharterTelemetry.emit_goal(goal)
+      # Inventory rides the same tick: this is the one job the live harness runs every hour
+      # (bin/scheduled_posting.sh -> growth:snapshot_followers), so it is where "how much is
+      # the venture managing" gets measured without a new scheduled job to keep alive.
+      CharterTelemetry.emit_inventory
       snapshot
     rescue Instagram::Client::Error, ArgumentError => e
       record_skip(e.message)

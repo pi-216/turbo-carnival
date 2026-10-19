@@ -48,6 +48,14 @@ class AutoSelectWinners < GLCommand::Callable
       "#{context.winners.size} winners, #{context.rejected.size} rejected, " \
       "#{losers.size - context.rejected.size} backup"
     )
+
+    # The pipeline's acceptance counter (PRD 0006 R7 · #77): what this gate let through and
+    # what it threw away, emitted where the decision is made rather than mined from logs.
+    CharterTelemetry.emit_pipeline_acceptance(
+      accepted: context.winners.size,
+      rejected: context.rejected.size,
+      pillar: context.pipeline_run.content_pillar&.name
+    )
   end
 
   private
@@ -65,7 +73,14 @@ class AutoSelectWinners < GLCommand::Callable
 
   def rank_by_composite_score(candidates)
     selected_so_far = []
-    remaining = candidates.dup
+    # `.to_a`, never `.dup`. `gather_candidates` returns an ActiveRecord::Relation and
+    # `Relation#dup` is still a relation, so `remaining.delete(best)` below ran as
+    # `DELETE FROM image_candidates WHERE ... AND id = $1` -- "Delete All", measured
+    # 2026-10-19. The loop then re-picked the same row off the relation's loaded array and
+    # pushed it TOP_K times, so a one-candidate run reported three winners while every
+    # candidate it had just ranked was deleted from the database (bypassing callbacks, so a
+    # linked photo would have been left dangling). Ranking must not delete anything.
+    remaining = candidates.to_a
     ranked = []
 
     TOP_K.times do

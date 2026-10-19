@@ -20,15 +20,15 @@
 # Idempotent: re-running replaces each step's workflow FROM THE FILE (the file
 # wins -- that is the whole point), and never touches a different pipeline.
 namespace :pipeline do
-  desc 'Register/update a pipeline from versioned workflow files in a directory'
+  desc "Register/update a pipeline from versioned workflow files in a directory"
   task :register, %i[dir pipeline_name] => :environment do |_task, args|
     dir  = args[:dir].to_s
     name = args[:pipeline_name].to_s
 
-    raise 'usage: rake pipeline:register[<dir>,<pipeline-name>]' if dir.empty? || name.empty?
+    raise "usage: rake pipeline:register[<dir>,<pipeline-name>]" if dir.empty? || name.empty?
     raise "not a directory: #{dir} (run from the repo root)" unless File.directory?(dir)
 
-    files = Dir.glob(File.join(dir, 'step*.json')).sort_by do |f|
+    files = Dir.glob(File.join(dir, "step*.json")).sort_by do |f|
       File.basename(f)[/\Astep(\d+)/, 1].to_i
     end
     raise "no step*.json files in #{dir}" if files.empty?
@@ -48,17 +48,17 @@ namespace :pipeline do
       # ComfyUI at submit time -- mid-render, after the model load. Catch it here.
       graph = JSON.parse(raw)
       unless graph.is_a?(Hash) && !graph.empty? &&
-             graph.values.all? { |n| n.is_a?(Hash) && n.key?('class_type') }
+             graph.values.all? { |n| n.is_a?(Hash) && n.key?("class_type") }
         raise "#{file}: not a ComfyUI API-format graph (need {node => {class_type, inputs}})"
       end
 
       tokens = raw.scan(/\{\{([A-Za-z0-9_]+)\}\}/).flatten.uniq.sort
 
       step = pipeline.pipeline_steps.find_or_initialize_by(order: order)
-      step.name = File.basename(file, '.json')
-                      .sub(/\Astep\d+_/, '')
-                      .tr('_', ' ')
-                      .split.map(&:capitalize).join(' ')
+      step.name = File.basename(file, ".json")
+                      .sub(/\Astep\d+_/, "")
+                      .tr("_", " ")
+                      .split.map(&:capitalize).join(" ")
       step.comfy_workflow_json = raw
       # The workflow is parameterised at RUNTIME from the run's variables (that is
       # where {{checkpoint}} and {{prompt}} come from), so the prompt is not a
