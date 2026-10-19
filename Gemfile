@@ -53,9 +53,9 @@ group :development, :test do
   gem "dotenv-rails"
 
   # Testing framework
-  gem "rspec-rails", "~> 7.0"
+  gem "rspec-rails", "~> 8.0"
   gem "factory_bot_rails", "~> 6.4"
-  gem "shoulda-matchers", "~> 6.0"
+  gem "shoulda-matchers", "~> 8.0"
   gem "faker", "~> 3.2"
   gem "climate_control", "~> 1.2"
 end
@@ -82,7 +82,7 @@ gem "faraday", "~> 2.9"
 gem "faraday-retry", "~> 2.2"
 
 # Background jobs
-gem "sidekiq", "~> 7.0"
+gem "sidekiq", "~> 8.1"
 
 # Hotwire for SPA-like features
 gem "turbo-rails"
