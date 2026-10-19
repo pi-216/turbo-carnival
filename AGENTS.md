@@ -111,10 +111,13 @@ authority boundary (it previously lived in `strategy-v3.md`, deleted 2026-10-19)
 or experimenter should know that the existing pillars are fair game."* The five rails in `THESIS.md`
 (identity anchor, attribution spine, safety gates, decision ledger, reflection) stay locked; the **content
 pillars** — which mix of topics Sarah posts — are a lever like any other, and the brain and the experimenter
-may reweight, retire, replace, rename, split or add one. Enforcement: a pillar change goes through the same
-bounded, reversible path as every other class-2 change (`Growth::PersonaEvolution` — a single-step delta, a
-pre-registered gate, automatic revert on failure), so "fair game" can never mean an unrecorded edit. What a
-pillar *depicts* is unchanged by this: intensity is class 3, the age read is class 4.
+may reweight, retire, replace, rename, split or add one. Enforcement: a change to a pillar's
+`weight`/`priority`/`active` goes through the same bounded, reversible path as every other class-2 change
+(`Growth::PersonaEvolution` — a single-step delta, a pre-registered gate, automatic revert on failure), so
+"fair game" can never mean an unrecorded edit. **Retiring, replacing, renaming, splitting or adding a pillar
+is permitted by this ruling but has no mechanism yet** — `PersonaEvolution` writes only those three fields —
+so it is a ticket, not an edit to make by hand. What a pillar *depicts* is unchanged by this: intensity is
+class 3, the age read is class 4.
 
 **How this reconciles with "the founder is never a gate".** Two statements that look contradictory and are
 not, because they are about different things:
