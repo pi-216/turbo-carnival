@@ -55,11 +55,17 @@ BRAIN_BIN="${TC_BRAIN_BIN:-/home/tim/source/activity/llama.cpp/build/bin/llama-s
 BRAIN_HOST="${BRAIN_HOST:-127.0.0.1}"
 BRAIN_PORT="${BRAIN_PORT:-8080}"
 
-# The ask when the card is FREE. A FIT value, not the footprint: the artefact is
-# 20.57 GiB, and llama.cpp adds KV cache + compute buffers on top. Budgeted
-# against live free memory below. #26 replaces this with a MEASURED number.
-BRAIN_VRAM="${BRAIN_VRAM:-22}"
-BRAIN_MIN_FIT="${BRAIN_MIN_FIT:-18}"
+# The ask when the card is FREE. A FIT value, not the footprint: the measured footprint is
+# 23058 MiB (weights 17093 + KV 4352 + 1613 of buffers, MTP draft context and CUDA
+# workspaces), and the vision projector is on the CPU so it costs the card nothing.
+# Budgeted against live free memory below; see `serving.measured_mib` in brain.yml.
+BRAIN_VRAM="${BRAIN_VRAM:-23}"
+# The floor of the ask, used when the card looks nearly full. It must describe a size that
+# can actually host the seat, or the harness claims a card it cannot fit and pays a 240 s
+# UP_WAIT to discover it: measured footprint is 23058 MiB with n_gpu_layers=65, so 18 was a
+# floor that could never have worked. 22 fails CLOSED — vram_insufficient, the plan phase
+# skips cleanly, and the card goes to whoever can use it.
+BRAIN_MIN_FIT="${BRAIN_MIN_FIT:-22}"
 FIT_HEADROOM_MIB="${FIT_HEADROOM_MIB:-1024}"
 DURATION="${BRAIN_DURATION:-2h}"
 
@@ -106,22 +112,69 @@ yml_get() {
 
 brain_model() { yml_get artefact.path; }
 
-# Serving defaults are #26's to REPLACE with measured values in brain.yml. Until
-# then these are sane, KV-quantised defaults (a 20.57 GiB model on a 24 GiB card
-# needs KV quantisation: q8_0 KV ≈ 32 KiB/token ⇒ 32K ctx ≈ 1 GiB).
+# The vision projector. Additive: the plan phase does not need it, so a projector that
+# cannot be READ degrades the seat (loudly, in launch_brain) instead of taking it down.
+# `deps` still reports it as a FAILURE, so the misconfiguration is caught by an offline
+# check rather than by a launch nobody looked at.
+brain_mmproj() { yml_get vision.path; }
+
+# Serving args come from brain.yml, never from this script. Every optional flag below is
+# emitted ONLY when the yml actually asks for it, so a file without `vision:` or
+# `serving.spec_type` still launches (see the fallbacks).
+#
+# Measured arms, for a next agent who needs to judge these numbers: KV here is
+# 34 KiB/token at q8_0 (16 KV layers x 4 kv heads x (256+256) dims x 1.0625 B), not the
+# 32 KiB/token an earlier comment guessed — so 131K ctx is 4352 MiB, not ~1 GiB at 32K.
 brain_serve_args() {
   local model="$1"
-  local ngl ctx ctk ctv bs ub
+  local ngl ctx ctk ctv bs ub par stype snmax mmproj
   ngl="$(yml_get serving.n_gpu_layers)"; ctx="$(yml_get serving.ctx_size)"
   ctk="$(yml_get serving.cache_type_k)"; ctv="$(yml_get serving.cache_type_v)"
   bs="$(yml_get serving.batch_size)";     ub="$(yml_get serving.ubatch_size)"
+  par="$(yml_get serving.parallel)";      stype="$(yml_get serving.spec_type)"
+  snmax="$(yml_get serving.spec_draft_n_max)"; mmproj="$(brain_mmproj)"
+
+  # Vision: only when the projector is present AND readable. A named-but-absent file is a
+  # llama-server startup FAILURE, which would take the whole seat down for a capability
+  # the planner does not strictly need — so it is dropped here and shouted about in
+  # launch_brain, rather than passed through to fail the launch.
+  local mmproj_args=()
+  if [ -n "$mmproj" ] && [ -r "$mmproj" ]; then
+    mmproj_args=(--mmproj "$mmproj")
+    # Where the projector runs. `cpu` keeps its 888 MiB off the card — that allocation is
+    # what aborted the launch on 2026-10-19, with the model and the MTP draft already
+    # resident. See `vision.offload` in brain.yml.
+    case "$(yml_get vision.offload)" in
+      cpu|none|no) mmproj_args+=(--no-mmproj-offload) ;;
+    esac
+    local mmin; mmin="$(yml_get vision.min_tokens)"
+    [ -n "$mmin" ] && mmproj_args+=(--image-min-tokens "$mmin")
+  fi
+
+  # MTP: the model's OWN NextN head. `--spec-draft-model` is deliberately absent — the
+  # head is inside artefact.path, and pointing at a separate draft would add its weights
+  # and its own KV for nothing. See brain.yml `serving.spec_type`.
+  local spec_args=()
+  if [ -n "$stype" ] && [ "$stype" != "none" ]; then
+    spec_args=(--spec-type "$stype")
+    [ -n "$snmax" ] && spec_args+=(--spec-draft-n-max "$snmax")
+  fi
+
+  # --parallel: llama-server's default is AUTO (=4), which allocates four sequences'
+  # worth of recurrent state for slots nothing uses. One planner needs one slot.
+  local par_args=()
+  if [ -n "$par" ] && [ "$par" -gt 0 ] 2>/dev/null; then
+    par_args=(--parallel "$par")
+  fi
+
   echo --model "$model" \
        --host "$BRAIN_HOST" --port "$BRAIN_PORT" \
        --n-gpu-layers "${ngl:-999}" \
        --ctx-size "${ctx:-32768}" \
        --cache-type-k "${ctk:-q8_0}" --cache-type-v "${ctv:-q8_0}" \
        --batch-size "${bs:-2048}" --ubatch-size "${ub:-512}" \
-       --flash-attn on --alias brain --no-warmup
+       --flash-attn on --alias brain --no-warmup \
+       "${mmproj_args[@]}" "${spec_args[@]}" "${par_args[@]}"
 }
 
 # --- probes -------------------------------------------------------------------
@@ -294,6 +347,14 @@ launch_brain() {
     return 2
   fi
 
+  # Vision is additive: shout if a configured projector is unreadable, but still launch
+  # text-only rather than turning a missing capability into an outage. `deps` fails hard
+  # on this, so it is caught offline; this line is the runtime half of that rule.
+  local mmproj; mmproj="$(brain_mmproj)"
+  if [ -n "$mmproj" ] && [ ! -r "$mmproj" ]; then
+    log "launch_brain: WARNING — vision projector not readable: '${mmproj}' — launching WITHOUT --mmproj (text-only). Fix vision.path in $BRAIN_YML."
+  fi
+
   local slog="$SCHED_LOG_DIR/brain-${job}.log"
   local unit; unit="$(svc_unit "$job")"
   # Own transient cgroup: a plain setsid/nohup inherits a Hermes cron worker's
@@ -437,6 +498,25 @@ cmd_deps() {
     echo "deps: artefact OK — $model"
   else
     echo "deps: FAILED — artefact not readable: ${model:-<unset from $BRAIN_YML>}"; rc=2
+  fi
+
+  # A projector named in brain.yml but not readable is a FAILURE here even though
+  # launch_brain only warns: the seat survives, the configuration is still wrong, and it
+  # should be visible without waiting for a launch to happen.
+  local mmproj; mmproj="$(brain_mmproj)"
+  if [ -z "$mmproj" ]; then
+    echo "deps: vision projector unset — the seat runs text-only (no --mmproj)"
+  elif [ -r "$mmproj" ]; then
+    echo "deps: vision projector OK — $mmproj"
+  else
+    echo "deps: FAILED — vision projector not readable: $mmproj"; rc=2
+  fi
+
+  local stype; stype="$(yml_get serving.spec_type)"
+  if [ -n "$stype" ] && [ "$stype" != "none" ]; then
+    echo "deps: speculative decoding configured — --spec-type $stype (the model's own NextN head; no draft file)"
+  else
+    echo "deps: speculative decoding unset"
   fi
   return "$rc"
 }
