@@ -34,12 +34,12 @@
     <div class="flex gap-2 flex-wrap">
       <% @pipeline.pipeline_steps.order(:order).each do |step| %>
         <% active_count = ImageCandidate.where(
-             pipeline_step: step, 
+             pipeline_step: step,
              status: 'active',
              pipeline_run: @run
            ).count %>
         <% prs = @run.pipeline_run_steps.find_by(pipeline_step: step) %>
-        <%= link_to run_gallery_path(@run, step: step.order), 
+        <%= link_to run_gallery_path(@run, step: step.order),
             class: "px-4 py-2 rounded-lg transition-colors #{@selected_step == step ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'}" do %>
           <div class="flex items-center gap-2">
             <% if prs&.approved? %>
@@ -87,7 +87,7 @@
             </p>
           <% end %>
         </div>
-        
+
         <% unless prs&.approved? %>
           <% if @candidates.any? %>
             <div class="bg-zinc-900 rounded-lg p-4 min-w-[300px]">
@@ -97,9 +97,9 @@
                   How many candidates should advance?
                 </label>
                 <div class="flex items-center gap-4">
-                  <%= f.range_field :top_k_count, 
-                      min: 1, 
-                      max: @candidates.count, 
+                  <%= f.range_field :top_k_count,
+                      min: 1,
+                      max: @candidates.count,
                       value: [JobOrchestrationConfig.default_top_k, @candidates.count].min,
                       class: "flex-1",
                       id: "k-slider",
@@ -112,7 +112,7 @@
                   Top <span id="k-count-text"><%= [JobOrchestrationConfig.default_top_k, @candidates.count].min %></span> by ELO will advance
                 </p>
               </div>
-              
+
               <% if @candidates.any? { |c| c.vote_count < 5 } %>
                 <div class="bg-yellow-900 bg-opacity-30 border border-yellow-600 rounded p-3">
                   <p class="text-xs text-yellow-200">
@@ -120,8 +120,8 @@
                   </p>
                 </div>
               <% end %>
-              
-              <%= f.submit "Approve with K=#{[JobOrchestrationConfig.default_top_k, @candidates.count].min}", 
+
+              <%= f.submit "Approve with K=#{[JobOrchestrationConfig.default_top_k, @candidates.count].min}",
                   class: "w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-semibold",
                   id: "approve-button",
                   data: { turbo_confirm: "Approve this step? Only the top K candidates will advance to the next step." } %>
@@ -136,7 +136,7 @@
           <% end %>
         <% end %>
       </div>
-      
+
       <% if prs&.approved? %>
         <div class="text-sm text-zinc-400 bg-zinc-900 rounded p-3">
           <strong>Top <%= prs.top_k_count %> advancing:</strong>
@@ -156,7 +156,7 @@
         if (button) {
           button.value = `Approve with K=${k}`;
         }
-        
+
         // Update visual indicators on cards
         const cards = document.querySelectorAll('[data-candidate-rank]');
         cards.forEach((card, idx) => {
@@ -218,16 +218,16 @@
         <% rank = idx + 1 %>
         <% k_value = prs&.top_k_count || JobOrchestrationConfig.default_top_k %>
         <% will_advance = rank <= k_value %>
-        
+
         <%= render ::Base::CardComponent.new(variant: :default, class: "overflow-hidden", data: { candidate_rank: rank }) do |c| %>
           <% c.with_body(class: "!p-0") do %>
           <!-- Image -->
           <div class="aspect-square bg-zinc-700 relative">
-            <%= image_tag candidate_image_path(candidate), 
+            <%= image_tag candidate_image_path(candidate),
                 class: "w-full h-full object-cover",
                 loading: "lazy",
                 onerror: "this.src='data:image/svg+xml,%3Csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"400\"%3E%3Crect fill=\"%23374151\" width=\"400\" height=\"400\"/%3E%3Ctext fill=\"%239CA3AF\" font-size=\"20\" x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\"%3ENo Image%3C/text%3E%3C/svg%3E'" %>
-            
+
             <!-- Advancement Badge -->
             <% if prs&.approved? || !prs&.approved? %>
               <div data-advancement-badge class="absolute top-2 left-2">
@@ -236,14 +236,14 @@
                 <% end %>
               </div>
             <% end %>
-            
+
             <!-- ELO Badge -->
             <div class="absolute top-2 right-2">
               <%= render ::Base::BadgeComponent.new(variant: :default, size: :sm, class: "bg-black bg-opacity-75") do %>
                 <span class="text-yellow-400">⭐ <%= candidate.elo_score %></span>
               <% end %>
             </div>
-            
+
             <!-- Rank Badge -->
             <div class="absolute bottom-2 left-2">
               <%= render ::Base::BadgeComponent.new(variant: :primary, size: :sm, class: "bg-blue-600") do %>
@@ -272,21 +272,21 @@
               <% if @selected_step.order == @pipeline.pipeline_steps.maximum(:order) %>
                 <!-- Final step - show winner button -->
                 <% if candidate.winner %>
-                  <%= button_to "⭐ Winner!", 
+                  <%= button_to "⭐ Winner!",
                       unselect_winner_image_candidate_path(candidate),
                       method: :post,
                       class: "w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-semibold",
                       data: { turbo_confirm: "Unmark as winner?" } %>
                 <% else %>
-                  <%= button_to "👑 Pick as Winner", 
+                  <%= button_to "👑 Pick as Winner",
                       select_winner_image_candidate_path(candidate),
                       method: :post,
                       class: "w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-semibold",
                       data: { turbo_confirm: "Select this as the final winner? This will create a Photo in the cluster." } %>
                 <% end %>
               <% end %>
-              
-              <%= button_to "🗑️ Reject", 
+
+              <%= button_to "🗑️ Reject",
                   run_gallery_reject_path(@run, candidate, step: @selected_step.order),
                   method: :post,
                   class: "w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-semibold",

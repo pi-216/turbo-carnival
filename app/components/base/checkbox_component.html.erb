@@ -6,14 +6,13 @@
     value="<%= @value %>"
     class="<%= checkbox_classes %>"
     <%= "checked" if @checked %>
-    <%= "disabled" if @disabled %>
-  />
-  
+    <%= "disabled" if @disabled %>>
+
   <div class="flex-1">
     <label for="<%= checkbox_id %>" class="<%= label_classes %>">
       <%= @label %>
     </label>
-    
+
     <% if @hint %>
       <p class="<%= hint_classes %> mt-1">
         <%= @hint %>

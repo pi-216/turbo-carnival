@@ -16,7 +16,7 @@
           <span>Created: <%= run.created_at.strftime('%b %d, %Y') %></span>
         </div>
       </div>
-      
+
       <div class="flex gap-2">
         <%= render ::Base::ButtonComponent.new(variant: :secondary, size: :sm, href: run_path(run), data: { turbo_frame: "_top" }) do %>
           📊 View

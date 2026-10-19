@@ -151,6 +151,31 @@ ABSENT: strong_migrations
 (`bin/verify` itself is **PRD 0003 / ticket #47** — this PRD owns only the *gate membership* the template
 names and this repo lacks: `bundler-audit`, `erb_lint`, and the packwerk step PRD 0003 already covers.)
 
+**Landed 2026-10-19 (ticket #78).** All three gems are installed, and `bundler-audit` + `erb_lint` now run
+as CI gates. `.erb_lint.yml` is **byte-identical** to the template heredoc (sha256
+`8ef8be869a544943d92250896322061d854220e760497c9b49fc67af6bd1cd74`). Measured, both directions:
+
+```
+$ for g in bundler-audit erb_lint strong_migrations; do grep -E "^    $g \(" Gemfile.lock; done
+    bundler-audit (0.9.3)
+    erb_lint (0.9.0)
+    strong_migrations (2.8.0)
+$ bin/rails db:migrate          # non-concurrent add_index seeded
+Dangerous operation detected #strong_migrations … exit 1, migration left unapplied
+$ bin/rails db:migrate          # same intent as add_index(…, algorithm: :concurrently)
+migrated … exit 0
+$ bundle exec erb_lint --lint-all     # No errors were found in ERB files — exit 0
+$ bundle exec bundler-audit check     # No vulnerabilities found — exit 0
+$ bundle exec bundler-audit check D   # rack 2.0.0 seeded into a copy of the lock → exit 1
+```
+
+**Deliberately not landed here.** `bin/verify` itself is **#47**'s, and the **packwerk step is not wired
+into CI**: `bin/packwerk check` reports **47 offenses**, and PRD 0003 owns both the enforcement and the
+cleanup ("the 46 packwerk violations resolved or individually baselined" — #46/#47/#50). Adding it as a
+gate before that cleanup lands would turn CI red for every PR, which is a worse state than the documented
+gap. `strong_migrations` rides on R6; `erb_lint`'s pre-existing 260 offenses were cleared by
+`--autocorrect` in the same change.
+
 **F4 — CI is a subset of the gate, and one lane is vacuous.** `.github/workflows/ci.yml` runs **brakeman
 only** for security (no `bundler-audit`), **rubocop only** for lint (no `packwerk`, no `erb_lint`), and a
 **test lane that executes nothing**:
@@ -379,18 +404,19 @@ Every rail, marked. The dispositions are the input to the tickets.
 | R3 command | `GLCommand::Callable` + `ApplicationCommand#run_after_commit` | `GLCommand::Callable` ✓ · `ApplicationCommand` ✗ (F1) | **GAP** — port byte-identical + reparent + spec |
 | R4 packs | packwerk + pack autoload wiring | packwerk ✓ · 12 packs ✓ · wiring via **`packs-rails`** railtie (32 autoload + 12 view paths) · 47 offenses | **ADOPT — Q8** (ratify `packs-rails`; no hand-wiring) · offenses = **PRD 0003 / #46** |
 | R5 BDD | Cucumber + `gherkin_specs/` + lints | absent | **ADOPT — Q2**, scoped to the **Rails app only** (Layer 1 notation is house-wide; Layer 2 executable is Rails-only) |
-| R6 gates | `bin/verify` incl. bundler-audit · erb_lint | `bin/verify` ✗ (PRD 0003) · bundler-audit ✗ · erb_lint ✗ (F3) | **GAP** (gate members) · `bin/verify` = **PRD 0003 / #47** |
+| R6 gates | `bin/verify` incl. bundler-audit · erb_lint | `bin/verify` ✗ (PRD 0003) · bundler-audit ✓ · erb_lint ✓ — installed **and CI gates** (#78) · packwerk 47 offenses | **PARTIAL** — gate members landed (**#78**); `bin/verify` = **PRD 0003 / #47**; packwerk enforcement + cleanup = **PRD 0003 / #46–#50** |
 | R7 observe | Sentry + DSN + `Sentry::Metrics` | no initialiser, no DSN, no reference (F2) | **GAP** — DSN provisioned by an **agent ticket** (Q3; the token exists, not `founder_needed`) |
 | R8 govern | AGENTS · THESIS · FOUNDERS · PR template · docs/prd · tech_design_docs · `bin/lint` | AGENTS rewritten (PRD 0003) but **missing the content-contract rules** — no `bin/lint`, no no-exfiltration policy, no comment policy, no generated-files rule → #91 · THESIS inert (F7) → #81 · FOUNDERS ✗ · PR template ✗ · docs/prd README ✗ · tech_design_docs ✗ · packs/README ✗ → #80 · doc homes → #82 | **GAP** → #80, #91 · **GAP** → #81 · **ADOPT — Q4** → #82 |
 | R9 rswag | swagger gen + verify, when `swagger/` exists | no `swagger/` | **N/A** — rail dormant; adopt only if an API surface appears |
 
-**Also missing gems the template pins:** `strong_migrations`, `timecop`, `n_plus_one_control`,
+**Also missing gems the template pins:** `timecop`, `n_plus_one_control`,
 `database_cleaner(+active_record)`, `rswag-api/specs`, `cucumber(+rails)`, `gherkin_lint`, `haml-rails`,
 `aasm`, `oj`. **Present already:** `gl_command` ✓, `view_component` ✓, `tailwindcss-rails` ✓,
-`dotenv-rails` ✓, `rspec-rails` ✓, `factory_bot_rails` ✓, `shoulda-matchers` ✓, `packwerk` ✓. Each missing
+`dotenv-rails` ✓, `rspec-rails` ✓, `factory_bot_rails` ✓, `shoulda-matchers` ✓, `packwerk` ✓, and since
+**#78** `bundler-audit` ✓, `erb_lint` ✓, `strong_migrations` ✓. Each missing
 gem is adopted **only with the rail it serves** — a gem for a rail the repo does not run is the
 vacuous-gate anti-pattern. Under the rulings: `haml-rails` rides on **Q1** (HAML transition), `cucumber` +
-`gherkin_lint` on **Q2** (Rails-scoped lane), `strong_migrations` on **R6**; `rswag-api/specs` stays
+`gherkin_lint` on **Q2** (Rails-scoped lane); `rswag-api/specs` stays
 **N/A** until a `swagger/` surface exists; `aasm` is **not adopted** — `state_machines-activerecord` is
 ratified (Q7) — and `oj` remains unruled.
 

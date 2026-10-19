@@ -2,17 +2,17 @@
   <% if navbar? %>
     <%= navbar %>
   <% end %>
-  
+
   <div class="flex flex-1 overflow-hidden">
     <% if sidebar? %>
       <%= sidebar %>
     <% end %>
-    
+
     <main class="<%= main_classes %>">
       <div class="<%= content_classes %>">
         <%= main %>
       </div>
-      
+
       <% if footer? %>
         <%= footer %>
       <% end %>

@@ -46,6 +46,16 @@ group :development, :test do
   # Static analysis for security vulnerabilities [https://brakemanscanner.org/]
   gem "brakeman", require: false
 
+  # Audits gems for known security defects (use config/bundler-audit.yml to ignore issues)
+  gem "bundler-audit", require: false
+
+  # ERB template lint — a gate member in the rails-venture-template (PRD 0006 F3 / ticket #78)
+  gem "erb_lint", require: false
+
+  # Migration safety — enforced at db:migrate time (the AGENTS.md claim; PRD 0006 F3 / #78).
+  # Must stay auto-required: the railtie is what makes the unsafe-operation checks fire.
+  gem "strong_migrations"
+
   # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
   gem "rubocop-rails-omakase", require: false
 
