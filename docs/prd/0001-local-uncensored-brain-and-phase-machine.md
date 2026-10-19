@@ -1,6 +1,6 @@
 ---
 venture: turbo-carnival
-source: strategy-v3
+source: PROJECT_PLAN
 ---
 
 # PRD 0001 — Local uncensored brain + the phase machine

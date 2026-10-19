@@ -36,7 +36,14 @@ These mirror the board's `Track` field exactly — one field, so a ticket cannot
 | **W2** | experiment | parallel, must never block W3 | a verdict is recorded — *a negative result closes too* |
 | **W3** | day-to-day | recurring, unattended | **never** (§3) |
 
-Block 1/2/3 from `docs/strategy-v3.md` map onto these: Block 1 ≈ W1, Block 2 ≈ W3, Block 3 ≈ W2.
+Block 1/2/3 from the retired operating model map onto these: Block 1 ≈ W1, Block 2 ≈ W3, Block 3 ≈ W2.
+Two founder requirements were carried forward when that document was retired (2026-10-19):
+
+- **The day-to-day lane has no human dependency at all.** That is the *hard* requirement for W3 — the
+  reason the workstream is defined as standing obligations with absence alarms rather than as tickets.
+- **Enforcement signals are first-class negative metrics.** Post removals, warnings and reach suppression
+  are tracked outcomes, not incidental log lines. The founder explicitly asked for *"some fear that we get
+  shut down"* to be built in.
 
 ---
 

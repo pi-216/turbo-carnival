@@ -1,6 +1,6 @@
 # turbo-carnival v2 — Strategy
 
-> **Status:** CURRENT — distribution diagnosis, venues, platform findings — its §8–13 process sections are superseded by docs/strategy-v3.md
+> **Status:** CURRENT — distribution diagnosis, venues, platform findings — its §8–13 process sections are superseded by `AGENTS.md` and `PROJECT_PLAN.md`
 
 *Supersedes the content-strategy portion of `THESIS.md`. **Two red lines in `THESIS.md` are formally
 revised — see §5 and §12.**

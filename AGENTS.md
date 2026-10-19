@@ -18,8 +18,8 @@ state.
 
 1. `docs/README.md` — the documentation index **and the status rules**. Start here.
 2. `docs/PROJECT_PLAN.md` — the spine: workstreams, ordering, ticket linkage.
-3. `docs/strategy-v3.md` — the operating model (venues, phase machine, controls-not-gates).
-4. `docs/experiment-backlog.md` — pre-registrations and verdicts. The evidence ledger.
+3. `docs/experiment-backlog.md` — the experiment lane's record: pre-registrations and verdicts.
+4. `AGENTS.md` (this file) — who decides what (§ *the authority ladder*), and how each rule is enforced.
 
 Every document carries a status line — `CURRENT` / `REFERENCE` / `HISTORICAL` / `UNREVIEWED` /
 `SUPERSEDED`. **Only `CURRENT` is authoritative.** If two documents disagree and both say CURRENT, that is
@@ -97,6 +97,37 @@ bin/rubocop && bin/brakeman --no-pager && bin/rspec
 **Experiments are on the side, by one rule: the day-to-day flow does not depend on an experiment.** An
 experiment may read production's outputs; production may never wait on an experiment. If deleting an
 experiment changes how the daily flow behaves, the experiment has leaked — that is a defect.
+
+## Who decides what — the authority ladder
+
+Autonomy scales **inversely with the severity of the downside**. This table is the single source for the
+authority boundary (it previously lived in `strategy-v3.md`, deleted 2026-10-19).
+
+| class | example | who decides |
+|---|---|---|
+| 1 — correctness / quality | anatomy: four limbs, exactly one hand | **the system acts** |
+| 2 — style / format / pillar | a new scene type, a new LoRA, a new base model | **the system acts**, measured |
+| 3 — explicitness / intensity | swimwear and beyond | **founder ruling** |
+| 4 — identity / persona | the age read, persona identity | **founder ruling** |
+
+**How this reconciles with "the founder is never a gate".** Two statements that look contradictory and are
+not, because they are about different things:
+
+- **The founder is not a gate on evidence.** Promotion happens automatically on a pre-registered threshold;
+  the founder never approves a *design*, and no experiment waits on an approval.
+- **The founder is the authority on classes 3 and 4.** Those are not measurements — they are rulings about
+  what may exist, and no amount of evidence produces one.
+
+**A withheld instrument parks safely; a withheld ruling fails closed.** Class 1–2 work continues; a class 3–4
+question stops until it is answered. Reading "never a gate" as licence to self-authorize an intensity step
+is the misreading this section exists to prevent.
+
+**Enforcement: the boundary must be mechanical, not a prompt instruction.** An agent free to not-hedge will
+also rationalise self-authorizing an intensity step — the trait that makes it useful is the trait that makes
+self-gating unsafe. A script refuses the self-grant; the model decides freely inside classes 1 and 2.
+
+> *"I am hoping that this can be an 'autonomous' content creator… I am a tool or consultant in this. not the
+> blocker or approver or creator."* — founder, 2026-10-18
 
 ## The one hard gate
 

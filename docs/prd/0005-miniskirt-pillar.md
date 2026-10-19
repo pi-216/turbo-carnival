@@ -28,7 +28,7 @@ by platform response per published post over a fixed window.
   instagram."* (2026-10-19) That is the target. **This experiment does not extend it** — it measures where
   the boundary already is, and the top rung of the ladder is the founder's call, not the researcher's.
 - Risk class 3 (explicitness / intensity) is a **founder ruling**, not a system decision
-  (`docs/strategy-v3.md`). The wardrobe axis may not be pushed further to improve a number.
+  (`AGENTS.md` → *the authority ladder*). The wardrobe axis may not be pushed further to improve a number.
 - The persona is **18**, and the visuals must not *read* younger. **No wardrobe rung may trade against the
   age read**, and a rung that trends younger-looking is rejected regardless of its yield.
 
