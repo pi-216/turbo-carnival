@@ -124,7 +124,8 @@ Scenario: a render and a review never overlap the brain
 |---|---|
 | the model named by the founder | `/home/tim/source/activity/textgen-4.9/user_data/models/Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf` — **22,082,529,760 B**, verified present |
 | NAS LLM area (exists) | `/mnt/nas-ai-models/LLM/` → `gguf/` holds 12+ GGUFs |
-| same family already on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) · `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) |
+| **uncensored** sibling on the NAS | `…-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf` (17.92 GB) — a *different tune* (HauhauCS "Aggressive"), declares `vision` + `mtp` |
+| **vanilla** siblings on the NAS | `Qwen3.8-27B-UD-Q4_K_XL` (17.56 GB) · `Qwen3.8-27B-UD-Q5_K_XL` (20.88 GB) — verified `general.name = Qwen3.8-27B` (Unsloth), **not uncensored**. These are the hedging model this PRD exists to replace and are **not** candidates for this seat |
 | **vision projector, same family** | `mmproj-Qwen3.8-27B-Uncensored-vision-f16.gguf` (927 MB) — the Reviewer role needs vision; noted, not specified here |
 | MTP module on the NAS | `mtp-Qwen3.8-27B-Q4_0.gguf` (1.37 GB) — the named model is explicitly **noMTP** |
 | `/mnt/models` | ComfyUI `local_hot`; holds checkpoints/loras/unet/vae/clip only — **no LLM area** |
@@ -144,9 +145,26 @@ is an open question (below).
 
 ## Open questions
 
-1. **Which artefact is canonical?** The named `noMTP-Q6_K` (22.08 GB, on local disk) or a NAS sibling
-   (`Q4_K_P` 17.92 GB / `UD-Q5_K_XL` 20.88 GB)? Q6_K is the best quality that fits; the Q4s free ~4 GB of
-   headroom that the render phase could use. **Founder call** — it sets the plan's tonal range.
+1. ~~**Which artefact is canonical?**~~ **RESOLVED — founder ruling, 2026-10-19.**
+   **Canonical: `Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf`** (`general.name = "Abl 27b"`, abliterated;
+   22,082,529,760 B / 20.57 GiB). The NAS siblings are **not** alternatives for this seat.
+   Reasoning, in the order it decided the call:
+   - **The headroom argument for a Q4 is void.** The phase machine exists so the brain and ComfyUI are
+     never co-resident, so the ~4 GB a Q4 releases can never be used by the render phase. The PRD's own
+     headline reason for preferring a Q4 does not survive its own design.
+   - **Context cannot break the tie either.** This is a hybrid model — `qwen35`, 64 blocks,
+     `full_attention_interval = 4`, so only **16** layers hold a KV cache and the other 48 are SSM
+     linear-attention with a context-independent state. KV is **64 KiB/token at f16**. Against the
+     measured 23.02 GiB free, Q6_K leaves a 1.56 GiB KV budget → **~25.6 K tokens at f16 KV**, ~51 K at
+     q8, ~102 K at q4. A plan-plus-ledger prompt is a few thousand tokens. The tightest candidate is not
+     tight.
+   - **Two of the three "siblings" are the vanilla model, not alternatives.** `Qwen3.8-27B-UD-Q5_K_XL`
+     and `UD-Q4_K_XL` read `general.name = Qwen3.8-27B` (Unsloth quants, no `uncensored` tag). They are
+     the hedging model this PRD exists to replace. Struck from the candidate list.
+   - What remains is fidelity, and Q6_K is two quant steps above the Q4_K_P.
+   The one condition that would have reversed this: if the Reviewer's vision role rides *this* artefact
+   (open question 4), `…Uncensored-HauhauCS-Aggressive-Q4_K_P` is the only candidate declaring `vision`.
+   Noted, not chosen — it stays available for a separate vision seat.
 2. **Launch parameters are unverified.** Neither `config-user.yaml` nor `config.yaml` in the NAS LLM area
    carries a Qwen3.8-27B entry, and `CMD_FLAGS.txt` is empty. A previously recorded `n_gpu_layers: 65` /
    `cache_type: q4` **could not be re-verified in this pass**, so it is treated as unproven: derive the
