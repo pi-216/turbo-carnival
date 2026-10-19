@@ -84,6 +84,20 @@ bin/rubocop && bin/brakeman --no-pager && bin/rspec
 4. Nothing is destructive without the founder's explicit confirmation. Archive, don't delete. Export
    before prune.
 
+## Where work lives
+
+| kind | where | rule |
+|---|---|---|
+| production code | `packs/*` (packwerk boundaries), `app/`, `lib/tasks/` | the daily flow lives here |
+| **an experiment** | `experiments/<PRD-number>-<slug>/` | its own PRD, its own designated researcher, its own code, configs, decoder and verdict. **Removing the folder must not change production behaviour** |
+| shared experiment machinery (the lane) | promoted out of `experiments/` into `scripts/` or `lib/` | only once **two** experiments need the same thing — never copied |
+| the plan | `docs/PROJECT_PLAN.md` | the spine: workstreams, ordering, linkage contract |
+| which doc is truth | `docs/README.md` | the index. Anything unlisted is not truth |
+
+**Experiments are on the side, by one rule: the day-to-day flow does not depend on an experiment.** An
+experiment may read production's outputs; production may never wait on an experiment. If deleting an
+experiment changes how the daily flow behaves, the experiment has leaked — that is a defect.
+
 ## The one hard gate
 
 Everything else here is a **control** — an instrument that ranks, measures and informs. Exactly one thing

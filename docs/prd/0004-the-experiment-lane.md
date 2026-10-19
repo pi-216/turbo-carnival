@@ -3,141 +3,176 @@ venture: turbo-carnival
 source: PROJECT_PLAN
 ---
 
-# PRD 0004 — The experiment lane: contrive, run on the side, decode, promote
+# PRD 0004 — The experiment lane: the contract every experiment must satisfy
 
-> **Status:** CURRENT · draft for founder review · 2026-10-19
-> Plan item: **W2** · Track: `experiment` · Must never block **W3**
+> **Status:** CURRENT · founder constraints incorporated 2026-10-19 · ready to cut tickets
+> Plan item: **W2.1** · Track: `experiment` · **The day-to-day flow never depends on an experiment**
 
 ## Summary
 
-Build the capability to **contrive and run experiments beside the day-to-day lane** — so the system can
-answer its own open questions without a human in the loop and without stalling production.
+This PRD specifies the **lane** — the standing contract and machinery for experimenting — and no
+experiment in it. **Each experiment gets its own PRD**, its own code folder, its own researcher, and its
+own tickets; this document is what those PRDs must satisfy.
 
-This PRD specifies the **lane**, not any experiment in it. It decides no content question and endorses no
-prior conclusion. It is the machinery: how an experiment is formed, made safe to run off the critical
-path, decoded into a verdict mechanically, and promoted on evidence.
+An experiment is a bounded, self-contained piece of research: it asks one question, generates whatever it
+needs (test images, a configuration, a cohort), evaluates the result, and reaches a verdict — **including a
+negative one**. Everything it needs lives inside it. Nothing in the day-to-day flow ever waits on it.
 
 ## Founder rulings
 
-Recorded because they are decisions, not preferences.
+Recorded verbatim where stated, because they are decisions and not preferences to be re-litigated.
 
-1. **"we need a way to contrive and run experiments on the side."** (2026-10-19) The lane is a standing
-   capability of the system, not a project phase.
-2. **The lane must never block the day-to-day lane.** *"Runs in parallel and must never block Block 2.
-   Asks the founder only when it decides input is required; if the answer doesn't come, it **parks — it
-   does not block**."* (2026-10-18)
-3. **Promotion is automatic on a pre-registered threshold.** The founder is *"advisory input, not a
-   gate."* A human-gated promotion would make this lane a longer route to the same bottleneck.
-4. **The lane does not need permission to proceed.** *"You decide on the experiment."* The founder's role
-   is the blinded ranking and the enablement the repo cannot supply — not approval of the design.
-5. **Human input is requested as a ticket, not as a bottleneck.** *"when the team has time, create a
-   ticket for him with a founder_needed label… he is willing to go to that ticket and do the ranking."*
-6. **A ranking instrument is never a production gate.** *"elo-picker is never a blocker for posting.
-   elo-picker can be a blocker for experiments."* An experiment may *declare* a ranking as its
-   instrument; the posting path never inherits that dependency.
-7. **Autonomy scales inversely with the downside.** *"no universal answer: If the model thinks the risk
-   is too high, it waits for my input. If it is experimenting with new base models and found a way to
-   ensure that the persona has all four limbs and exactly one hand: go with it."*
+1. **"we need a way to contrive and run experiments on the side."** (2026-10-19) A standing capability.
+2. **"'On the side' means: the day to day flow does not depend on an experiment."** (2026-10-19) — the
+   defining constraint. It is a **one-way dependency rule**, not merely a scheduling preference.
+3. **"Experiments need their own PRDs."** (2026-10-19)
+4. **"Their code live in `experiments/0007-prd-slug` subfolders."** (2026-10-19) One folder per experiment,
+   named for its PRD.
+5. **"Experiments are done by a designated researcher."** (2026-10-19) One experiment, one owner.
+6. **"The researcher should have access to ComfyUI."** (2026-10-19) The lane is not GPU-starved; it is
+   dependency-isolated. It must not disturb the holder.
+7. **"The thinker can suggest to run an experiment — 'try a miniskirt pillar' — and see if people react to
+   it."** (2026-10-19) Proposals come from the Thinker, and a question may be about **audience reaction**,
+   not only about render quality.
+8. **"Evaluating the data, generating the test images, asking me for an eye or elo ranking, etc all live
+   within the experiment."** (2026-10-19) The experiment owns its whole lifecycle, including the request
+   for human eyes.
+9. **Promotion is automatic on a pre-registered threshold** — the founder is *"advisory input, not a
+   gate."* A human-gated promotion would make the lane a longer route to the same bottleneck. (2026-10-18)
+10. **A ranking instrument is never a production gate.** *"elo-picker is never a blocker for posting.
+    elo-picker can be a blocker for experiments."* An experiment may *declare* a ranking as its
+    instrument; the posting path never inherits that dependency. (2026-10-19)
+11. **The lane does not need permission to proceed.** *"You decide on the experiment."* The founder's role
+    is the blinded ranking and the enablement the repo cannot supply — not approval of the design. (2026-10-18)
 
 ## Problem / motivation
 
-Four findings from an inventory on 2026-10-19. These are findings about the **absence of the capability**;
-none of them is a content conclusion, and none is a premise about what the content should be.
+Five findings from an inventory on 2026-10-19. These are findings about the **absence of the capability**.
+None is a content conclusion and none is a premise about what the content should be.
 
-**1. The lane's rules live in prose, and prose does not survive a hand-off.** The strongest argument is
-the repo's own code comment on `Growth::GateRead`:
+**1. The lane's rules live in prose, and prose does not survive a hand-off.** The repo's own code makes
+this argument better than this PRD can — from `Growth::GateRead`:
 
 > *"The gate was registered on the ops board as a criterion in PROSE… **Prose does not survive a
 > hand-off.** … a reader who skips it reads a pre-intervention cohort as a strategy verdict, which is how
 > a live experiment gets killed on evidence it could not have produced."*
 
-That class exists because a criterion written in prose was re-read inconsistently by two different passes.
-`GateRead` is the fix, and it is **the model for this PRD**: the rule became mechanical, testable, and
-read-only.
-
-**2. The lane's components exist as scattered scripts, not as one capability.** `scripts/` holds
-`make_variant.py`, `replicate_pairs.py`, `contact_sheet.py`, and three per-experiment decoders
-(`e2_decode.py`, `e3_decode.py`, `e4_decode.py`). Each is good; none is a lane. There is no single place
-that says *how an experiment is formed, where its artifacts live, or what "done" means for one*. The
-per-experiment decoders are the tell: **the decode step was re-implemented per experiment** instead of
-being one instrument.
+**2. There is no convention for where an experiment lives.** Experiment code is spread across `scripts/`
+(`make_variant.py`, `replicate_pairs.py`, three separate decoders, traces) and artifacts across `elo/` and
+`tmp/`. Nothing ties a piece of code to the question it answers. The three decoders are the tell: **the
+decode step was re-implemented per experiment** because there was nowhere for an experiment to own it.
 
 **3. There is no admission rule, so "an experiment" is whatever was last done by hand.** Nothing states
-the conditions an experiment must satisfy to enter the lane — one axis, frozen held-fixed set, a decision
-rule committed before data, a stopping rule, a named instrument. The render-side primitives *enforce*
-pieces of this (a variant is refused unless exactly one leaf differs; a sheet is refused if any arm render
-is missing), which shows the right shape. It is simply not the lane's stated contract.
+the conditions an experiment must satisfy to exist — one varied axis, a frozen held-fixed set, a decision
+rule committed before data, a stopping rule, a named instrument, an owner.
 
-**4. The lane has no defined relationship to the GPU or to production.** Serialization is real: the
-brain and ComfyUI cannot be co-resident, and the day-to-day lane already contends for the same card. There
-is a `Growth::SchedulerGate` and a file-based GPU scheduler with holder attribution. Nothing states that
-the experiment lane **yields** — accepts pre-emption, recognises a foreign holder, and parks rather than
-queues ahead of production work. Without that rule, "on the side" is a wish and the lane becomes a
-contender.
+**4. There is no stated dependency direction.** The rule that matters most is not about the GPU; it is
+that **nothing in the day-to-day flow may wait on an experiment**. Today that is a habit, not a checkable
+property — and an experiment that has been abandoned, parked, or deleted must leave the daily flow
+completely unaffected.
+
+**5. There is no defined researcher role.** An experiment has no owner, so two agents can work the same
+question, or none can. The board's claim mechanism exists (`agent_working` + status), but nothing says an
+experiment is a **unit of ownership**.
+
+## What every experiment PRD must contain
+
+The lane's real deliverable. A PRD that omits any of these is refused **by the lane**, not by a human
+noticing.
+
+| field | rule |
+|---|---|
+| **id + slug** | a PRD number; the folder is `experiments/<PRD-number>-<slug>/` |
+| **The question** | one sentence, in terms of what would be *observed*, not what would be *built* |
+| **The one varied axis** | exactly one. Enforced mechanically where the artifact is a file |
+| **The held-fixed set** | named, and asserted not to have drifted between arms |
+| **The instrument** | how the outcome is read: a blinded human ranking, elo-picker, platform metrics, or a closed-form count. If a ranking is required, that requirement is **declared here** |
+| **The decision rule** | fixed **before** any data, including the tie convention, the stopping rule (N), and the rule that a failed one-sided test does not license the mirror claim |
+| **The handling of an invalid measurement** | pre-committed. The existing pre-registered read has a third outcome meaning *"not a measurement yet — re-read, do NOT act"*, and it outranks both pass and fail |
+| **Cost + budget** | GPU time, human attention, wall-clock |
+| **The researcher** | the designated owner |
+| **The dependency claim** | an explicit statement that the day-to-day flow does not depend on this experiment |
+| **The exit** | what "done" means, including *nothing established* |
+| **Deletion test** | the experiment must be removable without touching production |
+
+## Roles
+
+| role | does | does not |
+|---|---|---|
+| **Thinker** (W1.1) | proposes experiments as hypotheses — *"try a miniskirt pillar and see if people react"* | design the test, or run it |
+| **Researcher** (designated) | owns one experiment end-to-end: designs it, writes its PRD, generates its artifacts, evaluates, decodes, records the verdict | touch the day-to-day lane's configuration, or publish |
+| **Founder** | lends eyes; ranks blind; supplies enablement the repo cannot; **advisory input, never a gate** | approve designs, gate promotion, or be a required step |
+| **Day-to-day lane** | runs and posts, unaffected | — it may never depend on an experiment |
+
+The lane must be runnable **without** the Thinker (which is blocked on a founder item today), so a
+founder-or-agent proposal path exists alongside it.
 
 ## Goals / Non-goals
 
 - **Goals**
-  - An experiment is a **first-class, inspectable object** with a stable id, not a folder of scripts.
-  - **Contriving** is a defined step with an admission rule a machine can check.
-  - **Running on the side is structural**: the lane yields to production, can run with **no GPU at all**
-    where the question allows, and **parks** rather than blocks when it needs a human.
-  - **Decoding is mechanical**: one decode instrument, arithmetic in code, never recomputed from memory.
+  - An experiment is a **first-class object**: own PRD, own folder, own researcher, own tickets.
+  - **Contriving** is a defined step with an admission rule a machine checks.
+  - **Isolation is structural**: *nothing* in the daily flow depends on an experiment, and deleting an
+    experiment leaves production untouched.
+  - **Decoding is mechanical**: one shared instrument, arithmetic in code, never recomputed from memory.
   - A verdict — **including a negative one** — closes the item.
-  - Promotion into production happens on a pre-registered threshold, unattended.
+  - Promotion happens on a pre-registered threshold, unattended.
 - **Non-goals (explicit Out)**
-  - **Out:** any specific experiment. This PRD decides no content, format, checkpoint, or strategy
-    question.
-  - **Out:** any production-path change. The lane may not alter what the day-to-day lane publishes.
-  - **Out:** a general-purpose statistics library. The decode instrument handles this lane's designs.
-  - **Out:** the Thinker. W1.1 supplies it; the lane must be runnable **without** it (see the ordering
-    note), so the lane is not blocked behind a founder item.
+  - **Out:** any specific experiment, and any content, format, checkpoint, or strategy conclusion.
+  - **Out:** any change to the production path. The lane may propose a promotion; it never publishes and
+    never edits the daily configuration in place.
+  - **Out:** a general-purpose statistics surface. The decode instrument covers this lane's designs and
+    **refuses** anything outside them, explicitly.
+  - **Out:** the Thinker itself. W1.1 supplies it.
 
 ## Scope — In / Out
 
-**In:** the experiment record and its admission rule · the run path with its GPU-yield and park semantics
-· one shared decode instrument · the artifact convention (where a run's outputs, blinding key, and pinned
-workflow sha live) · the promotion rule · the lane's relationship to the ledger in
-`docs/experiment-backlog.md`.
+**In:** the experiment PRD contract above · the `experiments/<PRD-number>-<slug>/` convention · the
+researcher role and its claim semantics · one shared decode instrument · the promotion rule · the
+isolation guarantee and its test · the relationship to the ledger in `docs/experiment-backlog.md`.
 
-**Out:** the experiments themselves; the Thinker; venue work; the render rail's content; the retirement of
-the in-app rating ladder (that is W1.2).
+**Out:** the experiments themselves; the Thinker; venue work; the render rail's content; retiring the
+in-app rating ladder (W1.2).
 
 ## Acceptance criteria
 
 ```gherkin
+Scenario: the daily flow cannot depend on an experiment
+  Given an experiment that is parked, broken, or deleted outright
+  When the day-to-day lane runs
+  Then it completes unaffected, with no error and no wait
+  # this is the definition of "on the side"; it is a property, not a hope
+
+Scenario: an experiment owns its own lifecycle
+  Given a running experiment
+  Then its PRD, code, test artifacts, decoder and verdict all resolve from its PRD number
+  And no part of it lives in a shared production directory
+  And removing experiments/<PRD-number>-<slug>/ leaves production untouched
+
 Scenario: an experiment cannot enter the lane malformed
   Given an experiment declaring two varied axes
   When it is submitted to the lane
   Then it is refused, and the refusal names both axes
-  # the one-axis rule is mechanically enforced elsewhere in this repo already
+  And given an experiment with no designated researcher, it is refused
 
 Scenario: the decision rule is frozen before data
-  Given an experiment whose decision rule or stopping rule is written after its first render
+  Given an experiment whose decision rule or stopping rule is written after its first artifact
   Then the lane refuses the verdict as post-hoc
   And a pre-registered experiment cannot have its rule edited in place -- a change is a new experiment
 
-Scenario: the lane yields to production
-  Given production requires the GPU while an experiment run is in flight
-  When the holder is production, or the operator's own interactive session
-  Then the experiment stops at a safe boundary
-  And it does not queue ahead of production work
-  And it resumes or parks without human intervention
+Scenario: a signal that is not a measurement produces no verdict
+  Given an experiment whose eligible set is too small, or predates the change under test
+  Then the outcome is the pre-committed "not a measurement yet" handling
+  And it does not report pass or fail
 
-Scenario: the lane can run without a GPU
-  Given an experiment whose question is answered by published-surface metrics or configuration
-  Then it runs to a verdict with the GPU holder untouched
-
-Scenario: needing a human parks, and never blocks
-  Given an experiment that requires a blinded ranking
-  When the ranking request is raised as a founder_needed ticket
-  And no answer arrives
-  Then the experiment parks in a visibly-parked state
-  And no other lane item queues behind it
-  # blocking is the failure mode this rule exists to prevent
+Scenario: evaluating data, generating images and asking for a ranking all live inside the experiment
+  Given an experiment requiring a blinded human ranking
+  Then the ranking request is raised as its OWN founder_needed ticket, referencing its PRD
+  And the experiment parks in a visibly-parked state if no answer arrives
+  And no item in the day-to-day lane queues behind it
 
 Scenario: decoding is arithmetic, not judgement
-  Given a completed run with its blinding key withheld
+  Given a completed experiment with its blinding key withheld
   When the decode instrument computes the verdict
   Then it reports the decision-rule arithmetic and the verdict from code
   And a declared tie counts as a non-preference
@@ -145,98 +180,106 @@ Scenario: decoding is arithmetic, not judgement
 
 Scenario: a negative result closes the item
   Given an experiment whose verdict is "nothing established"
-  Then the item is closed with the negative verdict recorded
-  And the ledger retains the design, so the question is not silently re-run
+  Then it is closed with the negative verdict recorded
+  And the ledger keeps the design, so the question is not silently re-run
+
+Scenario: the researcher has GPU access without disturbing the holder
+  Given the researcher runs an experiment that needs ComfyUI
+  And another holder owns the card
+  Then the experiment does not kill, restart or reconfigure that instance
+  And it waits or parks without human intervention
 
 Scenario: promotion is unattended
   Given an experiment whose verdict meets its pre-registered promotion threshold
   Then the winning configuration becomes the default without a human approval step
-  And the promotion records which experiment caused it
+  And the promotion names the experiment that caused it
 ```
 
 ## User stories / job-to-be-done
 
-- As the **system**, I want to form and run an experiment without being designed by a human each time, so
-  that progress is not gated on attention.
-- As the **day-to-day lane**, I want the experiment lane to yield and park, so that curiosity cannot
+- As the **system**, I want to form and run an experiment without a human designing each one, so progress
+  is not gated on attention.
+- As the **day-to-day lane**, I want a guarantee that nothing waits on research, so curiosity can never
   become an outage.
-- As the **founder**, I want my eyes requested via a ticket I can pick up whenever, so that lending them
-  is a contribution and never a blockage.
-- As a **next agent**, I want the lane's admission and decode rules in code, so I cannot accidentally
-  re-read a pre-registered rule as if it were a preference.
-- As the **Director**, I want every verdict — including null results — on the record, so the same question
-  is not re-run from scratch.
+- As a **researcher**, I want one experiment I own completely, so two agents cannot collide on a question
+  and none can be left unowned.
+- As the **founder**, I want my eyes requested via a ticket I pick up whenever, so lending them is a
+  contribution and never a blockage.
+- As a **next agent**, I want the lane's admission and decode rules in code, so I cannot re-read a
+  pre-registered rule as a preference.
 
 ## Edge cases & red lines
 
-- **A signal that is not a measurement must not produce a verdict.** The existing pre-registered read has
-  an explicit third outcome meaning *"this leg is not yet a measurement — re-read, do NOT act"*, and it
-  takes precedence over both pass and fail. Carry that shape into the lane: **an invalid measurement has a
-  pre-committed handling, decided before the data.**
-- **NULL is not 0.** A missing measurement collapsed to zero manufactures a result. Report unmeasured as
-  unmeasured.
-- **Pre-intervention data cannot testify about an intervention.** The lane must be able to state, for any
-  verdict, the set that was eligible to vote — and must refuse rather than read a set that predates the
-  change under test.
-- **An incomplete run is never a smaller N.** A missing render, an aborted arm, or a partial set is a
-  failure to report, not a result.
-- **N is not extended after peeking.** If the pre-registered bar is not met, the verdict is "nothing
-  established" — deliberately, and the design is recorded so a fresh pre-registration can follow.
-- **No mirror claims.** A failed one-sided test in direction H does not license the opposite.
-- **Blinding is real or it is nothing.** The key is withheld until the ranking is complete; a ranking tool
-  that displays a filename carrying the condition is not blind, and the lane must know which condition it
-  is in.
-- **The lane does not touch production.** It may propose a promotion; it does not publish, and it may not
-  edit the day-to-day lane's configuration in place.
-- **Never request a ranking for a change that did not bite.** If an axis moved the artifact no more than
-  run-to-run variation, the comparison is not rankable and asking for eyes is noise. The lane measures
-  the axis before spending human attention.
-- **The lane is not a place to park judgement.** "We will decide later" is not a verdict.
+- **Isolation is one-way and absolute.** Experiments may read the day-to-day lane's outputs (a published
+  post's metrics, a render's provenance). **Nothing in the daily flow may read from, wait on, or be
+  configured by an experiment.** This is the whole of "on the side".
+- **An experiment must be deletable.** If removing `experiments/<n>-<slug>/` changes production behaviour,
+  the experiment has leaked into the production path — that is a defect, not a style issue.
+- **A signal that is not a measurement must not produce a verdict.** An invalid measurement has a
+  pre-committed handling, decided before the data. It outranks pass and fail.
+- **NULL is not 0.** A missing measurement collapsed to zero manufactures a result.
+- **Pre-intervention data cannot testify about an intervention.** The lane must state, for any verdict,
+  the set eligible to vote — and refuse rather than read a set that predates the change under test.
+- **An incomplete run is never a smaller N.** A missing artifact or an aborted arm is a failure to report.
+- **N is not extended after peeking**, and **no mirror claims**: a failed one-sided test in direction H
+  does not license the opposite.
+- **Blinding is real or it is nothing.** The key is withheld until the ranking completes. A ranking tool
+  that shows a filename carrying the condition is not blind, and the lane must know which it is in.
+- **Never ask for eyes on a change that did not bite.** If the axis moved the artifact no more than
+  run-to-run variation, the comparison is not rankable, and requesting a ranking spends human attention on
+  noise. Measure the axis before spending it.
+- **The lane is not a second `scripts/`.** Shared machinery belongs to the lane; experiment-specific code
+  belongs to the experiment. When two experiments need the same decoder, the decoder is promoted to the
+  lane rather than copied.
+- **The researcher does not own production.** Access to ComfyUI is not authority over it: never kill,
+  restart or reconfigure a foreign holder.
+- **"We will decide later" is not a verdict.**
 
 ## Metrics / definition of done
 
-- **Every experiment in the lane has a stable id, an admission-checked design, a pinned config, a frozen
-  decision rule, and a recorded verdict** — including negatives.
-- A malformed experiment is refused **by the lane**, demonstrated, not by a human noticing.
-- An experiment run is **pre-empted by production without human intervention**, demonstrated.
-- At least one experiment reaches a verdict with the **GPU untouched**.
-- A parked-on-human experiment is **visible as parked**, and nothing queues behind it, demonstrated.
-- One decode instrument serves the lane; per-experiment decoders are retired or reduced to thin adapters.
+- Every experiment has **its own PRD**, a folder `experiments/<PRD-number>-<slug>/`, a designated
+  researcher, and a recorded verdict — **including negatives**.
+- **The isolation test passes**: parking, breaking, or deleting an experiment leaves the day-to-day lane
+  unaffected, demonstrated.
+- A malformed experiment is refused **by the lane**, demonstrated — not caught by a human.
+- An experiment reaches a verdict with the GPU untouched (a question answered from platform metrics or
+  configuration).
+- One decode instrument serves the lane; the per-experiment decoders are consolidated and anything outside
+  its design family is refused explicitly.
 - A promoted configuration names the experiment that caused it.
+- The ledger carries one entry per experiment, each pointing at its PRD and its folder.
 
 ## Salvage inventory — what already exists
 
-Named because a capability built from scratch beside working primitives is how a repo ends up with two of
-everything. Each item below exists today and is worth reusing **as-is** unless stated.
+Named because building a capability from scratch beside working primitives is how a repo ends up with two
+of everything. Each exists today; reuse **as-is** unless stated.
 
 | what | where | reuse |
 |---|---|---|
-| Pre-registered gate as a **read**: frozen thresholds, a pre-committed handling for an invalid measurement, explicit confound accounting | `Growth::GateRead` | **The template for the lane.** Read-only, testable, safe at any time |
+| Pre-registered gate as a **read**: frozen thresholds, a pre-committed handling for an invalid measurement, explicit confound accounting, NULL ≠ 0 | `Growth::GateRead` | **the template for the lane.** Read-only, testable, safe at any time |
 | One-axis enforcement: a variant is refused unless it differs in **exactly one leaf** | `scripts/make_variant.py` | as-is |
 | Incomplete-set refusal + blind key emission | `scripts/replicate_pairs.py` | as-is |
-| Arithmetic decoders (precedent for a single shared instrument) | `scripts/e{2,3,4}_decode.py` | **consolidate**, do not extend |
-| Artifact convention: output root per run, blinding key, sha256-pinned workflow, contact sheets | `elo/`, `scripts/contact_sheet.py` | formalise as the lane's convention |
-| GPU contention + holder attribution; yield semantics | `Growth::SchedulerGate`, file-based GPU scheduler | as-is |
+| Arithmetic decoders (the precedent for one shared instrument) | `scripts/e{2,3,4}_decode.py` | **consolidate**, do not extend |
+| Blinding keys, sha256-pinned workflows, contact sheets, per-run output roots | `elo/`, `scripts/contact_sheet.py` | formalise under the new folder convention |
+| GPU contention, holder attribution, yield semantics | `Growth::SchedulerGate`, file-based GPU scheduler | as-is |
 | Bounded reversible mutation with a pre-registered gate and automatic revert | `Growth::PersonaEvolution` | as-is — the promotion precedent |
-| The ledger | `docs/experiment-backlog.md` | becomes the lane's record; one entry per experiment |
+| The ledger | `docs/experiment-backlog.md` | one entry per experiment, each pointing at its PRD |
 
 ## Open questions
 
-1. **Does the lane inherit the parked pre-registered render experiment, or start clean?** The plan carries
-   one un-run item (`W2.1`). The reset says the lane is specced fresh; whether that parked item is kept,
-   re-pre-registered, or dropped is the founder's call and is **not decided here**.
-2. **How does a GPU-yielding run stop "at a safe boundary"?** Options: only between renders; only between
-   an arm's renders; or a checkpointed resume. *Lean: between renders, with the run recording the set it
-   completed — an experiment that resumes mid-render risks a mixed batch, which is the failure the
-   immutable-workflow rule already exists to prevent.*
-3. **Does the lane get its own board Track lane or share `experiment`?** The board already has an
-   `experiment` Track option. *Lean: share it — one field, and a separate lane would let an experiment be
-   in two places.*
-4. **How much of the decode instrument generalises?** Sign tests with a declared tie convention cover the
-   paired designs seen so far. *Lean: fix that family first and refuse anything outside it explicitly,
-   rather than growing a general stats surface nothing else needs.*
+1. **Does the lane inherit the parked render experiment, or start clean?** Under this PRD that experiment
+   would need **its own PRD** to run at all. Whether it is kept, re-registered, or dropped is the
+   **founder's call**, and is deliberately not decided here or by an agent.
+2. **Does every experiment need human eyes, or only those whose instrument is a ranking?** Experiments read
+   from platform metrics or a closed-form count need no human at all. *Lean: no — requiring a ranking
+   universally would make the founder a bottleneck for the whole lane, which ruling 9 forbids.*
+3. **How far does the one-folder rule reach?** A render experiment's pools are large and currently live
+   outside it. *Lean: the folder holds code, configs, decoders and verdicts; large artifact pools may live
+   under it or be referenced by sha — but the reference must resolve from the PRD number.*
+4. **Does the researcher role need its own board label, or is `agent_working` + assignment enough?**
+   *Lean: enough — a second mechanism for the same claim invites two sources of truth.*
 
 ---
 Drift note (gherkin-specialist): record every deviation when translating this into `.feature` files. The
-scenarios that carry the weight are *an experiment cannot enter the lane malformed* and *needing a human
-parks, and never blocks* — the second is the one that keeps this lane from becoming an outage.
+two scenarios carrying the weight are *the daily flow cannot depend on an experiment* — the definition of
+"on the side" — and *an experiment owns its own lifecycle*, which is what makes deletion safe.

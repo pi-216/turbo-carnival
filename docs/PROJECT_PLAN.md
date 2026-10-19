@@ -158,16 +158,21 @@ their tickets not yet cut._
 
 | id | item | PRD | state |
 |---|---|---|---|
-| W2.1 | the experiment lane — contrive, run on the side, decode, promote | `docs/prd/0004-…` | **spec written** 2026-10-19 |
+| W2.1 | **the experiment lane** — the contract every experiment must satisfy | `docs/prd/0004-…` | **spec written** 2026-10-19 |
 | W2.2 | the E-lane discipline (pre-registration, blinding, decoders) | — | folds into W2.1 |
-| W2.3 | render-axis experiment, parked | — | un-run; kept or dropped is the founder's call (§8) |
+| W2.3 | one item + PRD **per experiment** | `docs/prd/00NN-…` | none cut yet |
+| — | render-axis experiment, parked | *its own PRD required* | un-run; keep/drop is the founder's call (§8) |
 
-- **W2** — the lane is a **capability**, not a list of experiments: how one is *contrived* (admission rule,
-  one axis, frozen decision rule), *run on the side* (yields to production, can run with no GPU, **parks**
-  rather than blocks when it needs human eyes), *decoded* (one instrument, arithmetic in code), and
-  *promoted* (automatic on a pre-registered threshold — the founder is advisory input, never a gate).
-  **Serves:** the system answering its own open questions without a human in the loop and without stalling
-  production.
+- **W2** — the lane is a **contract**, not a list of experiments. Each experiment gets **its own PRD**, its
+  own code folder `experiments/<PRD-number>-<slug>/`, a **designated researcher**, and its own tickets.
+  The lane supplies: the admission rule (one axis, frozen decision rule, a named instrument, a pre-committed
+  handling for an invalid measurement), one shared decode instrument, the promotion rule (automatic on a
+  pre-registered threshold — the founder is advisory input, never a gate), and the **isolation guarantee**:
+  **the day-to-day flow does not depend on an experiment.** Roles: the **Thinker** proposes
+  (*"try a miniskirt pillar and see if people react"*); the **researcher** owns one experiment end-to-end,
+  including evaluating data, generating its images, and asking for eyes; the founder is the instrument.
+  **Serves:** the system answering its own open questions without a human in the loop and without the
+  daily flow ever waiting on research.
 
 ### W3 — day-to-day (standing obligations)
 
@@ -183,10 +188,9 @@ their tickets not yet cut._
 
 ## 8. Open questions
 
-- **Does the experiment lane inherit the parked render experiment (W2.3), or start clean?** The reset says
-  the lane is specced fresh (`docs/prd/0004-…`). Whether that one un-run item is kept, re-pre-registered
-  under the lane's admission rule, or dropped is the **founder's call** — deliberately not decided by the
-  PRD or by an agent.
+- **Does the experiment lane inherit the parked render experiment, or start clean?** Under PRD 0004 that
+  experiment would need **its own PRD** to run at all. Whether it is kept, re-registered, or dropped is the
+  **founder's call** — deliberately not decided by the PRD or by an agent.
 
 - ~~**Repo ownership vs board ownership.**~~ **Resolved 2026-10-18: the repo moved to
   `pi-216/turbo-carnival`.** Board owner and repo owner are now the same account, so
