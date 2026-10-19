@@ -87,6 +87,11 @@ noticing.
 | **The one varied axis** | exactly one. Enforced mechanically where the artifact is a file |
 | **The held-fixed set** | named, and asserted not to have drifted between arms |
 | **The instrument** | how the outcome is read: a blinded human ranking, elo-picker, platform metrics, or a closed-form count. If a ranking is required, that requirement is **declared here** |
+| **Primary and secondary legs** | which outcome decides the verdict, and which is merely recorded. **A secondary can never rescue a losing primary.** Any leg may be parked on a dependency while the primary still runs |
+| **How the intervention reaches the published surface** | if the intervention must be *published* to be observed, name the mechanism — and it must be a **contribution to the production queue production already reads**, never a control of it. Production must be unaffected if the experiment stops filing |
+| **The attribution requirement** | how a published outcome is tied back to this experiment, and which piece of infrastructure that needs. If it needs something unbuilt, the leg **parks** rather than being read confounded |
+| **Does it touch the legal floor or the intensity ladder?** | if yes, state that the floor is a **gate, not an instrument**, and that automated gates are **proxies, not proof** of postability |
+| **The positive control** | at least one arm whose outcome is known in advance. Without one, "everything failed" cannot be distinguished from a broken render path or a value that never reached the model |
 | **The decision rule** | fixed **before** any data, including the tie convention, the stopping rule (N), and the rule that a failed one-sided test does not license the mirror claim |
 | **The handling of an invalid measurement** | pre-committed. The existing pre-registered read has a third outcome meaning *"not a measurement yet — re-read, do NOT act"*, and it outranks both pass and fail |
 | **Cost + budget** | GPU time, human attention, wall-clock |
@@ -94,6 +99,12 @@ noticing.
 | **The dependency claim** | an explicit statement that the day-to-day flow does not depend on this experiment |
 | **The exit** | what "done" means, including *nothing established* |
 | **Deletion test** | the experiment must be removable without touching production |
+
+**Five of those fields were added after the first application, not from review.** Applying this contract to
+`0005` (the revealing-miniskirt pillar) exposed that it had no field for how an intervention reaches the
+published surface, no primary/secondary distinction, no attribution requirement, no relationship to the hard
+gate, and no positive control. A contract that has never been applied once is unvalidated — expect the next
+experiment to expose more, and amend this list rather than letting a field be skipped.
 
 ## Roles
 
