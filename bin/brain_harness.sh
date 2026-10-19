@@ -383,6 +383,43 @@ cmd_shutdown() {
 }
 
 # ---------------------------------------------------------------------------
+# Stop OUR server but KEEP the batch claim (claim + heartbeat untouched).
+# This is what makes "one claim covers the whole batch" real (PRD 0001): the
+# tenant server is swapped out INSIDE the claim, so the card is never yielded
+# between phases and cannot be lost. Mirrors the kill path of cmd_shutdown,
+# minus the release. Freeness is NOT asserted here -- CUDA holds VRAM briefly
+# after the process exits, so the handoff takes the DEVICE reading afterwards.
+cmd_stop_server() {
+  local job_id hb_pid brain_pid origin
+  job_id="$(read_state | head -1)"
+  hb_pid="$(read_state | sed -n '2p')"
+  brain_pid="$(read_state | sed -n '3p')"
+  origin="$(read_state | sed -n '4p')"
+
+  # Ownership: only a server WE launched (origin=launched) is ours to stop. An
+  # adopted instance belongs to whoever started it and is never ours to kill.
+  if [ "${origin:-}" = "launched" ] && [ -n "${brain_pid:-}" ]; then
+    log "stop-server: SIGTERM our llama-server (pid ${brain_pid}); claim ${job_id:-none} RETAINED"
+    kill "$brain_pid" 2>/dev/null || true
+    [ -n "$job_id" ] && systemctl --user stop "$(svc_unit "$job_id")" >/dev/null 2>&1 || true
+    # Clear the pid, keep job_id + heartbeat: the claim stays live for the render phase.
+    printf '%s\n%s\n%s\n%s\n' "$job_id" "$hb_pid" "" "launched" > "$STATE_FILE"
+  else
+    log "stop-server: nothing of ours to stop (origin=${origin:-unrecorded}, pid=${brain_pid:-none}) — claim untouched"
+  fi
+
+  # Evidence is the PORT closing, never the kill's exit code.
+  local waited=0
+  while brain_up && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+  if brain_up; then
+    log "stop-server: WARNING port ${BRAIN_PORT} still answering after stopping OUR instance"
+    return 1
+  fi
+  log "stop-server: port ${BRAIN_PORT} closed; claim ${job_id:-none} retained for the next phase"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Offline surfaces (no GPU, no claim) — same contract as comfyui_harness's.
 cmd_plan() {
   local free_mib="${1:-}" ask model
@@ -409,9 +446,10 @@ case "${1:-}" in
   ensure)    shift; cmd_ensure "$@" ;;
   heartbeat) cmd_heartbeat ;;
   shutdown)  cmd_shutdown ;;
+  stop-server) cmd_stop_server ;;
   plan)      shift; cmd_plan "$@" ;;
   deps)      cmd_deps ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|shutdown|plan [FREE_MIB]|deps}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|shutdown|stop-server|plan [FREE_MIB]|deps}" >&2
     exit 1 ;;
 esac

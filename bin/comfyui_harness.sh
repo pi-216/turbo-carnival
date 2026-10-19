@@ -1380,6 +1380,42 @@ cmd_killverdict() {
   kill_verdict "$origin" "$pid" "$stage"
 }
 
+# Stop OUR ComfyUI but KEEP the batch claim (claim + heartbeat untouched) — the
+# RENDER -> JUDGE half of the phase handoff (PRD 0001 / ticket #25). The tenant
+# server is swapped out INSIDE the claim so the card is never yielded between
+# phases. Mirrors cmd_shutdown's kill path, minus the release. Freeness is NOT
+# asserted here; the handoff takes the DEVICE reading afterwards.
+cmd_stop_server() {
+  local job_id hb_pid comfy_pid origin
+  job_id="$(read_state | head -1)"
+  hb_pid="$(read_state | sed -n '2p')"
+  comfy_pid="$(read_state | sed -n '3p')"
+  origin="$(read_state | sed -n '4p')"
+
+  # Queue-first: never SIGTERM a ComfyUI whose native queue still holds renders.
+  if comfyui_up && ! comfyui_queue_empty; then
+    if [ -n "$job_id" ]; then
+      log "stop-server: REFUSED — ComfyUI queue still has renders (running/pending); keeping claim $job_id alive so they drain"
+      return 3
+    fi
+  fi
+
+  kill_comfyui
+  [ -n "$job_id" ] && systemctl --user stop "$(comfy_unit "$job_id")" >/dev/null 2>&1 || true
+  # Clear the pid, keep job_id + heartbeat: the claim stays live for the review phase.
+  write_state "$job_id" "$hb_pid" "" "$origin"
+
+  # Evidence is the PORT closing, never the kill's exit code.
+  local waited=0
+  while comfyui_up && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+  if comfyui_up; then
+    log "stop-server: WARNING port ${COMFY_PORT} still answering after stopping OUR instance"
+    return 1
+  fi
+  log "stop-server: port ${COMFY_PORT} closed; claim ${job_id:-none} retained for the next phase"
+  return 0
+}
+
 case "${1:-}" in
   status)    cmd_status ;;
   ensure)    shift; cmd_ensure "$@" ;;
@@ -1388,11 +1424,12 @@ case "${1:-}" in
   plan)      shift; cmd_plan "$@" ;;
   deps)      cmd_deps ;;
   shutdown)  cmd_shutdown ;;
+  stop-server) cmd_stop_server ;;
   ownqueue)  own_queued_jobs ;;
   reconcile) reconcile_own_queue ;;
   blockerkind) shift; cmd_blockerkind "$@" ;;
   killverdict) shift; cmd_killverdict "$@" ;;
   *)
-    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|ownqueue|reconcile|blockerkind JOB_ID|killverdict ORIGIN PID [STAGE]}" >&2
+    echo "usage: $0 {status|ensure [--wait SECONDS]|heartbeat|telemetry [N]|plan [FREE_MIB]|deps|shutdown|stop-server|ownqueue|reconcile|blockerkind JOB_ID|killverdict ORIGIN PID [STAGE]}" >&2
     exit 1 ;;
 esac
