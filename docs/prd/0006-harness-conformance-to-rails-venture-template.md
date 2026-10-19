@@ -64,6 +64,11 @@ a ticket, and **no new work may be added on the `solid_*` substrate**.
 **Q6 — scope.** *"This is a new, independent PRD."* → PRD 0006 **stands alone** at W1.4; it is not folded
 into PRD 0003.
 
+**Q9 — where the non-Rails Gherkin definitions live.** *"They stay inline in the PRD; only Rails-app
+scenarios become .feature files."* → **Layer-1 definitions live in the PRD, permanently.** Only Rails-app
+scenarios are ever extracted into `.feature` files. There is no `gherkin_specs/` home for behaviour the Rails
+app does not implement — no `@non-executable` tree — and this PRD implies no future non-Ruby runner.
+
 ## What the harness is, and the one rule that shapes this PRD
 
 `rails-venture-template` is a **single self-contained `template.rb`** that locks the Day-1 rails for a new
@@ -420,7 +425,8 @@ maps to an **emitted metric** (`Sentry::Metrics`), or it is untracked.
 
 **Resolved 2026-10-19 — see *Founder rulings* above.** Q1 HAML (adopt, deprioritised) · Q2 Gherkin (adopt,
 scoped to the Rails app; the two-layer rule) · Q3 Sentry DSN (an agent provisions it) · Q4 doc homes
-(adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4).
+(adopt) · Q5 job substrate (Sidekiq) · Q6 scope (stand alone at W1.4) · Q9 non-Rails Gherkin definitions
+stay **inline in the PRD**; only Rails-app scenarios become `.feature` files.
 
 **Still open:**
 
@@ -431,11 +437,6 @@ scoped to the Rails app; the two-layer rule) · Q3 Sentry DSN (an agent provisio
    `packs-rails` gem; the template emits `Dir[Rails.root.join("packs/*/app/*")]` in `config/application.rb`.
    `packs-rails` is a superset and 12 packs already depend on it. *Lean: ratify `packs-rails` — the rail
    (pack autoload) is satisfied either way.* (Founder.)
-3. **Where do the non-Rails Gherkin definitions live (Q9)?** Q2 fixes *executability* (Rails-only) but not
-   *location*. **A:** a `gherkin_specs/` tree where non-Rails scenarios live as `@non-executable`, linted
-   but not run. **B:** they stay inline in the PRD, and only Rails-app scenarios are extracted to
-   `.feature`. *Lean: B — one home per definition, and the PRD is where the definition is agreed.*
-   (Founder — asked.)
 
 ---
 
@@ -443,5 +444,5 @@ Drift note (gherkin-specialist): this PRD carries its acceptance criteria as Ghe
 PRD** — Layer 1 (notation), per house style. Q2 ruled **adopt**, so the Rails-app-facing scenarios here (the
 parity script, the `ApplicationCommand` after-commit, the Sentry capture, the Turbo `meta` assertion) become
 the first `gherkin_specs/harness/*.feature` files with lineage tags; scenarios describing non-Rails tools
-(the ComfyUI/render stages) stay definitions and are never executed in Ruby. Do not maintain two copies of
-any one scenario.
+(the ComfyUI/render stages) stay definitions, are never executed in Ruby, and are never moved into a
+`.feature` file (Q9). Do not maintain two copies of any one scenario.
