@@ -140,7 +140,7 @@ their tickets not yet cut._
 
 | id | item | PRD | state |
 |---|---|---|---|
-| **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **spec written** · tickets #20, #22–#27 · **blocked on #22** (founder) |
+| **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **building** · tickets #20, #22–#27 · #22 (ruling) #23 (staged) #24 (harness) done |
 | W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **spec written** · epic #36, tickets #37–#43 |
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **OpenSpec dropped** `7e5ccee` · epic #44, tickets #45–#50 |
 
