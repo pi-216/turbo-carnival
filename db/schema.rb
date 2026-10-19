@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_19_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -382,7 +382,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_120000) do
     t.datetime "produced_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "image_candidate_id"
     t.index ["asset_id"], name: "index_renders_on_asset_id"
+    t.index ["image_candidate_id"], name: "index_renders_on_image_candidate_id", unique: true
     t.index ["pipeline_run_id"], name: "index_renders_on_pipeline_run_id"
   end
 
@@ -411,6 +413,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_120000) do
     t.text "failure_reason"
     t.datetime "insights_unavailable_at"
     t.string "reel_path"
+    t.integer "views"
+    t.integer "follows"
+    t.integer "profile_visits"
     t.index ["content_suggestion_id"], name: "index_scheduling_posts_on_content_suggestion_id"
     t.index ["persona_id"], name: "index_scheduling_posts_on_persona_id"
     t.index ["photo_id", "persona_id"], name: "index_posts_on_photo_id_and_persona_id", unique: true

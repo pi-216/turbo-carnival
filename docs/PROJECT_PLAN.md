@@ -141,7 +141,7 @@ their tickets not yet cut._
 | id | item | PRD | state |
 |---|---|---|---|
 | **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **building** · tickets #20, #22–#27, #64, #66 · #22 (ruling) #23 (staged) #24 (harness) #25 (handoff) #26 (params) #27 (planner) #64 (nightly plan) #66 (idempotence) done · cadence: **nightly** (ruling 2026-10-19) |
-| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **building** · epic #36, tickets #37–#43 · #37 (attribution spine) done |
+| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **building** · epic #36, tickets #37–#43 · #37 (attribution spine) done · #39 (per-post instrument, option B) done |
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **OpenSpec dropped** `7e5ccee` · epic #44, tickets #45–#50 |
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are

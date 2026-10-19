@@ -6,5 +6,9 @@ dependencies:
   - packs/content_pillars
   - packs/content_strategy
   - packs/caption_generation
+  # Growth::RenderReach answers "what did this render earn", so the growth reads reach
+  # into the spine. The edge runs one way (growth_harness -> attribution); attribution
+  # depends only on "." and packs/pipeline, so there is no cycle.
+  - packs/attribution
 metadata:
   owner: growth

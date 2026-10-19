@@ -66,11 +66,18 @@ the assembled prompt: each part has to be a **named, addressable field**, or it 
 
 - **Goals**
   - A render's full input set is recoverable as **rows and columns**, not a blob.
-  - `non_follower_reach` is available **per published asset**, not only per account-window.
+  - ~~`non_follower_reach` is available **per published asset**, not only per account-window.~~
+    **Corrected by measurement, 2026-10-19 (founder ruling: option B):** Instagram exposes **no**
+    per-post follower/non-follower split. Every media-level `follow_type` breakdown answers
+    `400 (#100)` on v19.0–v24.0 while the account-level one answers `200`. The per-post instrument is
+    therefore the metrics the platform *does* report per post — **`reach`, `views`, `follows` and
+    `profile_visits`** (the last two on FEED media only) — and `non_follower_reach` stays an
+    **account/day** measurement. Deriving a per-post split was rejected: it would put an attributed
+    number in a column whose name implies the platform measured it.
   - A **content config version** exists as an immutable object; every run references it; Block 2 points
     at one version.
   - One query answers: *which checkpoint / LoRA / sampler / prompt-part combination produced the assets
-    that earned the most non-follower reach?* — the join is `sha256`.
+    that earned the most reach?* — the join is `sha256`.
   - **elo-picker is the rating instrument.** The in-app ladder is **retired rather than maintained** as a
     second one. It never blocks posting; it may block an experiment that declares it as its instrument.
   - One rating store, or a documented relationship between two — never an undocumented third.
@@ -83,8 +90,9 @@ the assembled prompt: each part has to be a **named, addressable field**, or it 
 
 ## Scope — In / Out
 
-**In:** the normalized attribution spine (assets / renders / prompt parts / assessments); per-post
-`non_follower_reach`; the immutable content-config version; the experiment record; backfill policy for
+**In:** the normalized attribution spine (assets / renders / prompt parts / assessments); the per-post
+instrument (`reach`, `views`, `follows`, `profile_visits`); the immutable content-config version; the
+experiment record; backfill policy for
 existing rows; the elo-picker relationship decision.
 
 **Out:** dashboard/UI work beyond what already exists, prompt authoring, venue B, the brain.
@@ -99,10 +107,12 @@ Scenario: a render's inputs are recoverable as data
        the negative, sampler, steps, cfg, denoise, resolution, and the workflow sha
   And none of it requires parsing a JSON blob to answer
 
-Scenario: non-follower reach attaches to an asset
+Scenario: the per-post instrument attaches to an asset
   Given an asset has been published
   When its metrics are collected
-  Then non_follower_reach is stored PER POST
+  Then reach and views are stored PER POST
+  And follows and profile_visits are stored where the media type supports them
+  And a metric the platform does not report is stored as NULL, never as 0
   And a query groups reach by the render that produced it without a manual mapping step
 
 Scenario: the content config is a version, and runs reference it
@@ -178,8 +188,9 @@ Scenario: the existing rows are not corrupted by the migration
   table also holds a parent/child breeding tree, so a dropped column is irreversible data loss.
 - **Do not add a third rating store.** With elo-picker as the instrument, this PRD's job is to make the
   spine complete *without* one.
-- **The primary metric is `non_follower_reach`.** A schema that makes it awkward to query is wrong even
-  if it is complete.
+- **The primary metric is `reach` per post, and `non_follower_reach` per account-day.** A schema that
+  makes either awkward to query is wrong even if it is complete. (Per-post non-follower reach is not
+  obtainable from the platform — see the correction under Goals.)
 - Time-of-day and weekday are **constants today** (posting is cron-pinned), so they cannot teach anything
   yet. Record them — but mark them uninformative until something actually varies them, or a later reader
   will find a trend in a constant.
@@ -187,7 +198,10 @@ Scenario: the existing rows are not corrupted by the migration
 ## Metrics / definition of done
 
 - The one-query attribution question returns an answer for a real batch, with no blob parsing.
-- `non_follower_reach` present per post for at least one published batch.
+- `reach` and `views` present per post for at least one published batch, `follows` / `profile_visits`
+  where the media type supports them, and **`non_follower_reach` present per account-day window**
+  (per-post is not obtainable — see the correction under Goals). A metric the platform did not report
+  reads as NULL, never 0.
 - Every new render references a content config version id.
 - The in-app ladder is **provably unread** (writes stopped, zero readers), and its values are exported
   before any column is removed.
