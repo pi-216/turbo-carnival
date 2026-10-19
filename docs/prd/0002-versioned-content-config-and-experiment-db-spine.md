@@ -71,7 +71,9 @@ the assembled prompt: each part has to be a **named, addressable field**, or it 
     at one version.
   - One query answers: *which checkpoint / LoRA / sampler / prompt-part combination produced the assets
     that earned the most non-follower reach?* — the join is `sha256`.
-  - One rating store, or a stated, documented relationship between two — never an undocumented third.
+  - **elo-picker is the rating instrument.** The in-app ladder is **retired rather than maintained** as a
+    second one. It never blocks posting; it may block an experiment that declares it as its instrument.
+  - One rating store, or a documented relationship between two — never an undocumented third.
 - **Non-goals (explicit Out)**
   - **Out:** any change to the render graph, the scene text, or the image stack.
   - **Out:** building the Thinker, or any generator of prompts. This PRD stores what was generated.
@@ -120,6 +122,19 @@ Scenario: an experiment records one axis and a verdict
   Then it names the single varied axis, the held-fixed set, and the decision rule
   And its verdict, when recorded, is readable next to its pre-registration
 
+Scenario: elo-picker never blocks posting
+  Given elo-picker is unreachable, or holds no rating for an asset
+  When the day-to-day path renders and posts
+  Then it proceeds unaffected
+  And the missing rating is recorded as NULL — never as zero, and never as an error
+
+Scenario: an experiment may wait for its instrument, and only itself
+  Given an experiment has declared a ranking as its instrument
+  When that ranking does not yet exist
+  Then the experiment parks and reports that it is waiting
+  And the posting path is unaffected by that wait
+  And nothing else queues behind it
+
 Scenario: the existing rows are not corrupted by the migration
   Given rows predating this schema
   Then their missing attribution reads as unknown
@@ -146,8 +161,23 @@ Scenario: the existing rows are not corrupted by the migration
 - **The version is immutable.** If a version can be edited in place, attribution dies retroactively —
   the same failure as the DB-only workflow column that this project already fixed once by moving the
   graph into git.
-- **Do not add a third rating store.** Two already exist; the deliverable is a decision about them, not a
-  third.
+- **elo-picker never blocks posting; it may block an experiment.** Founder, 2026-10-19: *"elo-picker is
+  never a blocker for posting. elo-picker can be a blocker for experiments."*
+  - **Day-to-day (posting):** ratings are an **optional join**. Absent is a normal state, not an error.
+    **No code path in the content pipeline may order or gate its work on whether a rating exists.**
+  - **Experiments:** an experiment may declare a ranking as *its instrument* and **park** until that
+    ranking exists. That is its own dependency, declared in its pre-registration — never inherited by the
+    posting path.
+  The distinction must be **explicit in the experiment record**, or it leaks: an experiment's wait becomes
+  a queue that the business quietly runs behind, which is the one thing Block 3 must never cause.
+- **The spine is complete without elo-picker.** Every attribution and reach query answers with zero
+  ratings present. If a query returns nothing without elo-picker, the join has become a dependency.
+- **Retire the in-app ladder; do not silently drop it.** Stop reading and writing
+  `image_candidates.elo_score` / `vote_count` / `winner`, **prove no readers remain**, export the values,
+  and only then remove the columns — in their own ticket. Export-before-prune ordering matters here: this
+  table also holds a parent/child breeding tree, so a dropped column is irreversible data loss.
+- **Do not add a third rating store.** With elo-picker as the instrument, this PRD's job is to make the
+  spine complete *without* one.
 - **The primary metric is `non_follower_reach`.** A schema that makes it awkward to query is wrong even
   if it is complete.
 - Time-of-day and weekday are **constants today** (posting is cron-pinned), so they cannot teach anything
@@ -159,17 +189,21 @@ Scenario: the existing rows are not corrupted by the migration
 - The one-query attribution question returns an answer for a real batch, with no blob parsing.
 - `non_follower_reach` present per post for at least one published batch.
 - Every new render references a content config version id.
-- A written, committed decision on the elo-picker relationship (absorb, join, or retire one).
+- The in-app ladder is **provably unread** (writes stopped, zero readers), and its values are exported
+  before any column is removed.
+- **With elo-picker stopped, a render → post cycle completes unscathed**, and the missing ratings appear
+  as NULL rather than 0.
+- An experiment that declares a ranking instrument parks visibly, and blocks nothing outside itself.
 - An existing corpus row from before this PRD, queried through the new spine, returns **unknown**
   attribution rather than a fabricated one.
 
 ## Open questions
 
-1. **elo-picker: absorb or join?** Now a three-way call, because `image_candidates.elo_score` already
-   exists: (a) absorb elo-picker's schema into the app and retire the internal ladder, (b) keep the
-   internal ladder and treat elo-picker as an external control joined on `sha256`, (c) both, with a
-   stated rule about which one a verdict reads from. **Founder call** — it decides where a taste verdict
-   lives.
+1. ~~**elo-picker: absorb or join?**~~ **Resolved by the founder, 2026-10-18:** *"drop the pre-existing.
+   elo-picker is progressing faster. elo-picker can never be a blocker."* → **join on `sha256` and retire
+   the in-app ladder.** The internal `elo_score` / `vote_count` / `winner` columns stop being read and
+   written; elo-picker becomes the rating instrument. Retirement is sequenced (see the red lines):
+   stop using → prove no readers → export → remove. Not a silent drop.
 2. **Where do prompt parts come from?** The graph assembles its text from the identity block (node 88),
    the scene file, and the negative (node 79). Parts must therefore be written by whatever *creates* the
    run, not extracted after the fact. This PRD needs a parts contract with the generator — which is
