@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# bin/verify — the single Tier-0 gate (PRD 0003).
+#
+# "Done" becomes a state a machine can verify, not a claim an agent makes
+# about itself. This composes the existing entry points in a fixed order and
+# stops at the first failure:
+#
+#   bin/rubocop -> bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check
+#
+# Fail-closed: a gate that cannot run (missing gem, missing DB, missing
+# binstub) is a FAILURE, never a pass. The rspec gate is verdict-gated, not
+# exit-code-gated: rspec exits 0 on a zero-example run, and a lane that
+# executes nothing must never pass (PRD 0003 finding 4).
+#
+# On failure: prints one line naming the failed gate, tails its output, and
+# exits 1. Gate outputs are kept under the log dir printed on failure.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/verify.XXXXXX")"
+
+fail_gate() {
+  local name="$1" rc="$2" reason="${3:-}"
+  local log="$LOGDIR/$1.log"
+  echo "VERIFY FAILED: $name (exit $rc${reason:+ — $reason})"
+  echo "--- last 25 lines ($name) ---"
+  tail -25 "$log" 2>/dev/null || true
+  echo "full output: $log (kept for post-mortem)"
+  exit 1
+}
+
+run_gate() {
+  local name="$1"; shift
+  echo "==> $name"
+  "$@" >"$LOGDIR/$name.log" 2>&1
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fail_gate "$name" "$rc"
+  fi
+  echo "    ok: $name"
+}
+
+run_gate "rubocop" bin/rubocop
+run_gate "brakeman" bin/brakeman --no-pager
+
+# rspec: AGENT_TEST=1 forces the compact signal even on a TTY, so the verdict
+# line is always present and checkable (the binstub's documented agent mode).
+# Success requires BOTH exit 0 AND the TESTS OK verdict — exit 0 alone also
+# covers the zero-example case that rspec-core treats as success.
+echo "==> rspec"
+AGENT_TEST=1 bin/rspec >"$LOGDIR/rspec.log" 2>"$LOGDIR/rspec.stderr"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  fail_gate "rspec" "$rc"
+fi
+if ! grep -q '^TESTS OK' "$LOGDIR/rspec.log"; then
+  grep -h 'full log:' "$LOGDIR/rspec.stderr" 2>/dev/null || true
+  fail_gate "rspec" 0 "verdict was not 'TESTS OK' (zero examples, unknown, or missing)"
+fi
+echo "    ok: rspec"
+grep '^TESTS' "$LOGDIR/rspec.log" || true
+
+run_gate "packwerk" bin/packwerk check
+
+echo "VERIFY OK: rubocop, brakeman, rspec, packwerk all passed"
+exit 0

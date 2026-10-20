@@ -130,3 +130,50 @@ jobs:
           RAILS_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
         run: bundle exec cucumber
+
+  verify:
+    # The Tier-0 gate (PRD 0003): bin/verify composes bin/rubocop ->
+    # bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check and stops at
+    # the first failure. A green "done" claim requires this job to pass; it is
+    # fail-closed (a gate that cannot run is a failure, never a pass).
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
+
+      - name: Build assets (tailwind)
+        run: RAILS_ENV=test bin/rails tailwindcss:build
+
+      - name: Run bin/verify (Tier-0 gate)
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432
+        run: |
+          bin/rails db:test:prepare
+          bin/verify
