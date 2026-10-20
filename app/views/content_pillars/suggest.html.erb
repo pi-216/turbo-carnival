@@ -20,7 +20,7 @@
               <div class="flex-1">
                 <h3 class="text-xl font-semibold mb-2"><%= suggestion[:name] %></h3>
                 <p class="text-zinc-400 mb-3"><%= suggestion[:description] %></p>
-                
+
                 <% if suggestion[:keywords].present? %>
                   <div class="flex flex-wrap gap-2 mb-3">
                     <% suggestion[:keywords].each do |keyword| %>
@@ -28,26 +28,25 @@
                     <% end %>
                   </div>
                 <% end %>
-                
+
                 <% if suggestion[:example].present? %>
                   <p class="text-sm text-zinc-500 italic">Example: <%= suggestion[:example] %></p>
                 <% end %>
-                
+
                 <div class="mt-4">
                   <span class="text-xs text-zinc-600">Source: <%= suggestion[:source] %></span>
                 </div>
               </div>
-              
+
               <div class="ml-4">
-                <%= link_to "Create Cluster", 
-                  new_persona_pillar_cluster_path(@persona, @pillar, 
-                    cluster: { 
+                <%= link_to "Create Cluster",
+                  new_persona_pillar_cluster_path(@persona, @pillar,
+                    cluster: {
                       name: suggestion[:name],
                       keywords: suggestion[:keywords]
                     }
                   ),
-                  class: "inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                %>
+                  class: "inline-block bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700" %>
               </div>
             </div>
           <% end %>

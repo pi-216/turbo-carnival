@@ -7,7 +7,7 @@
             <%= logo %>
           </div>
         <% end %>
-        
+
         <% if items? %>
           <div class="hidden md:flex gap-1">
             <% items.each do |item| %>
@@ -16,14 +16,14 @@
           </div>
         <% end %>
       </div>
-      
+
       <div class="flex items-center gap-4">
         <% if actions? %>
           <div class="hidden sm:flex items-center gap-4">
             <%= actions %>
           </div>
         <% end %>
-        
+
         <% if @mobile_menu && items? %>
           <button type="button" class="md:hidden p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" data-action="click->mobile-menu#toggle" aria-label="Toggle menu">
             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -33,7 +33,7 @@
         <% end %>
       </div>
     </div>
-    
+
     <% if @mobile_menu && items? %>
       <div class="md:hidden border-t border-gray-800" data-mobile-menu-target="menu" style="display: none;">
         <div class="flex flex-col">

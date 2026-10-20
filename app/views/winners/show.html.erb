@@ -39,7 +39,7 @@
                   <% end %>
                 </div>
               </div>
-              
+
               <div class="p-4">
                 <h3 class="text-white font-semibold text-lg mb-2">
                   <%= winner.pipeline_step.name %>
@@ -51,7 +51,7 @@
                   <p>Children: <%= winner.child_count %></p>
                 </div>
 
-                <%= button_to select_winner_image_candidate_path(winner), 
+                <%= button_to select_winner_image_candidate_path(winner),
                     method: :post,
                     class: "w-full px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl",
                     data: { turbo_confirm: "Pick this as the winning candidate?" } do %>
@@ -68,7 +68,7 @@
                             <%= winner.image_path %>
                           </p>
                         </div>
-                        <button 
+                        <button
                           onclick="
                             const path = '<%= winner.image_path %>';
                             if (navigator.clipboard && navigator.clipboard.writeText) {

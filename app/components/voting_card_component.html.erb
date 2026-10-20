@@ -1,7 +1,7 @@
 <%= form_with url: run_vote_path(run), method: :post, class: "flex flex-col min-h-0", data: { voting_target: "#{position}Form" } do |f| %>
   <%= f.hidden_field :winner_id, value: candidate.id %>
   <%= f.hidden_field :loser_id, value: opponent.id %>
-  
+
   <%= f.button type: "submit", class: "flex-1 bg-gray-800 rounded-lg overflow-hidden shadow-xl hover:shadow-2xl transition-all hover:scale-[1.02] cursor-pointer flex flex-col min-h-0" do %>
     <div class="px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
       <p class="text-white font-semibold text-sm">

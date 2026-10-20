@@ -22,6 +22,9 @@ jobs:
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: bin/brakeman --no-pager
 
+      - name: Audit gems for known security defects
+        run: bundle exec bundler-audit check --update
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +39,9 @@ jobs:
 
       - name: Lint code for consistent style
         run: bin/rubocop -f github
+
+      - name: Lint ERB templates
+        run: bundle exec erb_lint --lint-all
 
       - name: Lint Gherkin feature files (when any exist)
         run: |

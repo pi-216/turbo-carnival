@@ -1,6 +1,6 @@
 <div class="container mx-auto px-4 py-8">
   <%= link_to "← Back to #{@persona.name}", persona_path(@persona), class: "text-blue-400 hover:underline mb-4 inline-block" %>
-  
+
   <div class="flex justify-between items-start mb-6">
     <div>
       <h1 class="text-3xl font-bold mb-2"><%= @pillar.name %></h1>
@@ -11,7 +11,7 @@
         Weight: <%= @pillar.weight %>% | Priority: <%= @pillar.priority %>
         <% if @pillar.start_date || @pillar.end_date %>
           <span class="ml-2">
-            | 
+            |
             <% if @pillar.start_date && @pillar.end_date %>
               <%= @pillar.start_date.strftime('%B %d, %Y') %> - <%= @pillar.end_date.strftime('%B %d, %Y') %>
             <% elsif @pillar.start_date %>
@@ -29,7 +29,7 @@
     <div class="flex gap-2">
       <%= link_to "Upload Photo", new_persona_pillar_photo_path(@persona, @pillar),
                   class: "bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded inline-block" %>
-      <%= link_to "✏️ Edit", edit_persona_pillar_path(@persona, @pillar), 
+      <%= link_to "✏️ Edit", edit_persona_pillar_path(@persona, @pillar),
                  class: "bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded inline-block" %>
     </div>
   </div>
@@ -64,14 +64,14 @@
 
   <!-- Photos -->
   <h2 class="text-2xl font-semibold mb-4">Photos</h2>
-  
+
   <% if @photos.any? %>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <% @photos.each do |photo| %>
         <%= render CardComponent.new(classes: "hover:shadow-lg transition overflow-hidden") do |c| %>
           <% c.with_body(padding: false) do %>
             <% if photo.image.attached? %>
-              <%= image_tag photo.image, 
+              <%= image_tag photo.image,
                             class: "w-full h-48 object-cover" %>
             <% else %>
               <div class="w-full h-48 bg-zinc-700 flex items-center justify-center">

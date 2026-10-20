@@ -1,0 +1,8 @@
+# Exclude vendored/third-party trees from ERB linting.
+# Without these excludes erb_lint scans gem templates (actionmailbox,
+# actionpack, brakeman) and fails on pre-existing offenses.
+exclude:
+  - 'vendor/**/*'
+  - 'node_modules/**/*'
+  - 'tmp/**/*'
+  - 'log/**/*'

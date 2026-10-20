@@ -1,9 +1,9 @@
-<% 
+<%
   # Get children for next step
   next_step = pipeline.pipeline_steps.find_by(order: candidate.pipeline_step.order + 1)
   children = next_step ? candidate.children.where(pipeline_step: next_step, status: 'active').order(elo_score: :desc) : []
   max_children = JobOrchestrationConfig.max_children_per_node
-  
+
   # Color based on ELO score
   elo_color = if candidate.elo_score >= 1200
                 'text-yellow-400'
@@ -12,7 +12,7 @@
               else
                 'text-zinc-400'
               end
-  
+
   # Indentation for tree structure
   indent = depth * 3
 %>
@@ -24,7 +24,7 @@
       <div class="w-8 h-0.5 bg-zinc-600"></div>
     </div>
   <% end %>
-  
+
   <!-- Candidate card -->
   <div class="flex-1 bg-zinc-700 rounded-lg p-4 mb-2 hover:bg-gray-650 transition-colors">
     <div class="flex gap-4">
@@ -38,7 +38,7 @@
           </div>
         <% end %>
       </div>
-      
+
       <!-- Info -->
       <div class="flex-1">
         <div class="flex justify-between items-start mb-2">
@@ -53,7 +53,7 @@
             ⭐ <%= candidate.elo_score %>
           </div>
         </div>
-        
+
         <div class="grid grid-cols-3 gap-2 text-sm">
           <div>
             <span class="text-zinc-400">Children:</span>
@@ -77,11 +77,11 @@
             </span>
           </div>
         </div>
-        
+
         <!-- Winner Selection Actions -->
         <div class="mt-3">
           <% if candidate.winner? %>
-            <%= button_to "Unselect Winner", 
+            <%= button_to "Unselect Winner",
                 unselect_winner_image_candidate_path(candidate),
                 method: :delete,
                 class: "text-sm px-3 py-1 bg-zinc-600 hover:bg-zinc-500 text-white rounded transition-colors",
@@ -93,7 +93,7 @@
                 class: "text-sm px-3 py-1 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded transition-colors" %>
           <% end %>
         </div>
-        
+
         <% if candidate.parent %>
           <div class="text-xs text-zinc-500 mt-1">
             Parent: <%= candidate.parent_id %>
@@ -108,8 +108,8 @@
 <% if children.any? && depth < max_depth %>
   <div>
     <% children.each do |child| %>
-      <%= render partial: 'runs/tree_node', locals: { 
-        candidate: child, 
+      <%= render partial: 'runs/tree_node', locals: {
+        candidate: child,
         depth: depth + 1,
         pipeline: pipeline,
         run: run,

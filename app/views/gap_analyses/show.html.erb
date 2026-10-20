@@ -40,11 +40,11 @@
                   <div class="flex-1">
                     <h4 class="font-semibold text-lg mb-2"><%= suggestion.title %></h4>
                     <p class="text-zinc-300 mb-3"><%= suggestion.description %></p>
-                    
+
                     <div class="text-sm text-zinc-400 mb-3">
                       <strong>Reason:</strong> <%= suggestion.prompt_data['reason'] %>
                     </div>
-                    
+
                     <% if suggestion.prompt_data['existing_prompts']&.any? %>
                       <details class="text-sm text-zinc-500 mb-3">
                         <summary class="cursor-pointer hover:text-zinc-400">View existing prompts to avoid</summary>
@@ -55,23 +55,23 @@
                         </ul>
                       </details>
                     <% end %>
-                    
+
                     <div class="bg-zinc-800 p-3 rounded text-sm font-mono">
                       <strong class="text-zinc-400">Suggested Prompt:</strong><br>
                       <%= suggestion.prompt_data['prompt'] %>
                     </div>
                   </div>
-                  
+
                   <div class="ml-4 flex flex-col gap-2">
                     <% if suggestion.status == 'pending' %>
-                      <%= button_to "🎨 Generate Images", generate_image_content_suggestion_path(suggestion), 
-                                    method: :post, 
+                      <%= button_to "🎨 Generate Images", generate_image_content_suggestion_path(suggestion),
+                                    method: :post,
                                     class: "bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap font-semibold" %>
-                      <%= button_to "Mark Used", use_content_suggestion_path(suggestion), 
-                                    method: :post, 
+                      <%= button_to "Mark Used", use_content_suggestion_path(suggestion),
+                                    method: :post,
                                     class: "bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
-                      <%= button_to "Reject", reject_content_suggestion_path(suggestion), 
-                                    method: :post, 
+                      <%= button_to "Reject", reject_content_suggestion_path(suggestion),
+                                    method: :post,
                                     class: "bg-zinc-600 hover:bg-zinc-700 text-white text-sm px-4 py-2 rounded whitespace-nowrap" %>
                     <% else %>
                       <span class="text-sm px-4 py-2 rounded <%= suggestion.status == 'used' ? 'bg-green-700 text-green-100' : 'bg-zinc-700 text-zinc-300' %>">

@@ -5,21 +5,21 @@
       ← Back to Photo Selection
     <% end %>
   </div>
-  
+
   <h1 class="text-3xl font-bold mb-6">Create Instagram Post</h1>
-  
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Left Column: Photo Preview -->
     <div>
       <%= render CardComponent.new do |c| %>
         <% c.with_body do %>
           <h2 class="text-xl font-semibold mb-4">Photo Preview</h2>
-          
+
           <% if @photo.image.attached? %>
-            <%= image_tag @photo.image, 
+            <%= image_tag @photo.image,
                          class: "w-full rounded-lg mb-4" %>
           <% end %>
-          
+
           <!-- Photo Metadata -->
           <div class="space-y-3 text-sm">
             <% if @photo.persona %>
@@ -28,13 +28,13 @@
                 <span class="text-zinc-400"><%= @photo.persona.name.titleize %></span>
               </div>
             <% end %>
-            
+
             <% if @photo.content_pillar %>
               <div>
                 <span class="font-semibold">Content Pillar:</span>
                 <span class="text-zinc-400"><%= @photo.content_pillar.name %></span>
               </div>
-              
+
               <% if @photo.content_pillar.description.present? %>
                 <div>
                   <span class="font-semibold">Pillar Description:</span>
@@ -42,7 +42,7 @@
                 </div>
               <% end %>
             <% end %>
-            
+
             <!-- Strategy Metadata (if suggested) -->
             <% if @strategy_name.present? %>
               <div class="border-t border-zinc-700 pt-3 mt-3">
@@ -65,21 +65,21 @@
         <% end %>
       <% end %>
     </div>
-    
+
     <!-- Right Column: Post Form -->
     <div>
       <%= render CardComponent.new do |c| %>
         <% c.with_body do %>
           <h2 class="text-xl font-semibold mb-4">Post Details</h2>
-          
+
           <!-- AI Suggestion Button (separate form) -->
           <div class="mb-6">
             <%= form_with url: suggest_caption_persona_scheduling_post_path(@persona, @photo), method: :post do %>
-              <%= submit_tag "✨ Get AI Suggestions", 
+              <%= submit_tag "✨ Get AI Suggestions",
                             class: "w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors font-semibold cursor-pointer" %>
             <% end %>
           </div>
-          
+
           <!-- AI Suggestion Display -->
           <% if @suggested_caption.present? %>
             <div class="p-4 bg-purple-900/20 border border-purple-700 rounded-lg mb-6">
@@ -95,18 +95,18 @@
               </div>
             </div>
           <% end %>
-          
+
           <!-- Main Post Form -->
           <%= form_with model: @post, url: persona_scheduling_posts_path(@persona), method: :post, class: "space-y-6" do |f| %>
             <%= f.hidden_field :photo_id, value: @photo.id %>
-            
+
             <!-- Caption Field -->
             <div>
               <%= f.label :caption, class: "block text-sm font-medium mb-2" do %>
                 Caption
                 <span class="text-zinc-500 font-normal" id="char_count">(0 characters)</span>
               <% end %>
-              <%= f.text_area :caption, 
+              <%= f.text_area :caption,
                              rows: 10,
                              value: @suggested_caption || "",
                              placeholder: "Write your caption here or use AI suggestions...",
@@ -115,7 +115,7 @@
                              id: "post_caption" %>
               <p class="text-xs text-zinc-500 mt-1">Instagram allows up to 2,200 characters</p>
             </div>
-            
+
             <!-- Schedule Field -->
             <div>
               <%= f.label :scheduled_at, "Schedule for Later (Optional)", class: "block text-sm font-medium mb-2" %>
@@ -124,15 +124,15 @@
                                         class: "w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg focus:ring-2 focus:ring-blue-500" %>
               <p class="text-xs text-zinc-500 mt-1">Leave blank to post immediately</p>
             </div>
-            
+
             <!-- Submit Buttons -->
             <div class="flex gap-3">
-              <%= f.submit "Post Now", 
+              <%= f.submit "Post Now",
                           class: "flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 rounded-lg transition-colors font-semibold" %>
-              <%= f.submit "Schedule", 
+              <%= f.submit "Schedule",
                           class: "flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold" %>
             </div>
-            
+
             <div class="text-center">
               <%= link_to "Cancel", persona_scheduling_posts_path(@persona), class: "text-zinc-400 hover:text-zinc-200" %>
             </div>
@@ -148,12 +148,12 @@
   document.addEventListener('turbo:load', () => {
     const textarea = document.getElementById('post_caption');
     const charCount = document.getElementById('char_count');
-    
+
     if (textarea && charCount) {
       const updateCount = () => {
         const count = textarea.value.length;
         charCount.textContent = `(${count} characters)`;
-        
+
         if (count > 2200) {
           charCount.classList.add('text-red-500');
           charCount.classList.remove('text-zinc-500');
@@ -162,7 +162,7 @@
           charCount.classList.remove('text-red-500');
         }
       };
-      
+
       textarea.addEventListener('input', updateCount);
       updateCount(); // Initial count
     }
