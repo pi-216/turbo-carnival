@@ -8,6 +8,7 @@ module Growth
   #
   # Mutatable knobs:
   #   - ContentPillar: weight / priority / active (shift share toward what works)
+  #   - ContentPillar: wardrobe_level (the wardrobe axis — PRD 0007 A2, #105)
   #   - Persona.caption_config: tone/style/voice
   #   - Persona.hashtag_strategy: max_tags / brand_tags
   class PersonaEvolution
@@ -18,6 +19,10 @@ module Growth
     TAG_STEP       = 5
     TAG_MIN        = 3
     TAG_MAX        = 30
+    # The wardrobe axis moves ONE rung at a time (PRD 0007 A2): single-step
+    # deltas, bounded by [floor, current validated tier], recorded so the change
+    # is auditable and reversible — the same bounded path as every class-2 change.
+    WARDROBE_STEP  = 1
     # The pre-experiment hashtag volume. The 10 -> 30 ramp (reviews 2-5) bought
     # no engagement, so the baseline is also the CAP for the broaden lever.
     TAG_BASELINE   = 10
@@ -59,6 +64,29 @@ module Growth
       return [] unless top_pillar && bottom_pillar
 
       reward(top_pillar, WEIGHT_STEP, bottom_pillar)
+    end
+
+    # PRD 0007 A2 (#105): move a pillar's wardrobe intensity by one rung.
+    # direction: :up (more revealed) / :down (more covered). Bounded by
+    # [floor, current validated tier] — the axis can never exceed the tier A5
+    # has validated, and never drops below the covered floor. Recorded as a
+    # class-2 change (from/to) so it is auditable and reversible. Returns [] if
+    # the move is a no-op (already at a bound or the pillar is unknown).
+    def adjust_wardrobe(pillar_name, direction: :up)
+      pillar = find_pillar(pillar_name)
+      return [] unless pillar
+
+      floor   = ContentPillars::WardrobeAxis::MIN_LEVEL
+      ceiling = ContentPillars::WardrobeAxis.validated_tier
+      current = ContentPillars::WardrobeAxis.effective_level(pillar)
+      target  = direction == :down ? current - WARDROBE_STEP : current + WARDROBE_STEP
+      target  = target.clamp(floor, ceiling)
+      return [] if target == current
+
+      from = { id: pillar.id, wardrobe_level: current }
+      pillar.update!(wardrobe_level: target)
+      record(:content_pillar_wardrobe, from, { id: pillar.id, wardrobe_level: target },
+             "wardrobe #{direction} #{pillar.name} to level #{target}")
     end
 
     # Adjust caption tone/style based on what's engaging. action: :warmer/:bolder/:calmer/:balanced

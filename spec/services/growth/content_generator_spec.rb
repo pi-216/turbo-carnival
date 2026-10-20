@@ -61,6 +61,31 @@ RSpec.describe Growth::ContentGenerator do
       expect(post.pipeline_run_id).to eq(result[:run_id])
     end
 
+    # PRD 0007 A2 (#105): the wardrobe axis value in effect for the render is
+    # recorded on the run row, so the reveal level a post carried is auditable
+    # without re-deriving it from the prompt.
+    it 'records the wardrobe axis level in effect on the run row' do
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+      run = PipelineRun.find(result[:run_id])
+
+      expect(run.variables['sync_producer']).to eq('Growth::ContentGenerator')
+      # The pillar is unconfigured, so the axis FLOOR is in effect and recorded.
+      expect(run.variables['wardrobe_level']).to eq(1)
+    end
+
+    it 'records a raised wardrobe level when the pillar is configured' do
+      pillar.update!(wardrobe_level: 5)
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(5)
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+      run = PipelineRun.find(result[:run_id])
+
+      expect(run.variables['wardrobe_level']).to eq(5)
+    end
+
     it 'ships the placeholder but records why when the caption call fails' do
       allow(PostAutomation::GenerateCaption).to receive(:call).and_return(
         double('caption result', success?: false, caption: nil, caption_metadata: nil,
