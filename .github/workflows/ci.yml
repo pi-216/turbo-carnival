@@ -117,6 +117,7 @@ jobs:
           name: rspec-report
           path: |
             tmp/agent-test/rspec-full.log
+            tmp/agent-test/app-output.log
             rspec.stdout
             rspec.stderr
           if-no-files-found: ignore
