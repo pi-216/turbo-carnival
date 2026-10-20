@@ -54,4 +54,71 @@ RSpec.describe AI::BrainClient do
       expect { described_class.new.generate('hi') }.to raise_error(AI::BrainClient::Error, /empty/)
     end
   end
+
+  describe '#chat with images (vision, ticket #103)' do
+    # Capture the JSON body actually sent, so the spec asserts the WIRE shape
+    # the llama-server mmproj decodes, not a convenience wrapper.
+    def post_capturing(response)
+      bodies = []
+      conn = double('conn')
+      allow(Faraday).to receive(:new).and_return(conn)
+      allow(conn).to receive(:post) do |_path, &blk|
+        req = double('request')
+        opts = double('options')
+        allow(opts).to receive(:timeout=)
+        allow(req).to receive(:options).and_return(opts)
+        allow(req).to receive(:headers).and_return({})
+        allow(req).to receive(:body=) { |b| bodies << b }
+        blk.call(req)
+        response
+      end
+      bodies
+    end
+
+    def ok_body(text)
+      { 'model' => 'brain', 'choices' => [ { 'message' => { 'content' => text } } ] }.to_json
+    end
+
+    it 'attaches the image to the FIRST user message as an OpenAI-compatible image_url part' do
+      bodies = post_capturing(double(success?: true, body: ok_body('ok'), status: 200))
+      described_class.new.chat(
+        messages: [ { role: 'user', content: 'How old does the person appear?' } ],
+        images: [ 'QUJD' ]
+      )
+
+      sent = JSON.parse(bodies.last)
+      expect(sent['messages'].first['content']).to eq(
+        [ { 'type' => 'text', 'text' => 'How old does the person appear?' },
+          { 'type' => 'image_url', 'image_url' => { 'url' => 'data:image/jpeg;base64,QUJD' } } ]
+      )
+    end
+
+    it 'leaves a call with no images byte-identical to before' do
+      bodies = post_capturing(double(success?: true, body: ok_body('ok'), status: 200))
+      described_class.new.chat(
+        messages: [ { role: 'system', content: 'sys' }, { role: 'user', content: 'hi' } ]
+      )
+
+      sent = JSON.parse(bodies.last)
+      expect(sent['messages']).to eq(
+        [ { 'role' => 'system', 'content' => 'sys' }, { 'role' => 'user', 'content' => 'hi' } ]
+      )
+    end
+
+    it 'attaches to the first user message only, leaving later messages untouched' do
+      bodies = post_capturing(double(success?: true, body: ok_body('ok'), status: 200))
+      described_class.new.chat(
+        messages: [
+          { role: 'system', content: 'sys' },
+          { role: 'user', content: 'first' },
+          { role: 'user', content: 'second' }
+        ],
+        images: [ 'QUJD' ]
+      )
+
+      sent = JSON.parse(bodies.last)
+      expect(sent['messages'][1]['content'].map { |part| part['type'] }).to eq(%w[text image_url])
+      expect(sent['messages'][2]['content']).to eq('second')
+    end
+  end
 end

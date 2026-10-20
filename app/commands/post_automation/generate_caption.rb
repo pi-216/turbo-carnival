@@ -15,7 +15,7 @@ module PostAutomation
       # `load` re-executes every service file on EVERY caption call, redefining
       # their singleton methods, which silently defeats stubbing in specs and hides
       # the branch that decides whether the caption ever looks at the image.
-      load_ollama_client
+      load_brain_client
 
       # Route on whether the photo has BYTES we can send, not on whether an
       # ActiveStorage attachment row exists.
@@ -55,10 +55,12 @@ module PostAutomation
 
     private
 
-    def load_ollama_client
-      # AI::OllamaClient does NOT autoload (lib/ai is not a clean Zeitwerk root),
-      # so it must still be loaded explicitly.
-      load "lib/ai/ollama_client.rb" unless defined?(AI::OllamaClient)
+    def load_brain_client
+      # AI::BrainClient does NOT autoload (lib/ai is not a clean Zeitwerk root),
+      # so it must be loaded explicitly at the entry point. Since ticket #103 it
+      # is the pipeline's only serving home (ModelConfig.resolve) — the Ollama
+      # client it used to load is retired from this path.
+      load "lib/ai/brain_client.rb" unless defined?(AI::BrainClient)
     end
   end
 end

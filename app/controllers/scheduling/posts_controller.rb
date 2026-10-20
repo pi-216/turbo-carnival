@@ -161,6 +161,8 @@ class Scheduling::PostsController < ApplicationController
 
   def load_caption_services
     Dir["packs/caption_generation/app/services/caption_generation/*.rb"].sort.each { |f| load f }
-    load "lib/ai/ollama_client.rb" unless defined?(AI::OllamaClient)
+    # The caption path's serving home is the brain (ticket #103); load its
+    # client explicitly because lib/ai is not a Zeitwerk root.
+    load "lib/ai/brain_client.rb" unless defined?(AI::BrainClient)
   end
 end

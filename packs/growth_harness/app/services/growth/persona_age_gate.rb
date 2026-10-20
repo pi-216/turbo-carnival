@@ -192,7 +192,19 @@ module Growth
     end
 
     def call(dry_run: true, limit: DEFAULT_LIMIT)
-      candidates(limit: limit).map { |post| check(post, dry_run: dry_run) }
+      results = candidates(limit: limit).map { |post| check(post, dry_run: dry_run) }
+      unreadable = results.count { |r| r.outcome == :skipped }
+      # The COUNT, loud: an individual unreadable post logs its own warning in
+      # check (the gate's existing contract), but a run that cannot read AT ALL
+      # — the brain serving home down — must be visible to the weekly review as
+      # a number, not as N scattered lines. Fail-open is preserved: publishing
+      # never waits on this line.
+      if unreadable.positive?
+        Rails.logger.warn("Growth::PersonaAgeGate: #{unreadable} unreadable read(s) this run " \
+                          "(limit #{limit}) — the brain serving home is not answering; " \
+                          "posts publish unchanged (fail-open)")
+      end
+      results
     end
 
     private

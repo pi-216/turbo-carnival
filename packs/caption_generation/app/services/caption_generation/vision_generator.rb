@@ -5,11 +5,17 @@ require 'base64'
 module CaptionGeneration
   # Image path: sends the photo to a vision model. Note this path is only TAKEN
   # when the caller routes a photo here (see PostAutomation::GenerateCaption:
-  # it branches on an ActiveStorage attachment); renders imported by the growth
-  # harness are path-only, so today they take CaptionGeneration::Generator
-  # instead. This class itself needs no attachment -- encode_image prefers the
-  # photo's local/NAS file -- so routing path-only renders here is a one-line
-  # change in the caller, not a change to this class.
+  # it branches on readable bytes); this class itself needs no attachment --
+  # encode_image prefers the photo's local/NAS file -- so routing path-only
+  # renders here is a one-line change in the caller, not a change to this class.
+  #
+  # Since ticket #103 the model is the brain (ModelConfig.resolve) and the
+  # request is OpenAI-compatible: the prompt plus its image go over one chat
+  # call. When the brain is not answering there is no fallback to route to, so
+  # the result is a recorded FAILURE (success: false, model_selection
+  # 'brain_unavailable') and the caller ships the placeholder -- exactly the
+  # floor the Ollama path fell to when IT was down, now with the reason on the
+  # row instead of a timeout.
   class VisionGenerator
     def self.generate(photo:, persona:, content_pillar: nil)
       new(photo: photo, persona: persona, content_pillar: content_pillar).generate
@@ -31,20 +37,19 @@ module CaptionGeneration
       # Build vision prompt
       prompt = build_vision_prompt
 
-      # Call Ollama with vision
+      # Call the brain with vision
       choice = model_choice
-      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
-                                    keep_alive: choice[:keep_alive])
+      return unavailable_result(choice) unless choice[:available]
 
-      result = client.chat(
+      result = choice[:client].chat(
         messages: [
           {
             role: 'user',
-            content: prompt,
-            images: [ image_base64 ]
+            content: prompt
           }
         ],
-        temperature: 0.7
+        temperature: 0.7,
+        images: [ image_base64 ]
       )
 
       # Process the generated caption
@@ -53,20 +58,15 @@ module CaptionGeneration
 
       Result.new(
         text: processed[:text],
-        metadata: build_metadata(processed, result),
+        metadata: build_metadata(processed, result, choice),
         success: processed[:compliant]
       )
     rescue StandardError => e
+      # model_choice (the memoised method, not a local): the guard raises above
+      # fire before the local is assigned, and the metadata must still record
+      # the serving-home state the call was made against.
       ModelConfig.log_failure(component: 'vision', error: e, photo_id: @photo&.id)
-      Result.new(
-        text: '',
-        metadata: { error: e.message, vision: true,
-                    model: model_choice[:model],
-                    requested_model: ModelConfig.model,
-                    model_selection: model_choice[:reason],
-                    timeout: model_choice[:timeout] },
-        success: false
-      )
+      failure_result(model_choice, "#{e.class}: #{e.message}")
     end
 
     private
@@ -78,16 +78,14 @@ module CaptionGeneration
     # a path-only photo here is a separate, deliberate product decision (pinned
     # in spec/commands/post_automation/generate_caption_spec.rb); this guard only
     # refuses a photo with no readable bytes at all, so it can never reject work
-    # it is capable of doing. Measured 2026-09-21 on a live path-only render
-    # (photo 351): encode + gemma3:4b vision call = 15.0s, and the caption
-    # described the actual photo while the text path invented a different scene.
+    # it is capable of doing.
     def image_readable?
       ImageEncoder.readable?(@photo)
     end
 
-    # Resolved once per call: which model answers depends on what Ollama has
-    # resident right now (see ModelConfig.resolve), and the metadata must record
-    # the same choice the client was built with.
+    # Resolved once per call: the read path and the caption path share the same
+    # serving home (ModelConfig.resolve -- the brain), and the metadata must
+    # record the same choice the client was built from.
     def model_choice
       @model_choice ||= ModelConfig.resolve
     end
@@ -132,18 +130,40 @@ module CaptionGeneration
       PROMPT
     end
 
-    def build_metadata(processed, ai_result)
+    def build_metadata(processed, ai_result, choice)
       {
-        model: ai_result[:model] || model_choice[:model],
-        requested_model: ModelConfig.model,
-        model_selection: model_choice[:reason],
-        timeout: model_choice[:timeout],
+        model: ai_result[:model] || choice[:model],
+        requested_model: choice[:model],
+        model_selection: choice[:reason],
+        timeout: choice[:timeout],
         generator: 'vision',
         word_count: processed[:text].split.size,
         char_count: processed[:text].length,
         compliant: processed[:compliant],
         warnings: processed[:warnings] || []
       }
+    end
+
+    # The brain is not answering. Recorded as a failure with the selection
+    # reason, so the placeholder this caller ships is COUNTABLE and explainable
+    # after the fact (the exact property the Ollama placeholder era lacked).
+    def unavailable_result(choice)
+      ModelConfig.log_failure(component: 'vision',
+                              error: ModelConfig::UnavailableError.new(choice[:reason]),
+                              photo_id: @photo&.id)
+      failure_result(choice, "brain serving home not answering (#{choice[:endpoint]})")
+    end
+
+    def failure_result(choice, error)
+      Result.new(
+        text: '',
+        metadata: { error: error, vision: true,
+                    model: choice[:model],
+                    requested_model: choice[:model],
+                    model_selection: choice[:reason],
+                    timeout: choice[:timeout] },
+        success: false
+      )
     end
   end
 end

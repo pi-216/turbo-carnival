@@ -22,7 +22,7 @@ RSpec.describe Growth::PersonaAgeGate do
 
   # Replaces the vision probe: no socket, and the answer is whatever the example
   # wants. `ok?`/`text`/`model`/`error` are the whole surface the gate uses.
-  def stub_probe(text: 'AGE: adult', error: nil, model: 'gemma3:4b')
+  def stub_probe(text: 'AGE: adult', error: nil, model: 'brain')
     result = CaptionGeneration::VisionProbe::Result.new(text: text, model: model, error: error)
     klass = Class.new do
       define_method(:ask) { result }
@@ -135,6 +135,19 @@ RSpec.describe Growth::PersonaAgeGate do
       stub_probe(text: 'AGE: teen')
 
       expect(described_class.call(persona: persona, dry_run: false)).to be_empty
+    end
+
+    it 'logs the unreadable-read count so a serving-home outage is visible to the weekly review' do
+      queued_post
+      queued_post
+      stub_probe(text: '', error: 'brain_unavailable')
+
+      allow(Rails.logger).to receive(:warn)
+
+      results = described_class.call(persona: persona, dry_run: false)
+
+      expect(results.map(&:outcome)).to all(eq(:skipped))
+      expect(Rails.logger).to have_received(:warn).with(/2 unreadable read\(s\) this run/)
     end
 
     it 'checks the nearest slot first' do

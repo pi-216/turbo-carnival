@@ -58,13 +58,15 @@ module CaptionGeneration
     end
 
     def generate_caption(prompt)
-      load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
+      load 'lib/ai/brain_client.rb' unless defined?(AI::BrainClient)
 
       choice = model_choice
-      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
-                                    keep_alive: choice[:keep_alive])
+      # No fallback ladder (ticket #103): a brain that is not answering is a
+      # recorded failure, not a hang on a dead host. The rescue below turns it
+      # into the placeholder path with model_selection 'brain_unavailable'.
+      raise ModelConfig::UnavailableError, choice[:reason] unless choice[:available]
 
-      result = client.chat(
+      result = choice[:client].chat(
         messages: [
           { role: 'system', content: prompt[:system] },
           { role: 'user', content: prompt[:user] }
@@ -75,9 +77,9 @@ module CaptionGeneration
       result[:text]
     end
 
-    # Resolved once per call: which model answers depends on what Ollama has
-    # resident right now (see ModelConfig.resolve), and the metadata must record
-    # the same choice the client was built with.
+    # Resolved once per call: the read path and the caption path share the same
+    # serving home (ModelConfig.resolve -- the brain), and the metadata must
+    # record the same choice the client was built from.
     def model_choice
       @model_choice ||= ModelConfig.resolve
     end

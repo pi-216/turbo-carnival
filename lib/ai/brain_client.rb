@@ -19,6 +19,14 @@ module AI
   # back rather than hang a tick on an absent brain. `generate` takes the same
   # (prompt, system:, temperature:, max_tokens:) shape as AI::GeminiClient and
   # AI::OllamaClient so a role can swap clients without changing its own code.
+  #
+  # VISION (ticket #103): `chat` also takes `images:`, an array of base64 image
+  # bytes. They are attached to the user message as OpenAI-compatible
+  # `image_url` content parts — the same wire shape every multimodal
+  # OpenAI-compatible endpoint uses, and what llama-server's mmproj
+  # (the HauhauCS projector, 1024 image tokens) decodes. The bytes' format is
+  # sniffed by the image decoder; the encoder (CaptionGeneration::ImageEncoder)
+  # normalises to JPEG so the data-URL label is true, not a guess.
   class BrainClient
     class Error < StandardError; end
 
@@ -68,10 +76,10 @@ module AI
       chat(messages: messages, temperature: temperature, max_tokens: max_tokens)[:text]
     end
 
-    def chat(messages:, temperature: 0.7, max_tokens: nil, thinking: false)
+    def chat(messages:, temperature: 0.7, max_tokens: nil, thinking: false, images: nil)
       body = {
         model: @model,
-        messages: messages,
+        messages: with_images(messages, images),
         temperature: temperature,
         stream: false,
         # llama-server (OpenAI-compatible) puts a reasoning model's chain-of-thought
@@ -95,6 +103,28 @@ module AI
     end
 
     private
+
+    # Attach base64 images to the FIRST user message as OpenAI-compatible
+    # content parts, leaving every other message (and a call with no images)
+    # byte-identical to before. The text part keeps the original content, so a
+    # vision prompt is the same prompt plus its pictures — not a different one.
+    #
+    # @return [Array<Hash>] the messages with the user message's content
+    #   replaced by [text part, image_url part, ...]
+    def with_images(messages, images)
+      image_urls = Array(images).compact.map { |b64| "data:image/jpeg;base64,#{b64}" }
+      return messages if image_urls.empty?
+
+      attached = false
+      messages.map do |msg|
+        next msg if attached || msg[:role] != "user"
+
+        attached = true
+        parts = [ { type: "text", text: msg[:content] } ]
+        parts += image_urls.map { |url| { type: "image_url", image_url: { url: url } } }
+        msg.merge(content: parts)
+      end
+    end
 
     def connection
       Faraday.new(url: @endpoint) do |conn|
