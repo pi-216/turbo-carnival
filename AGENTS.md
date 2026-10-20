@@ -36,7 +36,7 @@ A rule with no enforcement is a preference. Every rule below names what actually
 | Style is house style | `bin/rubocop` (rubocop-rails-omakase) — **in CI** |
 | No known security vulnerability ships | `bin/brakeman --no-pager` — **in CI** |
 | Pack boundaries | `bin/packwerk check` — **0 violations** (29 declared, 12 baselined individually in `packs/*/package_todo.yml` — stale entries fail the check); run by `bin/verify` **in CI** (PRD 0003) |
-| The real test suite | `bin/rspec` — **run in CI** with the agent test-signal verdict gate (a 0-example run fails the lane); also run by `bin/verify` (PRD 0003) |
+| The real test suite | `bin/rspec` — **run in CI** with the agent test-signal verdict gate (a 0-example run fails the lane); also run by `bin/verify` (PRD 0003). The signal's own contract is gated by `bin/test-agent-signal` (§ *the agent test signal*) |
 | Ticket linkage to the plan | intended `plan:check` — **does not exist yet** (PRD 0003) |
 
 ## The gate
@@ -53,6 +53,42 @@ bin/verify          # rubocop -> brakeman -> bundler-audit -> packwerk -> erb_li
 Fail-closed: a gate that cannot run (missing gem, DB down, 0 examples) is a failure, never a pass —
 the rspec gate requires exit 0 **and** a `TESTS OK` verdict, not just the exit code. CI runs it as
 the `verify` job; a green "done" claim requires it.
+
+## The agent test signal
+
+Test runs are fired by **unobserved** cron agents: no terminal, no redirect, and the agent's captured
+stdout *is* its context window. A default rspec run prefills that window with kilobytes of progress
+dots, application banners and framework backtrace it must read but cannot act on, so this repo owns
+its test entry point.
+
+- **The artifacts are ported, never hand-authored.** `bin/rspec`, `lib/rspec/agent_formatter.rb` and
+  `bin/test-agent-signal` are **byte-identical** to `rails-venture-template` at merge commit
+  `8dc4586b941a` (that repo's PR #9). Keep it that way: a repo-local variant breaks the fleet-wide
+  parity check that makes one contract meaningful across ventures. Verify with
+  `git show 8dc4586b941a:bin/rspec | diff - bin/rspec`.
+- **Two modes, selected by TTY.** On a TTY with `AGENT_TEST` unset, `bin/rspec` hands over to real
+  rspec untouched — a developer's terminal output does not move. With no TTY, or with `AGENT_TEST=1`,
+  it prints a compact verdict to stdout and writes the complete, untruncated report to
+  `~/.pi216/agent-test/<repo>-latest.log`, printing that path to stderr. `bundle exec rspec` stays
+  available for anyone who wants the gem binstub.
+- **Verdict vocabulary** (stable — agents grep for these prefixes): `TESTS OK` · `TESTS RED` (with the
+  diff) · `TESTS ZERO` (0 examples ran — **not** a pass) · `TESTS UNKNOWN` (aborted, no summary — not
+  a pass). `OK` can never be produced by silence, which is why both `bin/verify` and the CI test lane
+  require the `TESTS OK` line and not merely exit 0.
+- **The signal is a lens, never a replacement.** Anything the compact view caps is in the full log.
+- **`bin/test-agent-signal` gates the mechanism, not the artifact.** It runs the formatter against
+  synthetic ok/red/zero/load-error suites and asserts all 12 contract checks; it runs in CI. Change
+  the formatter and it fails here rather than silently in a cron log nobody reads.
+- **Application output must not share the verdict channel.** The formatter owns only what RSpec
+  emits; rake task bodies print their banners with `puts` straight to the process's `$stdout`, and
+  Sidekiq's logger writes its connection line there too. `spec/support/agent_test_quiet.rb` therefore
+  reroutes application stdout to `tmp/agent-test/app-output.log` **while `AGENT_TEST=1`** (also
+  uploaded as a CI artifact) and leaves the TTY path alone. `Rails.logger` is untouched — it
+  broadcasts to `log/test.log` and never reached stdout. Measured on a green 830-example run,
+  before/after: **6,800 B → 59 B**, one line.
+
+`bin/rails test` remains callable and still runs `test/`, which holds zero test files — it is not the
+signal and not the suite (§ *traps*).
 
 ## Traps that have actually cost time here
 
