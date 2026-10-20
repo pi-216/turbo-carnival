@@ -3,13 +3,14 @@
 module Growth
   # Keep the scheduled-post queue full enough to hit the goal's cadence.
   #
-  # MOVE-ON semantics (root cause of the NSFW stall): previously a single
-  # `nsfw_rejected` ended the whole hour's sync (break on first failure). NSFW
-  # rejection is PILLAR-SPECIFIC — a lingerie-drifted fashion render says
-  # nothing about the cooking pillar. So cadence now rotates through the
-  # persona's current pillars; on a rejection it records the shift, moves to
-  # the next pillar, and retries the slot. It only hard-stalls when every
-  # pillar in the pool has been exhausted.
+  # A failed render HALTS the tick -- it is no longer rotated across pillars. That
+  # rotation existed for one reason: an NSFW rejection was pillar-specific (a
+  # lingerie-drifted fashion render said nothing about the cooking pillar), so a
+  # rejected pillar was worth retrying with another. As of PRD 0007 A1 the classifier
+  # is a MEASUREMENT, not a veto, so no render failure is pillar-specific any more --
+  # what is left is render/infrastructure failure and the realism veto, both
+  # model-wide, and the correct response to a model-wide fault is to stop and let the
+  # brain escalate rather than to spend the tick re-rolling pillars.
   class CadenceEngine
     LOOKAHEAD_DAYS = 7
     # Minimum lead for a freshly generated post. The exact slot is allocated by
@@ -93,24 +94,11 @@ module Growth
         if result[:success]
           created += 1
           shortfall -= 1
-        elsif move_on?(result)
-          # NSFW rejection is pillar-specific: record the shift, shift to the
-          # NEXT pillar, and retry this slot. Only give up when the pool empties.
-          record_pillar_shift(result)
-          if config.any?
-            moved = generate_fresh(MIN_LEAD_DAYS, config.shift)
-            if moved[:success]
-              created += 1
-              shortfall -= 1
-            else
-              failures << "#{moved[:error] || 'unknown'} (run #{moved[:run_id]})"
-              break
-            end
-          else
-            failures << (result[:error] || 'nsfw_rejected; all pillars exhausted')
-            break
-          end
         else
+          # One failure ends the tick's fresh-render work. Nothing here is
+          # pillar-specific any more (see the class comment), so retrying the slot
+          # with a different pillar would only spend GPU time on a fault that is not
+          # about the pillar -- the brain escalates on the recorded blockage instead.
           failures << "#{result[:error] || 'unknown'} (run #{result[:run_id]})"
           break
         end
@@ -276,27 +264,6 @@ module Growth
         remaining.delete(picked)
       end
       order
-    end
-
-    # True ONLY for NSFW rejections — the one failure mode where retrying a
-    # DIFFERENT pillar is the correct move. Render/infra errors are not
-    # pillar-specific and still halt.
-    def move_on?(result)
-      result[:error].to_s.start_with?('nsfw_rejected')
-    end
-
-    # Audit row so the experiment ledger shows the harness responded to a
-    # rejection by shifting pillar rather than stalling.
-    def record_pillar_shift(result)
-      Growth::Decision.create!(
-        goal: goal,
-        action: 'pillar_shift',
-        reason: "nsfw_rejected; moved to next pillar (#{result[:error]})",
-        decided_at: Time.current
-      )
-      Rails.logger.warn("Growth::CadenceEngine pillar_shift: #{result[:error]}")
-    rescue StandardError => e
-      Rails.logger.error("Growth::CadenceEngine could not log pillar_shift: #{e.message}")
     end
 
     def scheduled_posts_count

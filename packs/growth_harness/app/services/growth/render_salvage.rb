@@ -47,6 +47,11 @@ module Growth
     MAX_AGE = 7.days
     ABANDONED_AFTER = 30.minutes
     STRATEGY_NAME = 'render-salvage'
+    # A run whose producer already recorded a gate verdict is not re-gated and not
+    # resurrected -- the same deterministic-gate rule Growth::LibraryFallback applies.
+    # `nsfw_rejected` is HISTORICAL as of PRD 0007 A1: no producer writes it any more
+    # (the classifier is a measurement), so it stays in this list only to keep the
+    # pre-A1 backlog's recorded verdict instead of silently re-publishing it.
     REJECTED_PREFIXES = %w[nsfw_rejected realism_rejected].freeze
 
     Result = Struct.new(:recovered, :rejected, :skipped, :post_ids, :examined, keyword_init: true)
@@ -174,10 +179,11 @@ module Growth
       path = candidate.image_path
 
       nsfw = Growth::NsfwGate.new.call(image_path: path)
-      unless nsfw.safe
-        record(run, 'salvage_rejected', "nsfw gate re-run rejected the recovered render (#{nsfw.error || "label=#{nsfw.label} score=#{nsfw.nsfw_score}"})")
-        return [ :rejected, nil ]
-      end
+      # ADVISORY (PRD 0007 A1): the recovered render is re-measured and the score is
+      # carried onto the asset row -- never vetoed. A killed producer's render that the
+      # classifier happens to flag is still PAID-FOR queue content, and the selection
+      # layer / the founder's tier pre-flight decide what is used. (Realism still vetoes
+      # here: PRD 0007 B3 demotes it in its own ticket.)
 
       realism = Growth::RealismGate.new.call(image_path: path)
       unless realism.safe
@@ -185,7 +191,7 @@ module Growth
         return [ :rejected, nil ]
       end
 
-      photo = import_photo(run, path)
+      photo = import_photo(run, path, nsfw)
       return [ :skipped, nil ] unless photo
 
       post = schedule_post(run, photo, nsfw, realism)
@@ -201,15 +207,20 @@ module Growth
       [ :recovered, post.id ]
     end
 
-    def import_photo(run, path)
+    def import_photo(run, path, nsfw)
       # ContentPillars::Photo.import_render is itself idempotent on `path` (it
       # find_or_creates), so an interrupted producer's Photo row is reused and
-      # the recovery only has to add the missing post.
+      # the recovery only has to add the missing post. It also records the
+      # re-measured NSFW score onto that row (PRD 0007 A1) -- the score is a
+      # property of the ASSET, and this recovery is the path where the row often
+      # already exists, so the backfill is the point.
       photo = ContentPillars::Photo.import_render(
         path: path,
         persona: goal.persona,
         content_pillar: run.content_pillar || fallback_pillar,
-        run: run
+        run: run,
+        nsfw_score: nsfw&.nsfw_score,
+        nsfw_flagged: nsfw&.flagged
       )
       @logger.warn("Growth::RenderSalvage could not import #{path}") unless photo
       photo

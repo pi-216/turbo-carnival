@@ -98,6 +98,16 @@ Impact classes: **A** = changes what gets rendered/published, or the boundary th
   for later re-valuation (re-score under revised thresholds or the brain's read, or manual review).
   Archive, don't delete: the corpus grows; the selection layer decides what is used.
 
+**Landed 2026-10-20 (ticket #104).** `Growth::NsfwGate` returns a *measurement*: no `safe` member, no
+reject branch, no purge. `flagged` is the verdict of record at the threshold in force when the image was
+scored, and it is persisted on the **asset row** (`photos.nsfw_score` / `photos.nsfw_flagged`) as well as on
+the run, because the selection layer and the tier pre-flight ask about the asset. An unmeasured score (dead
+model, missing image, gate disabled) **fails open** and is logged per run — NULL is not "safe", and it is not
+`false` either. `ContentGenerator` drops the `nsfw_rejected`/`nsfw_purge` path, `RenderSalvage` and
+`LibraryFallback` no longer veto on the score, and `CadenceEngine`'s NSFW pillar-rotation is retired with the
+rejection it existed for. Realism still vetoes until **B3 (#110)**; the age gate and the rest of the floor
+(§1) are untouched.
+
 ```gherkin
 Scenario: a high-scoring render is measured, not rejected
   Given a rendered image whose NSFW classifier score is 0.9

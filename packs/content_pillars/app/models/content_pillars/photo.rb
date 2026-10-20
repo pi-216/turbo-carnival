@@ -97,20 +97,49 @@ module ContentPillars
     # point, so the file Meta will fetch is marked before any post can reference
     # it -- and `provenance.embedded` is set from that write's result, not from
     # the intent to make it.
-    def self.import_render(path:, persona:, content_pillar:, run: nil)
+    #
+    # The NSFW MEASUREMENT rides the same choke point (PRD 0007 A1): `nsfw_score` /
+    # `nsfw_flagged` come from Growth::NsfwGate's result, passed as primitives
+    # because this pack must not depend upward on the growth pack. Both producers
+    # (Growth::ContentGenerator and Growth::RenderSalvage) go through here, so a
+    # producer that forgets the score cannot leave an asset with no measurement
+    # recorded -- and on the idempotent path (a render whose row already exists,
+    # which is exactly the interrupted-producer case RenderSalvage exists for) the
+    # score is BACKFILLED rather than dropped.
+    def self.import_render(path:, persona:, content_pillar:, run: nil, nsfw_score: nil, nsfw_flagged: nil)
       existing = find_by(path: path)
-      return existing if existing
+      return existing.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged) if existing
 
-      create!(
+      created = create!(
         persona: persona,
         path: path,
         content_pillar: content_pillar,
         image_candidate: nil,
         synthetic: true,
+        nsfw_score: nsfw_score,
+        nsfw_flagged: nsfw_flagged,
         provenance: PhotoProvenance.mark_asset(PhotoProvenance.for_run(run), path)
       )
+      created
     rescue ActiveRecord::RecordInvalid
-      find_by(path: path)
+      find_by(path: path)&.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+    end
+
+    # Record a measured NSFW score on this asset (PRD 0007 A1). Used by the import
+    # choke point and by Growth::LibraryFallback, which re-measures library photos it
+    # is about to spend.
+    #
+    # A MEASUREMENT IS FILLED IN, NEVER CLOBBERED: a row that already carries a score
+    # keeps it, because the stored flag is the verdict OF RECORD at the threshold then
+    # in force. Re-scoring an asset under a revised threshold is an explicit act
+    # (the re-valuation the founder's ruling refers to), not a side effect of an
+    # import or a spend. A nil score writes nothing: NULL means unmeasured, and an
+    # unmeasured pass must not look like a measurement.
+    def record_nsfw_score(nsfw_score:, nsfw_flagged: nil)
+      return self if nsfw_score.nil? || self.nsfw_score.present?
+
+      update_columns(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+      self
     end
 
     # Mark this photo's own asset bytes, on demand. Used by the publish gate for

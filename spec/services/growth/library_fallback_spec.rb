@@ -11,7 +11,7 @@ RSpec.describe Growth::LibraryFallback do
   let(:captioner) { double('captioner') }
 
   let(:nsfw_ok) do
-    Growth::NsfwGate::Result.new(safe: true, label: 'normal', nsfw_score: 0.01)
+    Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false)
   end
   let(:realism_ok) do
     Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0)
@@ -98,20 +98,24 @@ RSpec.describe Growth::LibraryFallback do
   end
 
   describe 'the gates' do
-    it 'never schedules a library photo the NSFW gate rejects' do
+    # PRD 0007 A1: the reserve is where "keep flagged assets for re-valuation" has to
+    # be visible, so the score is recorded ON THE ASSET ROW -- and the spend proceeds.
+    # (Realism still vetoes; see the next example.)
+    it 'spends a flagged library photo and records the score on the asset instead of vetoing' do
       allow(Growth::NsfwGate).to receive(:new)
-        .and_return(double('nsfw', call: Growth::NsfwGate::Result.new(safe: false, label: 'nsfw',
-                                                                      nsfw_score: 0.9992)))
+        .and_return(double('nsfw', call: Growth::NsfwGate::Result.new(nsfw_score: 0.9992, label: 'nsfw',
+                                                                      flagged: true)))
       queued_post!(hours: 24)
-      rejected = library_photo!
+      flagged = library_photo!
 
       result = fallback.call
 
-      expect(result.created).to eq(0)
-      expect(result.rejected).to eq(1)
-      expect(Scheduling::Post.exists?(photo_id: rejected.id)).to be(false)
-      decision = Growth::Decision.where(action: 'library_rejected').last
-      expect(decision.reason).to include(rejected.id.to_s)
+      expect(result.created).to eq(1)
+      expect(result.rejected).to eq(0)
+      flagged.reload
+      expect(flagged.nsfw_score).to be_within(0.0001).of(0.9992)
+      expect(flagged.nsfw_flagged).to be(true)
+      expect(Scheduling::Post.exists?(photo_id: flagged.id)).to be(true)
     end
 
     it 'never schedules a library photo the realism gate rejects' do
