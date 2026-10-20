@@ -1,3 +1,65 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/rspec — repo-owned rspec entry point, agent-aware.
+#
+# Why this file exists: `bundle exec rspec` resolves to the GEM binstub outside the
+# repo, so no repo-side change can affect it. Routing every caller (bin/verify, CI,
+# the cron agents) through this one binstub makes the test signal configurable in a
+# single place, and keeps `bundle exec rspec` available for anyone who wants it.
+#
+# Behaviour:
+#   * HUMAN (stdout is a TTY and AGENT_TEST is unset) -> hand over to real rspec,
+#     full output, unchanged. A developer's terminal experience does not move.
+#   * AGENT / CRON / CI (no TTY, or AGENT_TEST=1) -> a compact signal on stdout
+#     (TESTS OK / RED / ZERO / UNKNOWN) plus a complete, untruncated report on disk
+#     whose path is printed to stderr. The model reads the signal; the log is the
+#     escape hatch when the capped view is not enough.
+#
+# The signal is a LENS over the full log, never a replacement for it.
+#
+# Genome: Signal Fidelity, Pipeline Silence (0 examples => ZERO), Probe False
+# Positive (OK only from a completed summary), fail-closed (no summary => UNKNOWN).
+
+require "rubygems"
 require "bundler/setup"
-load Gem.bin_path("rspec-core", "rspec")
+
+ROOT      = File.expand_path("..", __dir__)
+REPO      = ENV.fetch("AGENT_TEST_REPO", File.basename(ROOT))
+FORMATTER = ENV.fetch("AGENT_FMT", File.join(ROOT, "lib", "rspec", "agent_formatter.rb"))
+DATADIR   = ENV.fetch("AGENT_TEST_DIR", File.join(Dir.home, ".pi216", "agent-test"))
+STAMP     = Time.now.utc.strftime("%Y-%m-%dT%H-%M-%SZ")
+# An explicit AGENT_TEST_DETAIL always wins (callers/tests that pin a path must get it).
+DETAIL    = ENV.fetch("AGENT_TEST_DETAIL", File.join(DATADIR, "#{REPO}-#{STAMP}.log"))
+LATEST    = ENV.fetch("AGENT_TEST_LATEST", File.join(DATADIR, "#{REPO}-latest.log"))
+TMPCOPY   = File.join(ROOT, "tmp", "agent-test", "rspec-full.log")
+
+# A formatter that does not exist must fail loudly here, not silently degrade a run
+# into the very output this binstub exists to suppress.
+unless File.exist?(FORMATTER)
+  warn "bin/rspec: agent formatter not found at #{FORMATTER} — falling back to plain rspec"
+  exec(RbConfig.ruby, Gem.bin_path("rspec-core", "rspec"), *ARGV)
+end
+
+# Human path: hand over to real rspec untouched, returning ITS exit code.
+if !ENV["AGENT_TEST"] && $stdout.tty?
+  exec(RbConfig.ruby, Gem.bin_path("rspec-core", "rspec"), *ARGV)
+end
+
+# Agent path: compact signal on stdout, complete report on disk.
+require "fileutils"
+FileUtils.mkdir_p(DATADIR)
+FileUtils.mkdir_p(File.dirname(TMPCOPY))
+
+ENV["AGENT_TEST_DETAIL"] = DETAIL
+rspec = Gem.bin_path("rspec-core", "rspec")
+system(rspec, "--no-color", "-r", FORMATTER, "--format", "AgentFormatter", *ARGV)
+rc = $?.exitstatus
+
+FileUtils.cp(DETAIL, LATEST)  if File.exist?(DETAIL)
+FileUtils.cp(DETAIL, TMPCOPY) if File.exist?(DETAIL)
+
+size = File.exist?(DETAIL) ? File.size(DETAIL) : 0
+warn "full log: #{DETAIL} (#{size} bytes, complete report)"
+warn "latest:   #{LATEST}"
+exit rc

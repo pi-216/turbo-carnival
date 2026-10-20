@@ -36,6 +36,12 @@ gem "thruster", require: false
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
 gem "image_processing", "~> 2.2"
 
+# Declared explicitly: image_processing 2.x treats mini_magick as optional, but
+# CaptionGeneration::ImageEncoder (packs/caption_generation) requires it directly.
+# Without this line it falls out of Gemfile.lock on a bump and the LoadError only
+# surfaces when the code path runs (caught by the wired rspec suite, 2026-10-20).
+gem "mini_magick"
+
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 # gem "rack-cors"
 
