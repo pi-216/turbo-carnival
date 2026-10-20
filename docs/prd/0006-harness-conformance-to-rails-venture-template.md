@@ -151,8 +151,11 @@ ABSENT: strong_migrations
 (`bin/verify` itself is **PRD 0003 / ticket #47** — this PRD owns only the *gate membership* the template
 names and this repo lacks: `bundler-audit`, `erb_lint`, and the packwerk step PRD 0003 already covers.)
 
-**Landed 2026-10-19 (ticket #78).** All three gems are installed, and `bundler-audit` + `erb_lint` now run
-as CI gates. `.erb_lint.yml` is **byte-identical** to the template heredoc (sha256
+**Landed in two halves (ticket #78).** *2026-10-19 (PR #99):* all three gems are installed, and
+`bundler-audit` + `erb_lint` now run as CI gates. *2026-10-20 (this PR):* `bin/verify` gains the two
+missing members — `bundler-audit` and `erb_lint` — in the template's order, so the Tier-0 gate itself
+fails on a vulnerable gem or unlintable ERB, not just the separate CI lanes. `.erb_lint.yml` is
+**byte-identical** to the template heredoc (sha256
 `8ef8be869a544943d92250896322061d854220e760497c9b49fc67af6bd1cd74`). Measured, both directions:
 
 ```
@@ -169,11 +172,13 @@ $ bundle exec bundler-audit check     # No vulnerabilities found — exit 0
 $ bundle exec bundler-audit check D   # rack 2.0.0 seeded into a copy of the lock → exit 1
 ```
 
-**Deliberately not landed here.** `bin/verify` itself is **#47**'s, and the **packwerk step is not wired
-into CI**: `bin/packwerk check` reports **47 offenses**, and PRD 0003 owns both the enforcement and the
-cleanup ("the 46 packwerk violations resolved or individually baselined" — #46/#47/#50). Adding it as a
-gate before that cleanup lands would turn CI red for every PR, which is a worse state than the documented
-gap. `strong_migrations` rides on R6; `erb_lint`'s pre-existing 260 offenses were cleared by
+**Deliberately not landed here (closed 2026-10-20).** `bin/verify` itself is **#47**'s, and the
+**packwerk step was not wired into CI** while `bin/packwerk check` reported **47 offenses**: PRD 0003
+owns both the enforcement and the cleanup ("the 46 packwerk violations resolved or individually
+baselined" — #46/#47/#50). Adding it as a gate before that cleanup lands would turn CI red for every
+PR, which is a worse state than the documented gap. That is now moot: #46 resolved the violations
+(2026-10-20) and #47 wired `bin/packwerk check` into both `bin/verify` and the CI `verify` job.
+`strong_migrations` rides on R6; `erb_lint`'s pre-existing 260 offenses were cleared by
 `--autocorrect` in the same change.
 
 **F4 — CI is a subset of the gate, and one lane is vacuous.** `.github/workflows/ci.yml` runs **brakeman

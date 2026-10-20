@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# bin/verify — the single Tier-0 gate (PRD 0003).
+# bin/verify — the single Tier-0 gate (PRD 0003; gate membership per PRD 0006 F3).
 #
 # "Done" becomes a state a machine can verify, not a claim an agent makes
-# about itself. This composes the existing entry points in a fixed order and
-# stops at the first failure:
+# about itself. This composes the existing entry points in a fixed order
+# (the rails-venture-template's order) and stops at the first failure:
 #
-#   bin/rubocop -> bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check
+#   bin/rubocop -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check
+#   -> erb_lint -> bin/rspec
 #
 # Fail-closed: a gate that cannot run (missing gem, missing DB, missing
 # binstub) is a FAILURE, never a pass. The rspec gate is verdict-gated, not
@@ -43,6 +44,18 @@ run_gate() {
 run_gate "rubocop" bin/rubocop
 run_gate "brakeman" bin/brakeman --no-pager
 
+# bundler-audit: prefer the local advisory DB; fall back to --update when the
+# local check can't run (fresh clone has no DB yet) — the template's pattern.
+if bundle exec bundler-audit check >/dev/null 2>&1; then
+  AUDIT="bundle exec bundler-audit check"
+else
+  AUDIT="bundle exec bundler-audit check --update"
+fi
+run_gate "bundler-audit" sh -c "$AUDIT"
+
+run_gate "packwerk" bin/packwerk check
+run_gate "erb_lint" bundle exec erb_lint --lint-all
+
 # rspec: AGENT_TEST=1 forces the compact signal even on a TTY, so the verdict
 # line is always present and checkable (the binstub's documented agent mode).
 # Success requires BOTH exit 0 AND the TESTS OK verdict — exit 0 alone also
@@ -60,7 +73,5 @@ fi
 echo "    ok: rspec"
 grep '^TESTS' "$LOGDIR/rspec.log" || true
 
-run_gate "packwerk" bin/packwerk check
-
-echo "VERIFY OK: rubocop, brakeman, rspec, packwerk all passed"
+echo "VERIFY OK: rubocop, brakeman, bundler-audit, packwerk, erb_lint, rspec all passed"
 exit 0
