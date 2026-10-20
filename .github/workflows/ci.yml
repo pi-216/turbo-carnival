@@ -62,11 +62,13 @@ jobs:
           - 5432:5432
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
 
-      # redis:
-      #   image: redis
-      #   ports:
-      #     - 6379:6379
-      #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      # The JobPollerWorker (and other Sidekiq specs) connect to Redis at the
+      # default redis://localhost:6379/1; the mapped port satisfies that.
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
       - name: Install packages
@@ -81,12 +83,46 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      - name: Run tests
+      - name: Build assets (tailwind)
+        # View specs render stylesheet_link_tag "tailwind"; the built CSS lives in
+        # app/assets/builds, which is gitignored, so a fresh checkout has none.
+        run: RAILS_ENV=test bin/rails tailwindcss:build
+
+      - name: Run the real suite (rspec)
         env:
           RAILS_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
           # REDIS_URL: redis://localhost:6379/0
-        run: bin/rails db:test:prepare test
+          AGENT_TEST: "1"
+        run: |
+          bin/rails db:test:prepare
+          set -o pipefail
+          bin/rspec 2>rspec.stderr | tee rspec.stdout
+          # PRD 0003 finding 4: this step replaces the Minitest step that executed
+          # 0 examples (test/ holds no *_test.rb files) and reported green. rspec
+          # also exits 0 on a zero-example run, so the verdict is checked, not
+          # just the exit code — a lane that executes nothing must never pass.
+          if ! grep -q '^TESTS OK' rspec.stdout; then
+            echo "::error::Test lane verdict was not 'TESTS OK' (zero examples or unknown run) — see rspec.stdout and the full log path on stderr"
+            exit 1
+          fi
+
+      - name: Upload full test report
+        # The agent signal is a lens over a full report written to disk; on a
+        # failed run the runner is ephemeral, so keep the report + captured
+        # lanes as an artifact for post-mortem.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rspec-report
+          path: |
+            tmp/agent-test/rspec-full.log
+            rspec.stdout
+            rspec.stderr
+          if-no-files-found: ignore
+
+      - name: Agent test signal contract
+        run: bin/test-agent-signal
 
       - name: Cucumber (only when features exist)
         if: ${{ hashFiles('gherkin_specs/**/*.feature') != '' }}

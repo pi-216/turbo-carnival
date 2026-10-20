@@ -23,7 +23,17 @@ module TurboCarnival
     # which does not eager load). Every call site already loads these files
     # explicitly (`load 'lib/ai/ollama_client.rb'`, `require Rails.root.join(...)`),
     # so ignoring the directory is the accurate declaration, not a workaround.
-    config.autoload_lib(ignore: %w[assets tasks ai])
+    #
+    # `lib/rspec` is deliberately NOT a Zeitwerk root either: the agent
+    # test-signal formatter registers itself in the class body
+    # (`RSpec::Core::Formatters.register ...`), but rspec-core is not loaded
+    # when the app boots. The test env sets `eager_load = ENV["CI"].present?`,
+    # so on a CI runner Zeitwerk eagerly loaded the file at boot, hit the
+    # missing `RSpec` constant, and ABORTED app boot — every spec file then
+    # failed to load (`NameError: uninitialized constant Rspec::AgentFormatter`,
+    # 114/114 files). bin/rspec loads the file by explicit path, so ignoring
+    # the directory is the accurate declaration, not a workaround.
+    config.autoload_lib(ignore: %w[assets tasks ai rspec])
 
     # Configuration for the application, engines, and railties goes here.
     #

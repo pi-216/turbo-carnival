@@ -1,0 +1,104 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/test-agent-signal — self-test for the agent test signal (bin/rspec + formatter).
+#
+# The four guards in lib/rspec/agent_formatter.rb are exactly the kind of thing that
+# rots silently (see founders-harness: "gate the mechanism, not the artifact"). This
+# runs the formatter against a synthetic suite covering every verdict and asserts the
+# CONTRACT, so a change that breaks a verdict fails here rather than in a cron log
+# nobody reads.
+#
+# Usage: bin/test-agent-signal   (exit 0 = contract holds)
+
+require "open3"
+require "tmpdir"
+require "fileutils"
+
+ROOT      = File.expand_path("..", __dir__)
+FORMATTER = File.join(ROOT, "lib", "rspec", "agent_formatter.rb")
+BIN       = File.join(ROOT, "bin", "rspec")
+
+# A synthesized suite per verdict. Written to a temp dir OUTSIDE spec/ so it never
+# touches the real suite, and invoked by path so neither helper is required.
+FIXTURES = {
+  "ok" => <<~RUBY,
+    RSpec.describe("ok") { it("passes") { expect(1).to eq(1) } }
+  RUBY
+  "red" => <<~RUBY,
+    RSpec.describe("red") do
+      it("expectation diff") { expect("want").to eq("got") }
+      it("raises") { nil.nope }
+    end
+  RUBY
+  "zero" => nil
+}.freeze
+
+def run_fixture(name, body, extra = [])
+  Dir.mktmpdir("agent-signal") do |dir|
+    detail = File.join(dir, "detail.log")
+    args = []
+    if body
+      path = File.join(dir, "#{name}_spec.rb")
+      File.write(path, body)
+      args << path
+    end
+    env = {
+      "AGENT_TEST" => "1",
+      "AGENT_TEST_DETAIL" => detail,
+      "AGENT_TEST_DIR" => File.join(dir, "logs"),
+      "AGENT_TEST_REPO" => name,
+      "RUBYOPT" => "-W0"
+    }
+    out, err, status = Open3.capture3(env, BIN, *extra, *args, chdir: ROOT)
+    [out, err, status.exitstatus, (File.exist?(detail) ? File.read(detail) : "")]
+  end
+end
+
+FAILURES = []
+def check(desc, cond, detail = nil)
+  if cond
+    puts "  ✓ #{desc}"
+  else
+    puts "  ✗ #{desc}#{detail ? " — #{detail}" : ""}"
+    FAILURES << desc
+  end
+end
+
+exit(1) unless File.exist?(FORMATTER) && File.exist?(BIN)
+puts "agent test signal self-test"
+
+# 1. OK path: signal is a single compact line; log is written; exit 0.
+out, _err, rc, log = run_fixture("ok", FIXTURES["ok"])
+check("green emits a single-line TESTS OK", out.lines.size == 1 && out.start_with?("TESTS OK"), out.inspect)
+check("green signal is compact (<200 bytes)", out.bytesize < 200, "#{out.bytesize}B")
+check("green exit code is 0", rc.zero?, rc)
+check("green still writes the full log", !log.empty?)
+
+# 2. RED path: verdict + identity + diff; exit 1 non-zero.
+out, _err, rc, log = run_fixture("red", FIXTURES["red"])
+check("red emits TESTS RED", out.start_with?("TESTS RED"), out.lines.first.inspect)
+check("red signal carries the diff", out.include?("expected:") && out.include?("got:"))
+check("red signal carries the exception class", out.include?("NoMethodError"))
+check("red exit code is non-zero", !rc.zero?, rc)
+check("red log holds the untruncated group", log.include?("NoMethodError"))
+
+# 3. ZERO path: a green run that executed nothing must NOT read as OK.
+out, _err, rc, _log = run_fixture("zero", nil, ["--pattern", "no_such_*_spec.rb"])
+check("zero examples => TESTS ZERO, never OK",
+      out.start_with?("TESTS ZERO") && !out.include?("TESTS OK"), out.lines.first.inspect)
+
+# 4. UNKNOWN path: a load error must never read as OK.
+out, _err, rc, log = run_fixture("ok", FIXTURES["ok"], ["spec/definitely_missing_spec.rb"])
+check("load error => UNKNOWN / not OK",
+      out.include?("UNKNOWN") && !out.include?("TESTS OK"), out.lines.first.inspect)
+check("load error exit code is non-zero", !rc.zero?, rc)
+
+puts
+if FAILURES.empty?
+  puts "✓ agent test signal contract holds"
+  exit 0
+else
+  puts "✗ #{FAILURES.size} contract violation(s)"
+  exit 1
+end

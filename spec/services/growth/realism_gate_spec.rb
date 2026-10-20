@@ -1,9 +1,22 @@
 # frozen_string_literal: true
 
+require 'tmpdir'
+
 require 'rails_helper'
 
 RSpec.describe Growth::RealismGate do
   subject(:gate) { described_class.new }
+
+  # The gate checks the model directory (default: a NAS path) exists before
+  # running the scorer, so the spec must not depend on the NAS being mounted:
+  # point AESTHETIC_MODEL_DIR at an existing tmpdir. The "model directory is
+  # missing" context overrides this with a nonexistent path.
+  before do
+    @model_dir = Dir.mktmpdir('aesthetic-model')
+    stub_const('ENV', ENV.to_h.merge('AESTHETIC_MODEL_DIR' => @model_dir))
+  end
+
+  after { FileUtils.remove_entry(@model_dir) }
 
   describe '#call' do
     context 'when the gate is disabled via env' do
