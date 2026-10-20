@@ -35,20 +35,24 @@ A rule with no enforcement is a preference. Every rule below names what actually
 | ComfyUI runs only while this repo holds a GPU claim | `bin/comfyui_harness.sh` — **never** launch ComfyUI any other way |
 | Style is house style | `bin/rubocop` (rubocop-rails-omakase) — **in CI** |
 | No known security vulnerability ships | `bin/brakeman --no-pager` — **in CI** |
-| Pack boundaries | `bin/packwerk check` — **installed but NOT enforced**; 46 offenses today (PRD 0003) |
-| The real test suite | `bin/rspec` — **runs correctly, but CI does not run it** (PRD 0003) |
+| Pack boundaries | `bin/packwerk check` — **0 violations** (29 declared, 12 baselined individually in `packs/*/package_todo.yml` — stale entries fail the check); run by `bin/verify` **in CI** (PRD 0003) |
+| The real test suite | `bin/rspec` — **run in CI** with the agent test-signal verdict gate (a 0-example run fails the lane); also run by `bin/verify` (PRD 0003) |
 | Ticket linkage to the plan | intended `plan:check` — **does not exist yet** (PRD 0003) |
 
 ## The gate
 
-`bin/verify` is the intended single Tier-0 gate (PRD 0003 — **not yet landed**). Until it exists, the
-equivalent manual sequence is:
+`bin/verify` is the single Tier-0 gate (PRD 0003). It composes the existing entry points in a fixed
+order and stops at the first failure:
 
 ```bash
 cd /home/tim/source/activity/turbo-carnival
 source /usr/share/rvm/scripts/rvm && rvm use 3.4.5
-bin/rubocop && bin/brakeman --no-pager && bin/rspec
+bin/verify          # bin/rubocop -> bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check
 ```
+
+Fail-closed: a gate that cannot run (missing gem, DB down, 0 examples) is a failure, never a pass —
+the rspec gate requires exit 0 **and** a `TESTS OK` verdict, not just the exit code. CI runs it as
+the `verify` job; a green "done" claim requires it.
 
 ## Traps that have actually cost time here
 
