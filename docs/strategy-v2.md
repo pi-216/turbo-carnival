@@ -16,9 +16,9 @@ exist — see `PROJECT_PLAN.md` for what is built, what is paper, and in what or
 | # | Decision | Source |
 |---|---|---|
 | 1 | Audience values **visual gain over personality** — content is not built on character/story | founder |
-| 2 | **Two venues**: Instagram = SFW discovery funnel; a permissive platform = explicit payload | founder |
-| 3 | Instagram stays **safe-side** (account is tied to a personal account; blast radius matters) | founder |
-| 4 | The intensity limits get probed by a **separate, isolated persona** — not Sarah | founder |
+| 2 | **Two venues**: Instagram = discovery funnel; a permissive platform = explicit payload | founder |
+| 3 | The ceiling on Instagram content is the **measured platform tolerance** — PRD 0005's wardrobe ladder finds it; nothing caps the venue below it in advance (blast radius is managed by §4 venue isolation, not an advance content cap). Supersedes the 2026-10-18 "safe-side" decision | founder, re-ruling 2026-10-20 (PRD 0007 B4) |
+| 4 | The **explicit payload** lives behind a **separate, isolated persona** — not Sarah (unchanged); the intensity boundary itself is measured on the primary venue by PRD 0005's wardrobe ladder, tier by tier (PRD 0007 A5/B4) | founder |
 | 5 | **Keep** Instagram account `a1.sarah.a1` (161 followers, keep the history) | founder |
 | 6 | Uncensored text model runs **on this box (4090)** via llama.cpp, as a **phase machine** | founder |
 | 7 | **Bounded autonomy** — Thinker proposes; founder approves *direction changes* only | founder |
@@ -63,14 +63,20 @@ evaluation, not as an established effect.*
 
 The core tension: **the audience this persona targets is served by content that
 Instagram's recommender penalises.** Wholesome content gets distributed; borderline
-content gets suppressed. Fighting that inside Instagram is unwinnable.
+content gets suppressed. The boundary between tolerated and penalised content on
+Instagram is a **measurement**: PRD 0005's wardrobe ladder is the instrument that
+finds it, tier by tier, with the founder pre-flight on each tier start (PRD 0007
+B4/A5). Nothing caps the venue below the measured boundary in advance.
 
-Resolution: **stop fighting it.** Split the estate by venue.
+Resolution: **split the estate by venue, and push the primary venue to its
+measured limit.** The second persona stays where the explicit payload lives
+(unchanged — §4); Sarah's venue is where the funnel lives, and it is pushed to the
+measured boundary rather than held at a comfort level.
 
 ```
-┌─ VENUE A — DISCOVERY (SFW) ─────────────────────────────────────┐
+┌─ VENUE A — DISCOVERY ───────────────────────────────────────────┐
 │  Instagram (primary) · X (candidate secondary)                  │
-│  Sarah · safe-side · reels-first                                │
+│  Sarah · pushed to the measured boundary · reels-first          │
 │  Instrument: NON-FOLLOWER REACH                                 │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ funnel through a NEUTRAL interstitial
@@ -82,9 +88,11 @@ Resolution: **stop fighting it.** Split the estate by venue.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-This converges platform rules with risk posture: **both** demand a SFW public surface
-with the explicit material behind a paywall. The safe architecture and the compliant
-architecture are the same architecture.
+This converges platform rules with risk posture: **both** demand the public surface stay
+within platform tolerance, with the explicit material behind a paywall. The compliant
+architecture is a measured architecture — the boundary is found by the ladder, not chosen
+in advance (PRD 0007 B4; the enforcement rule is §12.3 — an agent may not promote its own
+safety preference into a founder red line).
 
 ---
 
@@ -122,8 +130,11 @@ Isolation is **architectural, not procedural** — enforced by structure, not by
 remembering to be careful.
 
 - A **separate persona** for Venue B: different look, different voice, different
-  name. It is a **probe** — a canary that finds the platform limits. Sarah's IG
-  account never approaches the edge.
+  name. It carries the **explicit payload** behind the funnel (unchanged — PRD 0007
+  B4). The platform boundary on Sarah's own venue is no longer delegated to this
+  canary: PRD 0005's wardrobe ladder measures it on the primary venue, tier by tier,
+  with the founder pre-flight on each tier start (PRD 0007 A5) — Sarah's account is
+  pushed to the measured boundary deliberately, not held away from it.
 - **Separate credentials**: email, phone, payment, and platform logins. No shared
   secrets between venues.
 - **No cross-linking**: different handles, no shared watermark, no shared link-in-bio
@@ -148,8 +159,9 @@ remembering to be careful.
 - **Gates vs controls** (founder, 2026-10-18): quality controls — human rating,
   identity similarity, genetic search — are **instruments and selectors, never
   blockers**. The single exception is the **legal floor**, which stays a hard
-  fail-closed gate. "Safe side" on Instagram and blast-radius isolation are
-  unchanged.
+  fail-closed gate. Blast-radius isolation (§4) is unchanged; the "safe-side" cap on
+  Instagram is retired — the ceiling on the primary venue is the measured platform
+  tolerance (PRD 0007 B4, re-ruling 2026-10-20).
 
 ---
 

@@ -7,9 +7,10 @@
 ## What this repo is
 
 A Rails 8 application that runs an autonomous Instagram growth harness for a **synthetic persona**,
-plus the ComfyUI render pipeline behind it. Two venues: an SFW discovery surface (Instagram)
-and a permissive payload venue behind a second isolated persona. Work is organised as **PRDs + GitHub
-tickets** on board `pi-216` project **#5** (`https://github.com/orgs/pi-216/projects/5`).
+plus the ComfyUI render pipeline behind it. Two venues: a discovery surface (Instagram), pushed to its
+measured platform tolerance (PRD 0007 B4), and a permissive payload venue behind a second isolated
+persona. Work is organised as **PRDs + GitHub tickets** on board `pi-216` project **#5**
+(`https://github.com/orgs/pi-216/projects/5`).
 
 ## Read these, in this order
 
@@ -144,8 +145,17 @@ authority boundary (it previously lived in `strategy-v3.md`, deleted 2026-10-19)
 |---|---|---|
 | 1 — correctness / quality | anatomy: four limbs, exactly one hand | **the system acts** |
 | 2 — style / format / pillar | a new scene type, a new LoRA, a new base model, **or the content-pillar set itself** (reweight, retire, replace, rename, split, add) | **the system acts**, measured |
-| 3 — explicitness / intensity | swimwear and beyond | **founder ruling** |
-| 4 — identity / persona | the age read, persona identity | **founder ruling** |
+| 3 — explicitness / intensity | visible areola (nipples) and beyond, up to the measured platform boundary | **the system acts, measured** — bounded by the legal floor (PRD 0007 §1); an intensity step that crosses the floor is the floor's business, not class 3's |
+| 4 — identity / persona | the age read, persona identity | **founder ruling** (unchanged: Sarah, 18) |
+
+**Class 3 is delegated with a tier pre-flight (PRD 0007 A5, founder ruling 2026-10-20).** The delegation
+is not blind, and it is not a standing per-post approval either. Before the intensity experiment pushes
+the primary account past a tier, the founder verifies that tier: the system prepares it (renders, scores,
+queues), presents the tier's assets + gate readings (NSFW score, aesthetic/sharpness, age band) for
+review, and publishes from that tier only after the founder's go. Once a tier is validated, posting within
+it proceeds autonomously — measured, bounded by the floor, revert on failure. The gate is on the tier
+start, not on evidence: promotion still happens automatically on pre-registered thresholds, and nothing
+parks between tiers.
 
 **The content-pillar set is not a founder rail — it is class 2.** Founder ruling, 2026-10-19: *"the brain
 or experimenter should know that the existing pillars are fair game."* The five rails in `THESIS.md`
@@ -164,16 +174,23 @@ not, because they are about different things:
 
 - **The founder is not a gate on evidence.** Promotion happens automatically on a pre-registered threshold;
   the founder never approves a *design*, and no experiment waits on an approval.
-- **The founder is the authority on classes 3 and 4.** Those are not measurements — they are rulings about
-  what may exist, and no amount of evidence produces one.
+- **The founder is the authority on class 4 (identity).** That is a ruling, not a measurement, and no
+  amount of evidence produces one. Class 3 is no longer parked with the founder: the system acts,
+  measured, inside the floor — the founder's role there is the tier pre-flight above, a deliberate safety
+  action on tier starts, not an evidence gate.
 
-**A withheld instrument parks safely; a withheld ruling fails closed.** Class 1–2 work continues; a class 3–4
-question stops until it is answered. Reading "never a gate" as licence to self-authorize an intensity step
-is the misreading this section exists to prevent.
+**A withheld instrument parks safely; a withheld ruling fails closed — and there is no class-3 ruling
+left to withhold.** Class 1–3 work continues; a class-4 question stops until it is answered, and the tier
+pre-flight holds a row until the founder verifies the tier — a deliberate safety action (a held row), not
+a defect. A floor question (a render reads minor, an asset lacks the mark) still fails closed. This is
+the line the next agent reads first, and it is the reason PRD 0007 exists: **the docs must not leave an
+uncensored model a plausible story for being timid.**
 
 **Enforcement: the boundary must be mechanical, not a prompt instruction.** An agent free to not-hedge will
-also rationalise self-authorizing an intensity step — the trait that makes it useful is the trait that makes
-self-gating unsafe. A script refuses the self-grant; the model decides freely inside classes 1 and 2.
+also rationalise self-authorizing a tier advance — the trait that makes it useful is the trait that makes
+self-gating unsafe. A script refuses the self-grant: a tier is not validated by the system's say-so (the
+pre-flight hold is a held row, and the floor gates run on the bytes), and class 4 never moves without the
+founder. The model decides freely inside classes 1–3 within a validated tier.
 
 > *"I am hoping that this can be an 'autonomous' content creator… I am a tool or consultant in this. not the
 > blocker or approver or creator."* — founder, 2026-10-18
