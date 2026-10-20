@@ -1,4 +1,4 @@
-class SelectNextJob < GLCommand::Callable
+class SelectNextJob < ApplicationCommand
   returns :parent_candidate, :next_step, :mode, :pipeline_run
 
   # Statuses that mean "this run still wants work". `failed` is TERMINAL and must

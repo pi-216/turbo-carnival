@@ -2,7 +2,7 @@
 
 module Photos
   # Get available (unposted) photos with attached images for a persona
-  class ListAvailable < GLCommand::Callable
+  class ListAvailable < ApplicationCommand
     requires persona: Persona
     allows pillar_id: Integer
 

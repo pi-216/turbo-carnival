@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module ContentStrategy
-  class StrategyAdjuster < GLCommand::Callable
+  class StrategyAdjuster < ApplicationCommand
     def call
       persona = Persona.find_by(name: "Sarah")
       return unless persona

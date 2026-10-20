@@ -20,7 +20,7 @@ module Attribution
   #
   # Absent stays absent: only the values actually passed are written, so an update fills facts
   # in and never blanks one that was already known.
-  class RecordRender < GLCommand::Callable
+  class RecordRender < ApplicationCommand
     requires :prompt_parts
     allows :render, :pipeline_run, :image_candidate, :asset,
            :asset_sha256, :asset_path, :asset_byte_size, :asset_width, :asset_height,

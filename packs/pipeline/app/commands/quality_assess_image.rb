@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class QualityAssessImage < GLCommand::Callable
+class QualityAssessImage < ApplicationCommand
   requires :image_candidate
 
   returns :quality_score, :quality_metrics, :passed

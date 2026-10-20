@@ -2,7 +2,7 @@
 
 module PostAutomation
   # Step 2: Generate AI caption for the selected photo
-  class GenerateCaption < GLCommand::Callable
+  class GenerateCaption < ApplicationCommand
     requires photo: ContentPillars::Photo, persona: Persona
     allows pillar: ContentPillar
 

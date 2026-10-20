@@ -1,4 +1,4 @@
-class RejectImageBranch < GLCommand::Callable
+class RejectImageBranch < ApplicationCommand
   requires :image_candidate
 
   def call

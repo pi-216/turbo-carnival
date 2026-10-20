@@ -33,7 +33,7 @@
 # Scope is deliberately narrow: ONLY runs carrying the sync_producer tag. An
 # async run with all jobs terminal is normal mid-pipeline state (the dispatcher
 # owes it a next step), so reaping it would destroy live work.
-class ReconcileStaleRuns < GLCommand::Callable
+class ReconcileStaleRuns < ApplicationCommand
   returns :reconciled
 
   GRACE = 30.minutes

@@ -2,7 +2,7 @@
 
 module PostAutomation
   # Step 1: Use content strategy to select the next photo to post
-  class SelectNextPhoto < GLCommand::Callable
+  class SelectNextPhoto < ApplicationCommand
     requires persona: Persona
     allows strategy_name: String
 

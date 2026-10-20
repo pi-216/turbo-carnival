@@ -16,7 +16,7 @@ module Scheduling
     # mark is still absent. A photo that can be marked publishes normally, so the
     # gate does not consume the queue; only a genuinely unmarkable asset stops,
     # consistent with the existing NSFW and realism gates.
-    class GeneratePublicPhotoUrl < GLCommand::Callable
+    class GeneratePublicPhotoUrl < ApplicationCommand
       requires photo: ContentPillars::Photo
       returns public_photo_url: String
 

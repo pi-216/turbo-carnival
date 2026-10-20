@@ -2,7 +2,7 @@
 
 module Scheduling
   module Commands
-    class SendPostToInstagram < GLCommand::Callable
+    class SendPostToInstagram < ApplicationCommand
       requires :public_photo_url, :caption, :persona
       returns :instagram_post_id
 

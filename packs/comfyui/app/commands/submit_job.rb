@@ -1,4 +1,4 @@
-class SubmitJob < GLCommand::Callable
+class SubmitJob < ApplicationCommand
   requires :job_payload, :pipeline_step, :pipeline_run
   allows :parent_candidate
 
