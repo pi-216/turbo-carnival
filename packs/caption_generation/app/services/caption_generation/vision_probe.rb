@@ -7,14 +7,16 @@ module CaptionGeneration
   # compliance-checked caption. Some questions are not captions -- "how old does
   # this person appear?" is a SAFETY read whose answer must reach a gate as
   # text, not as copy for the public account. This is that path: same model
-  # resolution (ModelConfig.resolve, so it picks whatever Ollama has resident),
-  # same encoder (ImageEncoder), same client -- and it deliberately does NOT
-  # post-process, because stripping the model's preamble or hashtags would also
-  # strip the answer.
+  # resolution (ModelConfig.resolve -- the brain, the pipeline's only serving
+  # home since ticket #103), same encoder (ImageEncoder), same client -- and it
+  # deliberately does NOT post-process, because stripping the model's preamble
+  # or hashtags would also strip the answer.
   #
   # Failures are VALUES, never exceptions: a probe whose caller is a pre-publish
   # gate must be able to say "I could not read this" and let publishing continue
-  # unchanged, rather than take the queue down with it.
+  # unchanged, rather than take the queue down with it. That includes the
+  # serving home itself: brain not answering -> available: false -> unreadable,
+  # with the REASON recorded so the gate's warning names the outage.
   class VisionProbe
     Result = Struct.new(:text, :model, :model_selection, :error, keyword_init: true) do
       def ok?
@@ -40,21 +42,29 @@ module CaptionGeneration
     def ask
       raise ArgumentError, 'Photo must have a readable image' unless ImageEncoder.readable?(@photo)
 
-      load 'lib/ai/ollama_client.rb' unless defined?(AI::OllamaClient)
+      load 'lib/ai/brain_client.rb' unless defined?(AI::BrainClient)
 
       choice = ModelConfig.resolve
-      client = AI::OllamaClient.new(model: choice[:model], timeout: choice[:timeout],
-                                    keep_alive: choice[:keep_alive])
+      unless choice[:available]
+        # Degraded BY VALUE, not by exception: the read is unreadable, the
+        # reason is the outage, and nothing was called. The gate logs its own
+        # warning (its existing contract) and publishes unchanged (fail-open).
+        ModelConfig.log_failure(component: 'vision_probe',
+                                error: ModelConfig::UnavailableError.new(choice[:reason]),
+                                photo_id: @photo&.id)
+        return Result.new(text: '', model: choice[:model], model_selection: choice[:reason],
+                          error: choice[:reason])
+      end
 
-      result = client.chat(
+      result = choice[:client].chat(
         messages: [
           {
             role: 'user',
-            content: @question,
-            images: [ ImageEncoder.encode_base64(@photo) ]
+            content: @question
           }
         ],
-        temperature: @temperature
+        temperature: @temperature,
+        images: [ ImageEncoder.encode_base64(@photo) ]
       )
 
       Result.new(

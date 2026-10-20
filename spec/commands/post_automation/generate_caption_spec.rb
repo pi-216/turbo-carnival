@@ -23,7 +23,7 @@ RSpec.describe PostAutomation::GenerateCaption do
 
   let(:ok_result) do
     CaptionGeneration::Result.new(text: 'A caption', success: true,
-                                  metadata: { model: 'gemma3:4b', model_selection: 'preferred_resident' })
+                                  metadata: { model: 'brain', model_selection: 'brain' })
   end
 
   after { File.delete(bytes_path) if File.exist?(bytes_path) }
@@ -37,7 +37,7 @@ RSpec.describe PostAutomation::GenerateCaption do
 
     expect(result).to be_success
     expect(result.caption).to eq('A caption')
-    expect(result.caption_metadata[:model]).to eq('gemma3:4b')
+    expect(result.caption_metadata[:model]).to eq('brain')
   end
 
   it 'takes the vision path for a PATH-ONLY render that has a readable file' do
@@ -68,7 +68,7 @@ RSpec.describe PostAutomation::GenerateCaption do
 
   it 'fails the command so the caller ships the placeholder, keeping the reason' do
     failed = CaptionGeneration::Result.new(text: '', success: false,
-                                           metadata: { error: 'timed out', model: 'gemma3:27b' })
+                                           metadata: { error: 'timed out', model: 'brain' })
     allow(CaptionGeneration::Generator).to receive(:generate).and_return(failed)
 
     result = described_class.call(photo: photo, persona: persona, pillar: pillar)
