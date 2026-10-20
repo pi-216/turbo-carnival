@@ -136,10 +136,11 @@ namespace :growth do
     end
 
     results.each do |r|
-      mark = { held: 'HELD', would_hold: 'WOULD HOLD', cleared: 'adult', would_clear: 'adult',
-               skipped: 'unreadable', undecided: 'undecided' }.fetch(r.outcome, r.outcome.to_s)
+      mark = { held: 'HELD', would_hold: 'WOULD HOLD', cleared: 'PASS', would_clear: 'PASS',
+               skipped: 'UNREADABLE', undecided: 'UNDECIDED' }.fetch(r.outcome, r.outcome.to_s)
+      band = r.band.is_a?(Array) ? format('%g-%g', *r.band) : r.band.to_s
       puts "Age gate: post #{r.post_id} (photo #{r.photo_id}) -> #{r.verdict} [#{mark}] " \
-           "model=#{r.model} read=#{r.read.to_s.inspect}"
+           "band=#{band} tier=#{r.tier} model=#{r.model} read=#{r.read.to_s.inspect}"
       puts "  error: #{r.error}" if r.error
     end
 

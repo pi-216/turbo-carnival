@@ -1275,16 +1275,16 @@ AGE_HOLD_WINDOW_H = 48
 AGE_HOLD_WARN_N = 3
 
 
-def age_hold_verdict(publishable_juvenile, recent_holds, live_holds):
+def age_hold_verdict(publishable_holds, recent_holds, live_holds):
     """Pure: age-gate counts -> (severity, kind) or None.
 
     Three counts, three questions, and the SAFETY question is deliberately first:
 
-    publishable_juvenile -- an unpublished post whose own stored read says
-        JUVENILE still carries a live clock (or is not marked held at all). The
-        publisher selects on exactly that predicate, so the hold is NOT in force
-        and a minor-reading render is one tick away from a public adult account.
-        The only critical branch.
+    publishable_holds -- an unpublished post the age gate marked HELD (PRD 0007
+        B1: below-floor band at any tier, or a band that spans 18 / an
+        unparseable read at the explicit tier) still carries a live clock, so
+        the hold is NOT in force and a render the gate rejected is one tick away
+        from the public account. The only critical branch.
     recent_holds -- holds recorded inside AGE_HOLD_WINDOW_H. >= AGE_HOLD_WARN_N
         means the anchor is not landing; 1..N-1 is informational: the gate did its
         job once and the queue owes a replacement render.
@@ -1296,7 +1296,7 @@ def age_hold_verdict(publishable_juvenile, recent_holds, live_holds):
     Returns None when nothing is recent -- that is what makes the entry
     self-closing.
     """
-    if publishable_juvenile:
+    if publishable_holds:
         return ("critical", "publishable")
     if recent_holds >= AGE_HOLD_WARN_N:
         return ("warn", "holds")
@@ -1306,7 +1306,10 @@ def age_hold_verdict(publishable_juvenile, recent_holds, live_holds):
 
 
 def check_age_gate_holds():
-    """Growth::PersonaAgeGate holds a queued post whose render reads juvenile.
+    """Growth::PersonaAgeGate holds a queued post whose render fails the B1 age
+    matrix (PRD 0007): a band entirely below 18 at any tier, or a band that
+    spans 18 (or an unparseable read) at the explicit tier. A SFW post whose
+    band reaches 18 publishes -- that is the intended ~18yo pull, not a hold.
 
     WHY THIS EXISTS (measured 2026-09-21): the gate HELD post 345 (photo 353) at
     15:04Z by clearing BOTH of the publisher's clocks -- a deliberate safety
@@ -1314,7 +1317,7 @@ def check_age_gate_holds():
     could see it. The same day's watchdog read the row and reported it as a
     DEFECT: "post 345 can never publish ... operator action: set scheduled_at or
     reclassify", which is the exact opposite of the truth, because acting on that
-    advice publishes a render the gate read as a minor on a public adult account.
+    advice publishes a render the gate rejected on a public adult account.
     A safety action with no observability gets re-diagnosed as a bug and "fixed"
     in the unsafe direction.
 
@@ -1326,16 +1329,18 @@ def check_age_gate_holds():
 
     The held state is (unpublished) + (no scheduled_at and no
     optimal_time_calculated) + caption_metadata.age_gate.held -- the same write
-    PersonaAgeGate#hold makes, so this check cannot drift from the gate.
+    PersonaAgeGate#hold makes, so this check cannot drift from the gate. The
+    gate always sets held='true' on a hold (and never on a pass), so the held
+    marker -- not the verdict string -- is the hold predicate; the critical case
+    is a row still marked held that somehow carries a live clock again.
     """
     row = psql(
         "select "
-        " count(*) filter (where flagged and (not held or has_clock)) || '|' || "
+        " count(*) filter (where held and has_clock) || '|' || "
         " count(*) filter (where held and ts > (now() at time zone 'UTC') "
         f" - interval '{AGE_HOLD_WINDOW_H} hours') || '|' || "
         " count(*) filter (where held and not has_clock) "
         "from (select "
-        " (caption_metadata->'age_gate'->>'verdict') = 'juvenile' as flagged, "
         " (caption_metadata->'age_gate'->>'held') = 'true' as held, "
         " (coalesce(scheduled_at, optimal_time_calculated) is not null) as has_clock, "
         " case when (caption_metadata->'age_gate'->>'checked_at') "
@@ -1370,10 +1375,10 @@ def check_age_gate_holds():
     if kind == "publishable":
         return (
             "age-gate-hold",
-            f"{publishable} post(s) the age gate read as JUVENILE are still publishable",
+            f"{publishable} post(s) the age gate held are still publishable",
             sev,
-            f"{publishable} unpublished row(s) carry caption_metadata.age_gate.verdict="
-            "'juvenile' with a live clock (or no hold marker), so "
+            f"{publishable} unpublished row(s) carry caption_metadata.age_gate.held="
+            "'true' with a live clock, so "
             "scheduling:post_scheduled can release them to the public account. The "
             "hold is (no scheduled_at AND no optimal_time_calculated) -- re-apply it "
             "with Growth::PersonaAgeGate.hold! (which stores both clocks in its "
@@ -1385,8 +1390,9 @@ def check_age_gate_holds():
         sev,
         f"{recent} post(s) held in the window; {live} still in the held state "
         "(unpublished, both clocks cleared, so never released by the publisher). "
-        "The gate holds a post whose render's apparent-age read comes back juvenile "
-        "and is WORKING AS DESIGNED -- do not 'repair' a held row by restoring its "
+        "The gate holds a post whose age band reads below the floor (any tier) or "
+        "spans it at the explicit tier (PRD 0007 B1, fail-closed) and is WORKING "
+        "AS DESIGNED -- do not 'repair' a held row by restoring its "
         "clock: that publishes the render the gate rejected. A hold drops the post "
         "out of the cadence count, so the producer owes a replacement render; "
         "check_future_queue_empty only fires once the queue reaches zero, days "
@@ -9011,9 +9017,9 @@ def cmd_selftest(_argv):
         v = render_error_verdict(rows)
         expect(f"render_error_verdict[{name}]", v[0] if v else None, want)
 
-    # age_hold_verdict: (publishable_juvenile, recent_holds, live_holds). A
-    # juvenile-flagged row that is STILL publishable is the only critical case,
-    # and severity must not key on live_holds -- an old hold that keeps raising
+    # age_hold_verdict: (publishable_holds, recent_holds, live_holds). A
+    # held row that is STILL publishable is the only critical case, and
+    # severity must not key on live_holds -- an old hold that keeps raising
     # severity would pin the board forever instead of self-closing.
     age_cases = [
         ("nothing", 0, 0, 0, None),
@@ -9021,7 +9027,7 @@ def cmd_selftest(_argv):
         ("two-holds", 0, 2, 3, ("info", "holds")),
         ("at-warn", 0, AGE_HOLD_WARN_N, 3, ("warn", "holds")),
         ("many-holds", 0, 5, 5, ("warn", "holds")),
-        ("publishable-juvenile", 1, 0, 1, ("critical", "publishable")),
+        ("publishable-hold", 1, 0, 1, ("critical", "publishable")),
         ("publishable-beats-warn", 1, 5, 5, ("critical", "publishable")),
         ("old-live-hold-self-closes", 0, 0, 2, None),
     ]
