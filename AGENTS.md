@@ -201,3 +201,26 @@ Everything else here is a **control** — an instrument that ranks, measures and
 is a gate: the **legal floor**. Adult (18+), no real-person likeness, synthetic mark embedded. An agent may
 not promote its own safety preference into a founder red line — that mistake has already happened once in this
 repo's history, and the rule exists because of it.
+
+<!-- suggestion-lane:start -->
+## Feature funnel (suggestion lane)
+
+Work enters this repo through a funnel, not ad hoc:
+
+```
+Suggestion Lane  ->  owner approval  ->  PRD factory  ->  dev worker
+  (what next?)        (approved label)   (how exactly?)     (TDD -> PR)
+```
+
+- The **suggestion lane** (`venture-suggestion-pass`) files evidence-cited feature
+  suggestions as `ticket,enhancement,pm-suggested` issues — capped at **10 open**, and
+  **never `approved`**. It runs weekly via ds4q; the producer reconciles founder rulings
+  before enqueuing, so the agent itself is additive-only.
+- **The founder rules from the board:** approve = add the `approved` label; reject = set
+  the board Status to **Done** (any Done form). A reconciler then closes rejected items as
+  *not planned* and swaps `pm-suggested` for `rejected`, which keeps the lane's
+  anti-rejection fence machine-derivable.
+- **`docs/pm/red-lines.md`** is the founder-owned list of ruled-out-forever topics. The lane
+  reads it and never re-proposes anything on it. Agents never edit it.
+- Agents **never** add `approved`, and never close or relabel an existing issue.
+<!-- suggestion-lane:end -->
