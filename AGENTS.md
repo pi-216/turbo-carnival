@@ -47,7 +47,7 @@ order and stops at the first failure:
 ```bash
 cd /home/tim/source/activity/turbo-carnival
 source /usr/share/rvm/scripts/rvm && rvm use 3.4.5
-bin/verify          # bin/rubocop -> bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check
+bin/verify          # rubocop -> brakeman -> bundler-audit -> packwerk -> erb_lint -> rspec
 ```
 
 Fail-closed: a gate that cannot run (missing gem, DB down, 0 examples) is a failure, never a pass —

@@ -132,9 +132,10 @@ jobs:
         run: bundle exec cucumber
 
   verify:
-    # The Tier-0 gate (PRD 0003): bin/verify composes bin/rubocop ->
-    # bin/brakeman --no-pager -> bin/rspec -> bin/packwerk check and stops at
-    # the first failure. A green "done" claim requires this job to pass; it is
+    # The Tier-0 gate (PRD 0003; membership per PRD 0006 F3): bin/verify
+    # composes bin/rubocop -> bin/brakeman --no-pager -> bundler-audit ->
+    # bin/packwerk check -> erb_lint -> bin/rspec and stops at the first
+    # failure. A green "done" claim requires this job to pass; it is
     # fail-closed (a gate that cannot run is a failure, never a pass).
     runs-on: ubuntu-latest
 
