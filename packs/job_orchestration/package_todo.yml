@@ -1,0 +1,22 @@
+# This file contains a list of dependencies that are not part of the long term plan for the
+# 'packs/job_orchestration' package.
+# We should generally work to reduce this list over time.
+#
+# You can regenerate this file using the following command:
+#
+# bin/packwerk update-todo
+#
+# The per-entry justifications below are YAML comments: regenerating this file
+# removes them. The reasoning also lives in the issue #46 PR description.
+---
+# Job selection and stale-run reconciliation inspect ComfyuiJob records
+# (in-flight counts, live job statuses). comfyui already declares
+# job_orchestration (the queue wraps ComfyUI jobs), so the reverse edge would
+# close a 2-cycle.
+packs/comfyui:
+  "::ComfyuiJob":
+    violations:
+    - dependency
+    files:
+    - packs/job_orchestration/app/commands/reconcile_stale_runs.rb
+    - packs/job_orchestration/app/commands/select_next_job.rb

@@ -1,0 +1,20 @@
+# This file contains a list of dependencies that are not part of the long term plan for the
+# 'packs/content_pillars' package.
+# We should generally work to reduce this list over time.
+#
+# You can regenerate this file using the following command:
+#
+# bin/packwerk update-todo
+#
+# The per-entry justifications below are YAML comments: regenerating this file
+# removes them. The reasoning also lives in the issue #46 PR description.
+---
+# A pillar Photo tracks its pipeline ImageCandidate (belongs_to :image_candidate,
+# optional). The edge is declared in the reverse direction (pipeline ->
+# content_pillars); declaring both directions would close a 2-cycle.
+packs/pipeline:
+  "::ImageCandidate":
+    violations:
+    - dependency
+    files:
+    - packs/content_pillars/app/models/content_pillars/photo.rb

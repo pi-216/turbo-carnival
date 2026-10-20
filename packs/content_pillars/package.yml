@@ -7,3 +7,5 @@ metadata:
 dependencies:
   - packs/personas
   # packs/clustering will be added in Week 2
+  # Models inherit from the root ApplicationRecord.
+  - .

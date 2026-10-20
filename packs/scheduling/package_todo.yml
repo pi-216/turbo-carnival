@@ -1,0 +1,25 @@
+# This file contains a list of dependencies that are not part of the long term plan for the
+# 'packs/scheduling' package.
+# We should generally work to reduce this list over time.
+#
+# You can regenerate this file using the following command:
+#
+# bin/packwerk update-todo
+#
+# The per-entry justifications below are YAML comments: regenerating this file
+# removes them. The reasoning also lives in the issue #46 PR description.
+---
+# Failed-post retry consults the growth goal and the next post slot
+# (Growth::Goal.for_persona, Growth::PostSlotPlanner.next_slot). growth_harness
+# already declares scheduling, so the reverse edge would close a 2-cycle.
+packs/growth_harness:
+  "::Growth::Goal":
+    violations:
+    - dependency
+    files:
+    - packs/scheduling/app/services/scheduling/failed_post_retry.rb
+  "::Growth::PostSlotPlanner":
+    violations:
+    - dependency
+    files:
+    - packs/scheduling/app/services/scheduling/failed_post_retry.rb
