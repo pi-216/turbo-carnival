@@ -59,51 +59,24 @@ RSpec.describe Growth::CadenceEngine do
       expect(result[:library]).to be_nil
     end
 
-    it 'moves ON to another pillar when the first is NSFW-rejected, and records a pillar_shift' do
-      rejected = { success: false, error: 'nsfw_rejected (label=lingerie score=0.97)', run_id: 1 }
-      accepted = {
-        success: true, post_id: 10, photo_id: 20, run_id: 2,
-        image_path: '/mnt/fscache/essdee/ComfyUI/output/fresh_x.png'
-      }
-
-      calls = []
-      allow(engine).to receive(:generate_fresh) do |_offset, pillar|
-        calls << pillar&.name
-        calls.size == 1 ? rejected : accepted
-      end
-
-      result = engine.sync
-
-      # The slot was filled despite the first pillar being rejected.
-      expect(result[:created]).to eq(1)
-      expect(calls.size).to eq(2)
-      # Only the rejection should be recorded as a pillar shift (no hard block).
-      expect(result[:failures]).to be_empty
-      expect(Growth::Decision.where(action: 'pillar_shift').count).to eq(1)
-    end
-
-    it 'hard-stalls only when EVERY pillar is rejected' do
-      allow(engine).to receive(:generate_fresh) do |_offset, _pillar|
-        { success: false, error: 'nsfw_rejected (label=lingerie score=0.99)', run_id: 1 }
-      end
-
-      result = engine.sync
-
-      expect(result[:created]).to eq(0)
-      expect(result[:failures]).not_to be_empty
-      # cadence_blocked is recorded because the WHOLE pool was exhausted.
-      expect(Growth::Decision.where(action: 'cadence_blocked').count).to eq(1)
-    end
-
-    it 'does not try to move on when the failure is NOT an NSFW rejection' do
+    # PRD 0007 A1 retired the pillar rotation: it existed because an NSFW rejection
+    # was pillar-specific, and the classifier is a measurement now. The only failures
+    # left are model-wide (render/infra, the realism veto), so the tick stops and lets
+    # the brain escalate rather than re-rolling pillars on a fault that is not the
+    # pillar's.
+    it 'halts the tick on the first render failure instead of rotating pillars' do
+      calls = 0
       allow(engine).to receive(:generate_fresh) do
+        calls += 1
         { success: false, error: 'render timed out or produced no image', run_id: 3 }
       end
 
       result = engine.sync
 
       expect(result[:created]).to eq(0)
-      expect(Growth::Decision.where(action: 'pillar_shift').count).to eq(0)
+      expect(calls).to eq(1)
+      expect(result[:failures]).to eq([ 'render timed out or produced no image (run 3)' ])
+      expect(Growth::Decision.where(action: 'pillar_shift')).to be_empty
       expect(Growth::Decision.where(action: 'cadence_blocked').count).to eq(1)
     end
   end

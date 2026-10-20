@@ -17,7 +17,7 @@ RSpec.describe Growth::ContentGenerator do
   let(:image_path) { Rails.root.join('tmp', "gen_spec_#{SecureRandom.hex(6)}.png").to_s }
 
   let(:gate_ok) { double('scheduler gate', ready?: true, raw: 'claim=busy', claim_state: 'busy', comfyui_up: true) }
-  let(:nsfw_ok) { Growth::NsfwGate::Result.new(safe: true, label: 'normal', nsfw_score: 0.01) }
+  let(:nsfw_ok) { Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false) }
   let(:realism_ok) { Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0) }
   let(:caption_ok) do
     double('caption result', success?: true, caption: 'A real caption',
@@ -195,6 +195,49 @@ RSpec.describe Growth::ContentGenerator do
 
       expect(generator.send(:poll_for_image, 'job-late')).to be_nil
       expect(generator.render_error).to eq('index is out of bounds for dimension with size 0')
+    end
+
+    # PRD 0007 A1: a flagged render is a NORMAL, SUCCESSFUL render carrying a
+    # measurement. It used to be rejected before it could become an asset and
+    # recorded as `nsfw_rejected` + `nsfw_purge` (13 renders purged); the score now
+    # lands on the run AND on the asset row, and nothing is purged.
+    it 'records a flagged NSFW score on the run and the asset instead of rejecting' do
+      allow(Growth::NsfwGate).to receive(:new).and_return(
+        double('nsfw gate', call: Growth::NsfwGate::Result.new(nsfw_score: 0.97, label: 'nsfw', flagged: true))
+      )
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(true)
+
+      run = PipelineRun.find(result[:run_id])
+      expect(run.quality_metrics['nsfw_score']).to be_within(0.0001).of(0.97)
+      expect(run.reject_reason).to be_nil
+
+      photo = ContentPillars::Photo.find(result[:photo_id])
+      expect(photo.nsfw_score).to be_within(0.0001).of(0.97)
+      expect(photo.nsfw_flagged).to be(true)
+      expect(Scheduling::Post.exists?(photo_id: photo.id)).to be(true)
+
+      expect(Growth::Decision.where(action: %w[nsfw_rejected nsfw_purge])).to be_empty
+    end
+
+    # Fail-open on the MEASUREMENT (it is not a floor control), but the asset must
+    # read as unmeasured rather than as measured-low.
+    it 'does not fail the run when the NSFW score could not be measured' do
+      allow(Growth::NsfwGate).to receive(:new).and_return(
+        double('nsfw gate', call: Growth::NsfwGate::Result.new(error: 'nsfw model dir missing: /nope'))
+      )
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(true)
+      photo = ContentPillars::Photo.find(result[:photo_id])
+      expect(photo.nsfw_score).to be_nil
+      expect(photo.nsfw_flagged).to be_nil
+      expect(Growth::Decision.where(action: %w[nsfw_rejected nsfw_purge])).to be_empty
     end
   end
 end

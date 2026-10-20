@@ -96,6 +96,11 @@ module Growth
     MAX_EXAMINE = 12
     STRATEGY_NAME = 'library-fallback'
     HOURS_PER_DAY = 24.0
+    # A run that already recorded a gate rejection is not resurrected and the gate is
+    # not paid for twice -- the same deterministic-gate rule Growth::RenderSalvage
+    # applies. `nsfw_rejected` is HISTORICAL as of PRD 0007 A1 (no producer writes it
+    # any more), and it stays listed so the pre-A1 backlog keeps its recorded verdict
+    # rather than being silently promoted into the reserve.
     REJECTED_PREFIXES = %w[nsfw_rejected realism_rejected].freeze
 
     Result = Struct.new(:created, :rejected, :skipped, :post_ids, :examined,
@@ -222,10 +227,12 @@ module Growth
       return [ :skipped, nil ] if gate_rejected?(photo)
 
       nsfw = Growth::NsfwGate.new.call(image_path: path)
-      unless nsfw.safe
-        @rejections << "#{photo.id} (nsfw #{nsfw.error || "score=#{nsfw.nsfw_score}"})"
-        return [ :rejected, nil ]
-      end
+      # ADVISORY (PRD 0007 A1): the measurement is recorded ON THE ASSET ROW and is
+      # never a veto. This is the path that spends the reserve, so the flag is exactly
+      # what the founder's "keep them for re-valuation" ruling needs recorded -- and it
+      # still does not stop the spend (no auto-action at any score). A nil score (gate
+      # unmeasured) writes nothing: unmeasured must not read as measured-low.
+      photo.record_nsfw_score(nsfw_score: nsfw.nsfw_score, nsfw_flagged: nsfw.flagged)
 
       realism = Growth::RealismGate.new.call(image_path: path)
       unless realism.safe

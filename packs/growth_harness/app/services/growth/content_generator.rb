@@ -115,25 +115,32 @@ module Growth
         return { success: false, error: reason, run_id: run.id, comfyjob_id: comfyjob.id }
       end
 
-      # NSFW gate: a third-party ViT classifier (Falconsai/nsfw_image_detection)
-      # must accept the render before it can enter the photo library / queue.
-      gate = Growth::NsfwGate.new.call(image_path: image_path)
-      unless gate.safe
-        log_rejection(image_path, gate)
-        finish_run(run, 'failed', reason: "nsfw_rejected (#{gate.error || "label=#{gate.label} score=#{gate.nsfw_score}"})")
-        return {
-          success: false,
-          error: "nsfw_rejected (#{gate.error || "label=#{gate.label} score=#{gate.nsfw_score}"})",
-          run_id: run.id, comfyjob_id: comfyjob.id, image_path: image_path
-        }
+      # NSFW classifier: ADVISORY (PRD 0007 A1, founder ruling 2026-10-19 -- "0.5 as
+      # the flag-only threshold and no auto-action at any score"). This block used to
+      # reject the render and record an `nsfw_rejected`/`nsfw_purge` pair; it is now a
+      # measurement. A flagged render is a NORMAL, successful render: the score is
+      # persisted on the run and on the asset, and the selection layer / the founder's
+      # tier pre-flight decide what is used.
+      nsfw = Growth::NsfwGate.new.call(image_path: image_path)
+      # Fail-open is the posture (this is no longer a floor control), but an unmeasured
+      # score must be LOUD -- it is not a "safe" one, and a reader of the row must be
+      # able to tell the two apart (`nsfw_score` stays NULL).
+      if nsfw.measured?
+        Rails.logger.info("Growth::ContentGenerator nsfw score=#{nsfw.nsfw_score} " \
+                          "flagged=#{nsfw.flagged} | #{image_path}")
+      else
+        Rails.logger.warn('Growth::ContentGenerator nsfw score unmeasured ' \
+                          "(#{nsfw.error || 'gate disabled'}) | #{image_path}")
       end
 
-      # Photo-realism / quality gate: aesthetics predictor + sharpness. A render
-      # can be safe (passes NSFW) yet still be sub-par; it must also pass this
-      # gate. Scores are persisted on the run for cohort-level analysis.
+      # Photo-realism / quality gate: aesthetics predictor + sharpness. A render can
+      # pass the NSFW measurement and still be sub-par, and THIS gate still vetoes --
+      # PRD 0007 demotes it to advisory in B3 (its own ticket), so until that lands a
+      # render can carry a persisted nsfw score on the run and never become an asset.
+      # Scores are persisted on the run for cohort-level analysis.
       realism = Growth::RealismGate.new.call(image_path: image_path)
       metrics = {
-        nsfw_score: gate.nsfw_score,
+        nsfw_score: nsfw.nsfw_score,
         aesthetic_score: realism.aesthetic_score,
         sharpness: realism.sharpness
       }
@@ -149,7 +156,7 @@ module Growth
       end
 
       # Import the fresh render as a content photo
-      photo = import_photo(image_path, run)
+      photo = import_photo(image_path, run, nsfw)
       unless photo
         finish_run(run, 'failed', reason: 'photo import failed')
         return { success: false, error: 'photo import failed' }
@@ -326,26 +333,6 @@ module Growth
       Rails.logger.error("Growth::ContentGenerator could not log comfyui_unclaimed: #{e.message}")
     end
 
-    # Record an auditable rejection decision and warn in the log. The image
-    # stays in ComfyUI's output tree (Tim's playground) but never enters the
-    # photo library or queue.
-    def log_rejection(image_path, gate)
-      reason = if gate.error
-                 "nsfw gate error: #{gate.error}"
-      else
-                 "nsfw rejected by #{gate.label} score=#{gate.nsfw_score} (threshold=#{gate.threshold})"
-      end
-      Growth::Decision.create!(
-        goal: goal,
-        action: 'nsfw_rejected',
-        reason: "#{reason} | #{image_path}",
-        decided_at: Time.current
-      )
-      Rails.logger.warn("Growth::ContentGenerator #{reason} | #{image_path}")
-    rescue StandardError => e
-      Rails.logger.error("Growth::ContentGenerator could not log rejection: #{e.message}")
-    end
-
     # Photo-realism rejection: log the decision (so the harness brain can
     # distinguish "unsafe" from "sub-par" content) and record the run's
     # reject_reason for cohort-level analysis.
@@ -367,14 +354,19 @@ module Growth
       Rails.logger.error("Growth::ContentGenerator could not log realism rejection: #{e.message}")
     end
 
-    def import_photo(image_path, run)
+    def import_photo(image_path, run, nsfw = nil)
       return nil unless image_path && File.exist?(image_path)
 
+      # The NSFW MEASUREMENT rides the import choke point (PRD 0007 A1): the score
+      # belongs on the asset row, not only on the run, because the selection layer and
+      # the tier pre-flight ask about the ASSET.
       ContentPillars::Photo.import_render(
         path: image_path,
         persona: persona,
         content_pillar: @pillar,
-        run: run
+        run: run,
+        nsfw_score: nsfw&.nsfw_score,
+        nsfw_flagged: nsfw&.flagged
       )
     end
   end

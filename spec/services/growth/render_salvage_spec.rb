@@ -15,7 +15,7 @@ RSpec.describe Growth::RenderSalvage do
   let(:image_path) { Rails.root.join('tmp', "salvage_spec_#{SecureRandom.hex(6)}.png").to_s }
 
   let(:nsfw_ok) do
-    Growth::NsfwGate::Result.new(safe: true, label: 'normal', nsfw_score: 0.01)
+    Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false)
   end
   let(:realism_ok) do
     Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0)
@@ -128,18 +128,24 @@ RSpec.describe Growth::RenderSalvage do
       expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(1)
     end
 
-    it 're-runs the NSFW gate and records a rejection instead of scheduling' do
+    # PRD 0007 A1: a flagged recovered render is still PAID-FOR queue content. The
+    # score is re-measured and carried onto the asset row (backfill included, since
+    # this is the path where the Photo row often already exists) and nothing is
+    # rejected for it.
+    it 'records the re-measured NSFW score on the recovered asset instead of rejecting' do
       allow(Growth::NsfwGate).to receive(:new).and_return(
-        double('nsfw_gate', call: Growth::NsfwGate::Result.new(safe: false, label: 'nsfw', nsfw_score: 0.97))
+        double('nsfw_gate', call: Growth::NsfwGate::Result.new(nsfw_score: 0.97, label: 'nsfw', flagged: true))
       )
 
       result = salvage.call(limit: 3)
 
-      expect(result.recovered).to eq(0)
-      expect(result.rejected).to eq(1)
-      expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(0)
-      expect(ContentPillars::Photo.exists?(path: image_path)).to be(false)
-      expect(Growth::Decision.where(action: 'salvage_rejected').count).to eq(1)
+      expect(result.recovered).to eq(1)
+      expect(result.rejected).to eq(0)
+      expect(Scheduling::Post.where(strategy_name: 'render-salvage').count).to eq(1)
+      photo = ContentPillars::Photo.find_by(path: image_path)
+      expect(photo.nsfw_score).to be_within(0.0001).of(0.97)
+      expect(photo.nsfw_flagged).to be(true)
+      expect(Growth::Decision.where(action: 'salvage_rejected')).to be_empty
     end
 
     it 'does not re-gate a run whose producer already rejected it' do
