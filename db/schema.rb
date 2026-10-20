@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_20_130001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -106,11 +106,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_120000) do
     t.integer "priority", default: 3, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "wardrobe_level"
     t.index ["active"], name: "index_content_pillars_on_active"
     t.index ["persona_id", "name"], name: "index_content_pillars_on_persona_id_and_name", unique: true
     t.index ["persona_id"], name: "index_content_pillars_on_persona_id"
     t.check_constraint "end_date IS NULL OR start_date IS NULL OR end_date > start_date", name: "date_range_check"
     t.check_constraint "priority >= 1 AND priority <= 5", name: "priority_range_check"
+    t.check_constraint "wardrobe_level IS NULL OR wardrobe_level >= 1 AND wardrobe_level <= 100", name: "wardrobe_level_range_check"
     t.check_constraint "weight >= 0::numeric AND weight <= 100::numeric", name: "weight_range_check"
   end
 

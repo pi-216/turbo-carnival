@@ -98,6 +98,18 @@ module Growth
           cap = evolution&.adjust_caption(audit[:caption_signal])
           changes += Array.wrap(cap)
         end
+        # PRD 0007 A2 (#105): the wardrobe is a lever like any other (class 3 —
+        # the system acts, measured). The planner nudges the LEADING pillar's
+        # wardrobe up one rung toward the current validated tier, so the
+        # strongest content carries the most reveal the pre-flight has
+        # validated. Bounded by [floor, tier] and recorded (reversible). Each
+        # day's render then uses the pillar's current rung, so the planner's
+        # decision lands per pillar, per day. The platform-tolerance gate (B4,
+        # #114) is what auto-reverts a rung that turns out not to be tolerated
+        # once the tier has been pushed up.
+        if top_name = audit[:pillars].first&.dig(:name)
+          changes += (evolution&.adjust_wardrobe(top_name, direction: :up) || [])
+        end
       end
 
       review = Growth::Review.new(

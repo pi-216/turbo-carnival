@@ -155,4 +155,44 @@ RSpec.describe Growth::PersonaEvolution do
       expect(changes).to all(satisfy { |c| c[:from] != c[:to] })
     end
   end
+
+  # PRD 0007 A2 (#105): the wardrobe axis is a bounded lever like the others —
+  # a single-step delta, clamped to [floor, current validated tier], recorded so
+  # the next gate evaluation can keep or revert it.
+  describe '#adjust_wardrobe' do
+    let!(:pillar) { create(:content_pillar, persona: persona, name: 'Fashion & Style', wardrobe_level: 1) }
+
+    it 'raises the pillar by one rung and records a real change' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(5)
+
+      change = evolution.adjust_wardrobe('Fashion & Style', direction: :up)
+
+      expect(change[:kind].to_s).to eq('content_pillar_wardrobe')
+      expect(change[:from]).to eq(id: pillar.id, wardrobe_level: 1)
+      expect(change[:to]).to eq(id: pillar.id, wardrobe_level: 2)
+      expect(pillar.reload.wardrobe_level).to eq(2)
+    end
+
+    it 'clamps at the validated tier — it never crosses it, and records nothing' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(2)
+      pillar.update!(wardrobe_level: 2)
+
+      expect(evolution.adjust_wardrobe('Fashion & Style', direction: :up)).to eq([])
+      expect(pillar.reload.wardrobe_level).to eq(2)
+      expect(evolution.changes).to be_empty
+    end
+
+    it 'stops at the covered floor on :down' do
+      pillar.update!(wardrobe_level: 1)
+
+      expect(evolution.adjust_wardrobe('Fashion & Style', direction: :down)).to eq([])
+      expect(pillar.reload.wardrobe_level).to eq(1)
+      expect(evolution.changes).to be_empty
+    end
+
+    it 'records nothing for an unknown pillar' do
+      expect(evolution.adjust_wardrobe('Not A Pillar')).to eq([])
+      expect(evolution.changes).to be_empty
+    end
+  end
 end

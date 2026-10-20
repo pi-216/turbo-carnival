@@ -34,16 +34,69 @@ RSpec.describe Growth::PillarPrompt do
       end
     end
 
-    it 'every sampled prompt embeds a face-in-frame framing and the modest-clothing anchor' do
+    it 'every sampled prompt embeds a face-in-frame framing and the axis floor (unconfigured)' do
       KNOWN_PILLARS.each do |key|
         pillar = build(:content_pillar, name: key.to_s)
         described_class::SCENES[key].size.times do
           prompt = described_class.for_pillar(pillar)
           expect(prompt).to match(/face|head|portrait|shoulders/i)
-          expect(prompt).to match(/fully dressed|modest everyday clothing/i)
+          # An unconfigured pillar renders at the axis FLOOR (covered) — a rung
+          # the brain can raise, not a hardcoded SFW constraint (PRD 0007 A2).
+          expect(prompt).to match(/wearing everyday clothing|fully covered/i)
           expect(prompt).not_to match(/lingerie|bralette|bikini|see-through/i)
         end
       end
+    end
+  end
+
+  describe 'the wardrobe axis (PRD 0007 A2, #105)' do
+    it 'has no hardcoded SFW clothing floor in the constant path' do
+      expect(described_class::BASE).not_to match(/modest everyday clothing|fully dressed/i)
+    end
+
+    it 'embeds the covered floor for an unconfigured pillar' do
+      pillar = build(:content_pillar, name: 'Food & Cooking', wardrobe_level: nil)
+      prompt = described_class.for_pillar(pillar)
+      expect(prompt).to match(/wearing everyday clothing, torso and legs fully covered/i)
+    end
+
+    it 'embeds the miniskirt rung when the pillar is set to it and the tier allows it' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(5)
+      pillar = build(:content_pillar, name: 'Food & Cooking', wardrobe_level: 5)
+      prompt = described_class.for_pillar(pillar)
+      expect(prompt).to match(/short miniskirt/i)
+      expect(prompt).to match(/torso covered/i)
+    end
+
+    it 'embeds the bikini rung once the tier has been validated up to it' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(8)
+      pillar = build(:content_pillar, name: 'Fashion & Style', wardrobe_level: 8)
+      prompt = described_class.for_pillar(pillar)
+      expect(prompt).to match(/two-piece bikini/i)
+    end
+
+    it 'clamps a rung above the current validated tier down to the tier' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(2)
+      pillar = build(:content_pillar, name: 'Fashion & Style', wardrobe_level: 8)
+      prompt = described_class.for_pillar(pillar)
+      expect(prompt).to match(/knee-length skirt/i)
+      expect(prompt).not_to match(/bikini|miniskirt/i)
+    end
+
+    it 'carries no SFW-only default in the prompt path (the scene pools are wardrobe-agnostic)' do
+      forbidden = /trench coat|blazer|blouse|button[- ]up|mid-length dress|knit (sweater|dress)|plain (casual )?tee|casual (clothes|outfit|look)|sportswear|fully dressed|modest/i
+      targets = [ described_class::BASE, described_class::DEFAULT_SCENES ] + described_class::SCENES.values
+      targets.flatten.each do |text|
+        expect(text).not_to match(forbidden), "prompt path carries an SFW wardrobe default: #{text}"
+      end
+    end
+
+    it 'a non-SFW wardrobe prompt is not contradicted by a scene outfit' do
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(8)
+      pillar = build(:content_pillar, name: 'Fashion & Style', wardrobe_level: 8)
+      prompt = described_class.for_pillar(pillar)
+      expect(prompt).to match(/two-piece bikini/i)
+      expect(prompt).not_to match(/trench coat|blazer|mid-length dress|knit sweater|button-up|blouse|sportswear|plain tee/i)
     end
   end
 

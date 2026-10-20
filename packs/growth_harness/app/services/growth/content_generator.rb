@@ -18,6 +18,11 @@ module Growth
     # (observed 2026-09-19: two renders per growth run, mixed flux + pony model
     # families resident in VRAM, flux OOM at SamplerCustomAdvanced).
     SYNC_PRODUCER_KEY = 'sync_producer'
+    # PRD 0007 A2 (#105): the wardrobe axis value in effect for this render is
+    # recorded on the run row (auditability). It is the EFFECTIVE level — the
+    # pillar's rung, clamped to the current validated tier — so the record and
+    # the prompt always agree (both read ContentPillars::WardrobeAxis).
+    WARDROBE_LEVEL_KEY = 'wardrobe_level'
 
     attr_reader :goal
 
@@ -61,7 +66,10 @@ module Growth
         prompt: build_prompt,
         target_folder: "fresh/#{@pillar&.name&.parameterize || 'gen'}",
         status: 'pending',
-        variables: { SYNC_PRODUCER_KEY => self.class.name }
+        variables: {
+          SYNC_PRODUCER_KEY => self.class.name,
+          WARDROBE_LEVEL_KEY => effective_wardrobe_level
+        }
       )
 
       step = pipeline.pipeline_steps.order(:order).first
@@ -263,6 +271,14 @@ module Growth
 
     def build_prompt
       Growth::PillarPrompt.for_pillar(@pillar || default_pillar)
+    end
+
+    # The wardrobe axis value in effect for this render: the pillar's rung,
+    # clamped to the current validated tier. This is the SAME value the prompt
+    # embeds (both read ContentPillars::WardrobeAxis), so the run row records
+    # exactly what was rendered — the audit trail the axis needs (PRD 0007 A2).
+    def effective_wardrobe_level
+      ContentPillars::WardrobeAxis.effective_level(@pillar || default_pillar)
     end
 
     def poll_for_image(comfyui_job_id)
