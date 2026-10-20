@@ -74,14 +74,16 @@ RSpec.describe GapAnalysisAi::Suggester do
     expect(suggestions.first[:name]).to eq('New Idea')
   end
 
-  # Founder ruling 2026-10-19: the existing pillars are fair game. The prompt is the
-  # ONLY place the seat can learn that — the nightly plan loop hands it one existing
-  # pillar at a time (Growth::NightlyPlanner), so nothing else in the path could say
-  # it. Intensity and identity stay out of its reach in the same breath.
-  it 'tells the brain the pillar set is not fixed, without handing it intensity or identity' do
+  # PRD 0007 A3: the planner prompt carries the ACTUAL ruling instead of the old
+  # de-authorizing line ("wardrobe intensity and the persona's age read are founder
+  # rulings"). The prompt is the only place the nightly-planning seat learns this —
+  # Growth::NightlyPlanner hands it one pillar at a time — so it states the persona
+  # is an 18-year-old adult, intensity is in scope up to the legal floor + measured
+  # platform boundary, Instagram is the discovery surface for explicit monetization,
+  # and the pillar set is fair game. No line tells the brain intensity is off-limits.
+  it 'carries the actual ruling: 18-year-old adult, intensity in scope, funnel mandate, pillar set fair game' do
     pillar = build(:content_pillar, name: 'Food & Cooking')
     persona = build(:persona)
-    persona.caption_config = Personas::CaptionConfig.new(tone: 'warm', style: 'conversational')
 
     system_seen = nil
     brain = instance_double(AI::BrainClient, available?: true)
@@ -90,8 +92,38 @@ RSpec.describe GapAnalysisAi::Suggester do
 
     described_class.suggest(pillar: pillar, persona: persona)
 
-    expect(system_seen).to include('pillar set itself is NOT fixed')
-    expect(system_seen).to include('founder rulings')
+    ruling = system_seen.gsub(/\s+/, ' ') # assert across line wraps
+    expect(ruling).to include('18-year-old adult')
+    expect(ruling).to include('legal floor and the measured platform boundary')
+    expect(ruling).to include('discovery surface for explicit monetization')
+    expect(ruling).to include('visual gain over personality')
+    expect(ruling).to include('fair game')
+    # The de-authorizing line is gone, not softened:
+    expect(system_seen).not_to include('founder rulings')
+    expect(system_seen).not_to include('not yours to move')
+  end
+
+  # PRD 0007 A3: the blank "Core Topics" line is filled from the persona's live
+  # pillar set (the actual pillars) — not invented, not the empty caption_config.
+  it 'fills Core Topics from the persona pillar set, not the blank caption_config' do
+    persona = create(:persona)
+    create(:content_pillar, persona: persona, name: 'Fashion & Style', active: true)
+    create(:content_pillar, persona: persona, name: 'Food & Cooking', active: true)
+    pillar = persona.content_pillars.find_by(name: 'Fashion & Style')
+    persona.caption_config = Personas::CaptionConfig.new(tone: 'warm', style: 'conversational') # carries no topics
+
+    system_seen = nil
+    brain = instance_double(AI::BrainClient, available?: true)
+    allow(AI::BrainClient).to receive(:new).and_return(brain)
+    allow(brain).to receive(:generate) { |_user, system:, **| system_seen = system; '[]' }
+
+    described_class.suggest(pillar: pillar, persona: persona)
+
+    core_topics = system_seen.lines.map(&:strip).find { |l| l.start_with?('Core Topics:') }
+    expect(core_topics).to be_present
+    expect(core_topics).to match(/Core Topics:\s*.+/) # not blank — the pillar set is present
+    expect(core_topics).to include('Fashion & Style')
+    expect(core_topics).to include('Food & Cooking')
   end
 
   it 'falls back to template suggestions when no planner client is configured' do

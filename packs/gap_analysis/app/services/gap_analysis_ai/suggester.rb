@@ -88,18 +88,13 @@ module GapAnalysisAi
       (from_clusters + from_suggestions).uniq
     end
 
-    # `caption_config` is a Personas::CaptionConfig (tone/style/voice), NOT a Hash —
-    # calling `.dig('topics')` on it raised NoMethodError, which `suggest` rescued
-    # into the template fallback, so this planner NEVER reached any model. Read
-    # topics defensively across the Hash and object shapes; absence is not an error.
+    # `Core Topics` is the persona's live content pillars — the actual pillar set.
+    # This used to read `caption_config` `topics`, which the config never carries, so
+    # the line rendered blank. The pillar set is per-persona and fair game (reweight /
+    # retire / replace / add), so it is read live off the persona rather than from a
+    # static config that would go stale (PRD 0007 A3). An unsaved persona yields [].
     def persona_topics
-      config = @persona.caption_config
-      topics = if config.is_a?(Hash)
-                 config['topics'] || config[:topics]
-      elsif config.respond_to?(:topics)
-                 config.topics
-      end
-      Array(topics)
+      @persona.content_pillars.current.map(&:name)
     end
 
     def build_prompt(pillar, context)
@@ -115,10 +110,17 @@ module GapAnalysisAi
         3. Are authentic and natural for this persona
         4. Provide variety and freshness
 
-        The pillar set itself is NOT fixed. An existing pillar may be reweighted, retired, replaced,
-        renamed or split, and a new pillar may be added — so an idea may argue for a change to this
-        pillar's scope, or that it should go. What a pillar DEPICTS is not yours to move: wardrobe
-        intensity and the persona's age read are founder rulings (AGENTS.md, the authority ladder).
+        Ruling (PRD 0007): the persona is an 18-year-old adult — the adult read (the 18-20 band) is
+        the target, and a render that reads as a minor is the floor that never ships. Wardrobe
+        intensity is in scope from everyday wear up to that legal floor and the measured platform
+        boundary: it is a lever the system drives, not a parked question, so propose revealing
+        ideas freely — the only gate is the tier pre-flight (a deliberate held row the founder
+        clears before a new tier goes live), never a per-idea approval. Instagram is the discovery
+        surface for explicit monetization: a second, isolated persona holds the explicit venue, and
+        this account's audience prioritizes visual gain over personality. The pillar set itself is
+        fair game — an existing pillar may be reweighted, retired, replaced, renamed or split, and a
+        new pillar may be added — so an idea may argue for a change to this pillar's scope, or that
+        it should go.
       PROMPT
 
       user_prompt = <<~PROMPT
