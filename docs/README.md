@@ -35,6 +35,7 @@ been removed for precisely that reason — see the inventory below.
 | Why is the strategy what it is (distribution diagnosis, venues, platforms)? | **`strategy-v2.md` §1–7, §12.4** | `THESIS.md` |
 | What is the validated render configuration? | **`baseline-config.md`** | any render doc predating 2026-10-18 |
 | What experiments exist and what did they decide? | **`experiment-backlog.md`** | — |
+| What is the safety/risk posture, and what stays a hard gate? | **`prd/0007-safety-posture-reduction.md`** (the legal floor + the A/B/C triage of the agent-authored controls) | `THESIS.md` red lines (withdrawn), ad-hoc "founder ruling" phrasing |
 | How are tickets cut and linked? | **`PROJECT_PLAN.md` §4** | `bin/publish_prd` (dropped 2026-10-18) |
 | How is the board wired? | **`config/autonomous/pipeline.yml`** | — |
 | What is the render engine's node topology? | **`baseline-config.md`** | `lily-vs-sarah-hand-inpaint.md` (a comparison, not the config) |
@@ -54,7 +55,7 @@ been removed for precisely that reason — see the inventory below.
 | `baseline-config.md` | the validated baseline workflow: node ids, shas, attribution table |
 | `scene-notes-bedroom-front.md` | design notes for the active scene (scene text is the prompt; notes live here) |
 | `design-system/` | ViewComponent + navigation guidelines for the app UI |
-| `prd/` | the PRDs. `0001` local brain + phase machine · `0002` versioned content config + experiment DB spine · `0003` repo conventions + a verifiable done · `0004` the experiment lane — the contract every experiment must satisfy · `0005` the revealing-miniskirt pillar — the first experiment, and the contract's first test case · `0006` harness conformance to `rails-venture-template` — the parity audit and the rails this repo lacks. Cut into board tickets per the plan's linkage contract |
+| `prd/` | the PRDs. `0001` local brain + phase machine · `0002` versioned content config + experiment DB spine · `0003` repo conventions + a verifiable done · `0004` the experiment lane — the contract every experiment must satisfy · `0005` the revealing-miniskirt pillar — the first experiment, and the contract's first test case · `0006` harness conformance to `rails-venture-template` — the parity audit and the rails this repo lacks · `0007` safety-posture reduction — the legal floor and the A/B/C triage of the agent-authored controls. Cut into board tickets per the plan's linkage contract |
 
 ### Reference
 

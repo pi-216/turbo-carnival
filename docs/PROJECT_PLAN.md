@@ -129,6 +129,10 @@ Ordering is the part the board cannot express, so it is stated here explicitly.
 - **W1.4** (harness conformance) — like W1.3, blocks no capability; it blocks **fleet uniformity**. It
   touches W1.3 only where the template names a gate member (`bundler-audit`, `erb_lint`) that W1.3's
   `bin/verify` composes, and it does not touch the test-signal layer (issue #19).
+- **W1.5** (safety-posture reduction) — blocks no capability; its A items are what the intensity
+  experiment (PRD 0005's wardrobe ladder) waits on, and the founder's tier pre-flight (PRD 0007 §A5)
+  is the only gate there. Nothing blocks it — the spec is complete, all five questions resolved
+  (2026-10-20).
 - **W3.5** (close the render loop) depends on **W2.1** — a rail that dies at random on an empty mask
   cannot be the engine of an unattended pipeline.
 
@@ -147,6 +151,7 @@ their tickets not yet cut._
 | W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **building** · epic #36, tickets #37–#43 · #37 (attribution spine) done · #38 (prompt parts + the spine writer) done · #39 (per-post instrument, option B) done |
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **OpenSpec dropped** `7e5ccee` · epic #44, tickets #45–#50 |
 | W1.4 | harness conformance to `rails-venture-template` | `docs/prd/0006-…` | **rulings landed** 2026-10-19 (Q1–Q9) · parity audit measured · epic #75, tickets #76–#85 + #90–#91 · rails R3/R6/R7/R8 open |
+| **W1.5** | safety-posture reduction — the legal floor + A/B/C triage of the agent-authored controls | `docs/prd/0007-…` | **spec written** 2026-10-20 · all five questions resolved (incl. the founder tier pre-flight) · epic #113, tickets #103–#112 |
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
   legal and in-lane. The replacement is the local uncensored Qwen3.8-27B. Intake confirmed the brain
@@ -176,6 +181,14 @@ their tickets not yet cut._
   Overlaps W1.3 only where the template names a gate member `bin/verify` composes; the
   test-signal layer is issue #19. **Serves:** fleet uniformity — a parity audit that returns
   deviations-by-choice, not gaps-by-accident.
+- **W1.5** — the repo's safety/risk posture is agent-authored, not founder-authored, and it is what
+  made the previous agents timid: a fail-closed NSFW veto that purges renders, a modest-clothing
+  wardrobe floor, safety-tuned captions, a planner prompt that de-authorizes the brain, and a docs
+  ladder where "intensity = founder ruling" parks the work. PRD 0007 demotes or removes all of it and
+  keeps exactly one hard floor — the legal one (no minor read published, no real-person likeness,
+  synthetic mark on every asset, platform compliance). Ruling 2026-10-20: intensity is class 3 — the
+  system acts, measured, bounded by the floor — with the founder verifying each new tier at its start
+  (the A5 pre-flight). **Serves:** an uncensored model that finds no plausible story for being timid.
 
 ### W2 — experiment
 
