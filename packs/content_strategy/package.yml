@@ -10,3 +10,9 @@ dependencies:
   - packs/scheduling
   - packs/personas
   - packs/content_pillars
+  # Engagement scoring runs over pipeline ImageCandidates. Declared in this
+  # direction (the reverse reference is baselined in pipeline's
+  # package_todo.yml) because content_strategy declares clustering, which
+  # declares pipeline: a pipeline -> content_strategy edge would close a
+  # cycle.
+  - packs/pipeline

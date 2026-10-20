@@ -1,0 +1,47 @@
+# This file contains a list of dependencies that are not part of the long term plan for the
+# 'packs/pipeline' package.
+# We should generally work to reduce this list over time.
+#
+# You can regenerate this file using the following command:
+#
+# bin/packwerk update-todo
+#
+# The per-entry justifications below are YAML comments: regenerating this file
+# removes them. The reasoning also lives in the issue #46 PR description.
+---
+# A pipeline step owns the ComfyuiJob it spawned (has_many :comfyui_jobs,
+# dependent: :destroy). comfyui already declares pipeline, so the reverse edge
+# would close a 2-cycle.
+packs/comfyui:
+  "::ComfyuiJob":
+    violations:
+    - dependency
+    files:
+    - packs/pipeline/app/models/pipeline_step.rb
+# Winner selection reads the persona's StrategyState. content_strategy declares
+# clustering, which declares pipeline, so a direct pipeline -> content_strategy
+# edge would close the cycle pipeline -> content_strategy -> clustering -> pipeline.
+packs/content_strategy:
+  "::ContentStrategy::StrategyState":
+    violations:
+    - dependency
+    files:
+    - packs/pipeline/app/commands/auto_select_winners.rb
+# A PipelineRun reads JobOrchestrationConfig.max_children_per_node.
+# job_orchestration already declares pipeline, so the reverse edge would close
+# a 2-cycle.
+packs/job_orchestration:
+  "::JobOrchestrationConfig":
+    violations:
+    - dependency
+    files:
+    - packs/pipeline/app/models/pipeline_run.rb
+# A PipelineRun links to the Scheduling::Post(s) it produced (awaiting_posts).
+# scheduling declares pipeline (the post model carries its run), so the reverse
+# edge would close a 2-cycle.
+packs/scheduling:
+  "::Scheduling::Post":
+    violations:
+    - dependency
+    files:
+    - packs/pipeline/app/models/pipeline_run.rb

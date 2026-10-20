@@ -6,5 +6,15 @@
 enforce_dependencies: true
 dependencies:
   - "."
+  # The pipeline orchestrates the daily flow: it resolves content_pillars
+  # (Photo/ContentPillar/LinkWinnerToPillar) and personas (Persona) for each
+  # run. References from pipeline into content_strategy (StrategyState),
+  # job_orchestration (JobOrchestrationConfig), scheduling (Scheduling::Post)
+  # and comfyui (ComfyuiJob) are baselined in package_todo.yml: comfyui and
+  # job_orchestration already declare pipeline, and content_strategy and
+  # scheduling are connected to pipeline via clustering, so declaring the
+  # direct edges would close cycles in the dependency graph.
+  - packs/content_pillars
+  - packs/personas
 metadata:
   owner: Platform Team
