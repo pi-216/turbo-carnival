@@ -28,7 +28,7 @@ require "set"
 # grace period and unknown to ComfyUI is an orphan -> terminal status, so the
 # back-pressure lifts. The grace period protects jobs submitted moments ago that
 # are not yet visible.
-class ReconcileStaleJobs < GLCommand::Callable
+class ReconcileStaleJobs < ApplicationCommand
   returns :reconciled
 
   BASE_URL = ENV.fetch("COMFYUI_BASE_URL", "http://127.0.0.1:8188")

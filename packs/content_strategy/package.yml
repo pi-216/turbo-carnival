@@ -5,6 +5,7 @@ enforce_dependencies: true
 enforce_privacy: true
 
 dependencies:
+  - .
   - packs/clustering
   - packs/scheduling
   - packs/personas

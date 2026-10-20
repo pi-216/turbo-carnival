@@ -1,4 +1,4 @@
-class ProcessJobResult < GLCommand::Callable
+class ProcessJobResult < ApplicationCommand
   requires :comfyui_job
 
   returns :image_candidate

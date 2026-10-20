@@ -1,4 +1,4 @@
-class RecordVote < GLCommand::Callable
+class RecordVote < ApplicationCommand
   requires :winner, :loser
 
   def call

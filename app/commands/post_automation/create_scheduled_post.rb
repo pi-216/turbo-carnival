@@ -2,7 +2,7 @@
 
 module PostAutomation
   # Step 3: Create a scheduled post record
-  class CreateScheduledPost < GLCommand::Callable
+  class CreateScheduledPost < ApplicationCommand
     requires photo: ContentPillars::Photo, persona: Persona, caption: String
     allows optimal_time: Time, hashtags: Array, caption_metadata: Hash
 

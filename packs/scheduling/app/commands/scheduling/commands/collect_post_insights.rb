@@ -2,7 +2,7 @@
 
 module Scheduling
   module Commands
-    class CollectPostInsights < GLCommand::Callable
+    class CollectPostInsights < ApplicationCommand
       BASE_URL = "https://graph.facebook.com/v20.0"
 
       # HTTP 400 with Graph error code 100 on a media node means the object is

@@ -1,4 +1,4 @@
-class CreatePipelineRun < GLCommand::Callable
+class CreatePipelineRun < ApplicationCommand
   requires :pipeline_id
   allows :name, :target_folder, :variables, :prompt, :persona_id, :content_pillar_id
   returns :run

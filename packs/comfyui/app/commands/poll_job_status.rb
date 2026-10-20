@@ -1,4 +1,4 @@
-class PollJobStatus < GLCommand::Callable
+class PollJobStatus < ApplicationCommand
   requires :comfyui_job
 
   returns :status, :needs_processing

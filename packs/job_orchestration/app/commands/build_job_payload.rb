@@ -1,4 +1,4 @@
-class BuildJobPayload < GLCommand::Callable
+class BuildJobPayload < ApplicationCommand
   requires :pipeline_step, :pipeline_run
   allows :parent_candidate
 

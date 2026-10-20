@@ -23,7 +23,7 @@ module Scheduling
     # photography is the red line, and it is checked on the video's own bytes
     # (Iptc4xmpExt:DigitalSourceType, written into the MP4 container by
     # Growth::ReelBuilder) rather than on a flag we set alongside it.
-    class GeneratePublicReelUrl < GLCommand::Callable
+    class GeneratePublicReelUrl < ApplicationCommand
       requires post: Scheduling::Post
       returns public_reel_url: String
 

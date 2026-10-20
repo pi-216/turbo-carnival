@@ -2,7 +2,7 @@
 
 module Scheduling
   module Commands
-    class UpdatePostWithInstagramId < GLCommand::Callable
+    class UpdatePostWithInstagramId < ApplicationCommand
       requires post: Scheduling::Post, instagram_post_id: String
       returns post: Scheduling::Post
 

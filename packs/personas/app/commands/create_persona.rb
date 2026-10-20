@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class CreatePersona < GLCommand::Callable
+class CreatePersona < ApplicationCommand
   requires :name
   returns :persona
 

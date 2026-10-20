@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module ContentStrategy
-  class ComputeEngagementScores < GLCommand::Callable
+  class ComputeEngagementScores < ApplicationCommand
     def call
       persona = Persona.find_by(name: "Sarah")
       return unless persona

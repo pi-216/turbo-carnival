@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class AutoSelectWinners < GLCommand::Callable
+class AutoSelectWinners < ApplicationCommand
   requires :pipeline_run
 
   returns :winners, :rejected, :photos

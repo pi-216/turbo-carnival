@@ -24,7 +24,7 @@ module Scheduling
     # single-use container, same error surfacing, same rollback warning. The
     # differences all live in the client (video_url + media_type=REELS and the
     # longer, bounded video ready-check) so the two rails cannot drift.
-    class SendReelToInstagram < GLCommand::Callable
+    class SendReelToInstagram < ApplicationCommand
       requires :public_reel_url, :caption, :persona
       returns :instagram_post_id
 
