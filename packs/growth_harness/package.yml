@@ -10,5 +10,14 @@ dependencies:
   # into the spine. The edge runs one way (growth_harness -> attribution); attribution
   # depends only on "." and packs/pipeline, so there is no cycle.
   - packs/attribution
+  # The daily flow reads the pipeline (PipelineRun, Pipeline, ImageCandidate),
+  # submits render jobs through comfyui (SubmitJob, ComfyuiClient, ComfyuiJob),
+  # builds job payloads in job_orchestration (BuildJobPayload), and asks
+  # gap_analysis for suggestions. All edges run one way into those packs; none
+  # of them depend back on growth_harness, so no cycles are introduced.
+  - packs/pipeline
+  - packs/comfyui
+  - packs/job_orchestration
+  - packs/gap_analysis
 metadata:
   owner: growth

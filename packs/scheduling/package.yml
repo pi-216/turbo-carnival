@@ -3,3 +3,13 @@ dependencies:
   - .
   - packs/personas
   - packs/clustering
+  # Posts carry pillar photos and asset markers, so scheduling resolves
+  # content_pillars (ContentPillars::Photo, PhotoAssetMarker) when building
+  # and marking posts.
+  - packs/content_pillars
+  # The post model carries its pipeline run, and failed-post retry reads the
+  # PipelineRun that produced the post. Declared in this direction (the
+  # reverse Scheduling::Post reference in pipeline is baselined) because
+  # scheduling already reaches pipeline via clustering, so a pipeline ->
+  # scheduling edge would close a cycle.
+  - packs/pipeline
