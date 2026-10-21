@@ -228,6 +228,12 @@ was withdrawn 2026-10-18 because an agent, not the founder, authored it*. The te
 to carry a literal **"We will NOT"** list that **every PRD cites**. Today nothing cites it, and the repo's
 red lines live only inside PRD 0003's edge cases and `AGENTS.md`'s "one hard gate".
 
+**Landed 2026-10-21 (ticket #81).** `THESIS.md` is **CURRENT**: problem / user / value + a literal
+"We will NOT" list carrying only founder-authored red lines (the legal floor first — PRD 0007 §1 —
+then the founder invariants from `strategy-v2.md` §5, then the class-4 identity ruling), plus the five
+locked pillars. `docs/README.md` reconciled: `THESIS.md` is listed under *Current* with its own
+one-truth row, and no CURRENT document cites the HISTORICAL revision as truth.
+
 **F8 — Two rails are deliberately deviated, and the deviation is unwritten.** The template locks **HAML**
 and a **Cucumber/Gherkin lane**. Turbo-carnival uses **ERB** (`app/views/layouts/application.html.erb`,
 `views/gap_analyses/*.html.tailwindcss_spec.rb`) and has **no `gherkin_specs/`, no `config/cucumber.yml`,
