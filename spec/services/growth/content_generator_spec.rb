@@ -73,6 +73,9 @@ RSpec.describe Growth::ContentGenerator do
       expect(run.variables['sync_producer']).to eq('Growth::ContentGenerator')
       # The pillar is unconfigured, so the axis FLOOR is in effect and recorded.
       expect(run.variables['wardrobe_level']).to eq(1)
+      # B2 (#109): the floor rung covers the areola in text, so the scene
+      # negative rides on the run for the graph's {{negative_prompt}} token.
+      expect(run.variables['negative_prompt']).to eq(ContentPillars::WardrobeAxis::AREOLA_NEGATIVE)
     end
 
     it 'records a raised wardrobe level when the pillar is configured' do
@@ -84,6 +87,24 @@ RSpec.describe Growth::ContentGenerator do
       run = PipelineRun.find(result[:run_id])
 
       expect(run.variables['wardrobe_level']).to eq(5)
+      expect(run.variables['negative_prompt']).to eq(ContentPillars::WardrobeAxis::AREOLA_NEGATIVE)
+    end
+
+    # PRD 0007 B2 (#109): the scene negative in effect for the render rides on
+    # the run row, from the SAME rung the prompt reads. A scene that exposes
+    # the areola in text (a rung not declared to cover) is free of the
+    # suppression — the terms are the scene's to carry, not a global default.
+    it 'records no scene suppression when the rung in effect exposes the areola in text' do
+      pillar.update!(wardrobe_level: 5)
+      allow(ContentPillars::WardrobeAxis).to receive(:validated_tier).and_return(5)
+      allow(ContentPillars::WardrobeAxis).to receive(:negative_for).and_return('')
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+      run = PipelineRun.find(result[:run_id])
+
+      expect(run.variables['wardrobe_level']).to eq(5)
+      expect(run.variables['negative_prompt']).to eq('')
     end
 
     it 'ships the placeholder but records why when the caption call fails' do

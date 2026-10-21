@@ -24,6 +24,14 @@ module Growth
     # the prompt always agree (both read ContentPillars::WardrobeAxis).
     WARDROBE_LEVEL_KEY = 'wardrobe_level'
 
+    # PRD 0007 B2 (#109): the scene negative in effect for this render, from
+    # the same rung the prompt reads. It rides on the run so the graph's
+    # {{negative_prompt}} token (node 79) resolves it — the areola terms move
+    # out of the global negative and into the scene's own negative: a scene
+    # that covers in text carries them (rung 1-8 today), a scene that exposes
+    # the areola in text is free of the suppression.
+    NEGATIVE_PROMPT_KEY = 'negative_prompt'
+
     attr_reader :goal
 
     # Set by poll_for_image when ComfyUI reported an execution failure, so the
@@ -58,6 +66,11 @@ module Growth
         return { success: false, error: "pipeline #{PIPELINE_NAME} not found" }
       end
 
+      # The rung in effect is read once and BOTH the prompt and the run's
+      # records derive from it (A2), so the render and the audit record can
+      # never disagree. The scene negative rides on the same rung (B2).
+      level = effective_wardrobe_level
+
       run = PipelineRun.create!(
         pipeline: pipeline,
         persona: persona,
@@ -68,7 +81,8 @@ module Growth
         status: 'pending',
         variables: {
           SYNC_PRODUCER_KEY => self.class.name,
-          WARDROBE_LEVEL_KEY => effective_wardrobe_level
+          WARDROBE_LEVEL_KEY => level,
+          NEGATIVE_PROMPT_KEY => ContentPillars::WardrobeAxis.negative_for(level)
         }
       )
 

@@ -47,3 +47,54 @@ end
 Before('@DEV-0105') do
   ActiveRecord::Base.connection.begin_transaction(joinable: false)
 end
+
+# PRD 0007 B2 · ticket #109. The scene's own negative: a scene that covers the
+# areola in text carries the terms in its own negative; a scene that exposes it
+# in text is free of the suppression. These steps resolve the negative the way
+# the production rail does — from the rung the prompt reads.
+When('the scene negative is resolved for the pillar') do
+  @scene_negative = ContentPillars::WardrobeAxis.negative_for(
+    ContentPillars::WardrobeAxis.effective_level(@pillar)
+  )
+end
+
+When('the scene negative is resolved for rung {int}') do |level|
+  @scene_negative = ContentPillars::WardrobeAxis.negative_for(level)
+end
+
+Then('the scene negative reads "nipples, areola"') do
+  expect(@scene_negative).to eq('nipples, areola')
+end
+
+Then('the scene negative carries no areola terms') do
+  expect(@scene_negative).not_to match(/nipple|areola/i)
+end
+
+Given('a wardrobe rung that exposes the areola in text') do
+  @saved_ladder = ContentPillars::WardrobeAxis.const_get(:LADDER)
+  exposed = ContentPillars::WardrobeAxis.const_get(:Rung).new(
+    level: ContentPillars::WardrobeAxis::MAX_LEVEL + 1,
+    descriptor: 'naked, the areola visible',
+    covers_areola: false
+  )
+  # remove_const + const_set is a fresh definition: no "already initialized
+  # constant" warning in the suite output.
+  ContentPillars::WardrobeAxis.send(:remove_const, :LADDER)
+  ContentPillars::WardrobeAxis.const_set(:LADDER, @saved_ladder + [ exposed ])
+end
+
+Before('@DEV-0109') do
+  ActiveRecord::Base.connection.begin_transaction(joinable: false)
+end
+
+After('@DEV-0109') do
+  # Restore the declared scale if a scenario added a rung (a const swap in a
+  # hook is visible to the whole process; the restore is the cleanup).
+  if @saved_ladder
+    ContentPillars::WardrobeAxis.send(:remove_const, :LADDER) if ContentPillars::WardrobeAxis.const_defined?(:LADDER)
+    ContentPillars::WardrobeAxis.const_set(:LADDER, @saved_ladder)
+    @saved_ladder = nil
+  end
+  # Same shared-DB hygiene as @DEV-0105.
+  ActiveRecord::Base.connection.rollback_transaction if ActiveRecord::Base.connection.transaction_open?
+end

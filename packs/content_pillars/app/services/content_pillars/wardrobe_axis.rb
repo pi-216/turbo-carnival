@@ -13,16 +13,39 @@ module ContentPillars
   # and how), not a mood word — PRD 0005's authoring rule. The floor rung is a
   # rung on the scale the brain can raise, NOT a global constraint: removing it
   # is what "no SFW-only default remains in the prompt path" means.
+  #
+  # PRD 0007 B2 (#109): each rung also declares whether it COVERS THE AREOLA IN
+  # TEXT (covers_areola). That fact is the scene's own answer to B2's rule —
+  # scenes that cover in text carry the areola terms in their own negative by
+  # default (the belt-and-braces guard behind the 2026-10-18 checkpoint leak
+  # finding); a rung that exposes the areola in text drops the terms and the
+  # scene is free of the suppression. It is declared, never inferred from the
+  # descriptor text, so a new rung cannot silently change a scene's negative.
   class WardrobeAxis
+    # The areola terms a covering scene carries in its own negative. One
+    # string, one home: the scene spec, the run variables and the graph token
+    # all resolve to it.
+    AREOLA_NEGATIVE = 'nipples, areola'
+
+    Rung = Struct.new(:level, :descriptor, :covers_areola, keyword_init: true)
+
     LADDER = [
-      'wearing everyday clothing, torso and legs fully covered',
-      'wearing a knee-length skirt, torso fully covered',
-      'wearing an above-the-knee skirt, torso covered',
-      'wearing a mid-thigh skirt, torso covered',
-      'wearing a short miniskirt, hemline well above the knee, torso covered',
-      'wearing the shortest plausible skirt, hemline at the upper thigh, torso covered',
-      'wearing a one-piece swimsuit, areola and navel covered',
-      'wearing a two-piece bikini, minimal coverage, areola and navel covered'
+      Rung.new(level: 1, descriptor: 'wearing everyday clothing, torso and legs fully covered',
+               covers_areola: true),
+      Rung.new(level: 2, descriptor: 'wearing a knee-length skirt, torso fully covered',
+               covers_areola: true),
+      Rung.new(level: 3, descriptor: 'wearing an above-the-knee skirt, torso covered',
+               covers_areola: true),
+      Rung.new(level: 4, descriptor: 'wearing a mid-thigh skirt, torso covered',
+               covers_areola: true),
+      Rung.new(level: 5, descriptor: 'wearing a short miniskirt, hemline well above the knee, torso covered',
+               covers_areola: true),
+      Rung.new(level: 6, descriptor: 'wearing the shortest plausible skirt, hemline at the upper thigh, torso covered',
+               covers_areola: true),
+      Rung.new(level: 7, descriptor: 'wearing a one-piece swimsuit, areola and navel covered',
+               covers_areola: true),
+      Rung.new(level: 8, descriptor: 'wearing a two-piece bikini, minimal coverage, areola and navel covered',
+               covers_areola: true)
     ].freeze
 
     # The miniskirt rung (PRD 0005 L4 — "the rung the founder's wording points
@@ -70,11 +93,23 @@ module ContentPillars
       # level is out of range, so a prompt is always well-formed).
       def descriptor_for(level)
         i = (level || MIN_LEVEL).to_i
-        LADDER[(i - 1).clamp(0, LADDER.size - 1)]
+        LADDER[(i - 1).clamp(0, LADDER.size - 1)].descriptor
       end
 
       def descriptor_for_pillar(pillar)
         descriptor_for(effective_level(pillar))
+      end
+
+      # PRD 0007 B2 (#109): the scene negative for a rung — the areola terms
+      # when the rung covers the areola in text, otherwise nothing. This is the
+      # production rail's half of "each scene definition owns its own
+      # negative": the run records it and the graph's {{negative_prompt}} token
+      # (node 79) resolves it. An unknown level is not declared to cover, so it
+      # carries no suppression — the default is freedom, and a covering scene
+      # must say so.
+      def negative_for(level)
+        rung = LADDER.find { |r| r.level == level.to_i }
+        rung && rung.covers_areola ? AREOLA_NEGATIVE : ''
       end
     end
   end

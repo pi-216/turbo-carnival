@@ -17,22 +17,22 @@ RSpec.describe ContentPillars::WardrobeAxis do
   describe 'the scale' do
     it 'spans the reveal range, from a covered floor to minimal coverage' do
       expect(described_class::MAX_LEVEL).to be >= 8
-      expect(described_class::LADDER.first).to match(/fully covered/i)
-      expect(described_class::LADDER.last).to match(/minimal coverage|bikini/i)
+      expect(described_class::LADDER.first.descriptor).to match(/fully covered/i)
+      expect(described_class::LADDER.last.descriptor).to match(/minimal coverage|bikini/i)
     end
 
     it 'is a coverage statement at every rung, not a mood word' do
       described_class::LADDER.each do |rung|
-        expect(rung).to match(/wearing/i), "rung is not a coverage statement: #{rung}"
+        expect(rung.descriptor).to match(/wearing/i), "rung is not a coverage statement: #{rung.descriptor}"
       end
     end
 
     it "maps the miniskirt rung to the founder's wording" do
-      expect(described_class::LADDER[described_class::MINISKIRT_LEVEL - 1]).to match(/miniskirt/i)
+      expect(described_class::LADDER[described_class::MINISKIRT_LEVEL - 1].descriptor).to match(/miniskirt/i)
     end
 
     it 'carries no old SFW-only floor' do
-      expect(described_class::LADDER.join(' ')).not_to match(/modest everyday clothing/i)
+      expect(described_class::LADDER.map(&:descriptor).join(' ')).not_to match(/modest everyday clothing/i)
     end
   end
 
@@ -102,6 +102,46 @@ RSpec.describe ContentPillars::WardrobeAxis do
 
     it 'uses the covered floor for an unconfigured pillar' do
       expect(described_class.descriptor_for_pillar(double('pillar', wardrobe_level: nil))).to match(/fully covered/i)
+    end
+  end
+
+  # PRD 0007 B2 (#109): the scene's own negative. A scene that covers the
+  # areola in text carries the terms in its own negative (the belt-and-braces
+  # guard behind the 2026-10-18 checkpoint leak finding); a scene that exposes
+  # it in text drops them. The declaration lives on the rung, so this test can
+  # exercise the exposed case by declaring one.
+  describe '.negative_for' do
+    it 'carries the areola terms for every rung on the current scale' do
+      described_class::LADDER.each do |rung|
+        expect(described_class.negative_for(rung.level)).to eq(described_class::AREOLA_NEGATIVE),
+          "rung #{rung.level} (#{rung.descriptor}) is declared to cover but carries no negative"
+      end
+    end
+
+    it 'is the single source the run variables and the graph token both resolve' do
+      expect(described_class::AREOLA_NEGATIVE).to eq('nipples, areola')
+    end
+
+    it 'carries nothing for a rung that exposes the areola in text' do
+      exposed = described_class::Rung.new(
+        level: described_class::MAX_LEVEL + 1,
+        descriptor: 'naked, the areola visible',
+        covers_areola: false)
+      saved = described_class.const_get(:LADDER)
+      # remove_const + const_set is a fresh definition: no "already
+      # initialized constant" warning in the test signal.
+      described_class.send(:remove_const, :LADDER)
+      described_class.const_set(:LADDER, saved + [ exposed ])
+      expect(described_class.negative_for(exposed.level)).to eq('')
+    ensure
+      described_class.send(:remove_const, :LADDER)
+      described_class.const_set(:LADDER, saved)
+    end
+
+    it 'carries nothing for an unknown level (the default is freedom)' do
+      expect(described_class.negative_for(0)).to eq('')
+      expect(described_class.negative_for(described_class::MAX_LEVEL + 1)).to eq('')
+      expect(described_class.negative_for(nil)).to eq('')
     end
   end
 end

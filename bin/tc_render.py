@@ -33,6 +33,7 @@ sweep. Never let seed luck enter a pool that is ranking something else.
 import argparse
 import hashlib
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -124,6 +125,30 @@ def substitute(obj, values):
     return obj
 
 
+def parse_scene(text):
+    """Split a scene spec into (prompt_text, negative).
+
+    A scene spec MAY declare a reserved ``Negative:`` field -- a line that
+    starts with ``Negative:`` (PRD 0007 B2, #109: each scene definition owns
+    its own negative). The field is consumed by the renderer: it does NOT enter
+    the image prompt, it feeds the graph's ``{{negative_prompt}}`` token (the
+    negative node, 79). A scene that declares nothing sends nothing, so its
+    graph's negative carries no areola suppression -- the terms that used to
+    sit in the global negative are now the scene's to carry. Every other line
+    stays in the prompt, including the Scene/Composition/Pose/Wardrobe/Mood/
+    Photography Style fields (prompt structure the model reads).
+    """
+    prompt_lines = []
+    negative = None
+    for line in text.strip().splitlines():
+        m = re.match(r"^\s*negative\s*:\s*(.*)$", line, re.IGNORECASE)
+        if negative is None and m:
+            negative = m.group(1).strip()
+        else:
+            prompt_lines.append(line)
+    return "\n".join(prompt_lines).strip(), (negative or "")
+
+
 def find_output(history_entry):
     """Pull the saved image out of a /history entry's outputs."""
     for _node_id, out in (history_entry.get("outputs") or {}).items():
@@ -174,7 +199,7 @@ def cmd_checkpoints(_args):
     return 0
 
 
-def render_one(workflow_path, prompt, checkpoint, out_path, seed, run_name, retries):
+def render_one(workflow_path, prompt, checkpoint, out_path, seed, run_name, retries, negative=""):
     if not prompt:
         raise SystemExit(
             "render_one called with an empty prompt -- the scene would never reach the "
@@ -186,6 +211,10 @@ def render_one(workflow_path, prompt, checkpoint, out_path, seed, run_name, retr
         "run_name": run_name,
         "auto_seed": int(seed),
         "job_id": int(seed),
+        # PRD 0007 B2 (#109): the scene's own negative, or nothing when the
+        # scene declares none. An empty string is a VALUE (the token resolves
+        # to no terms), never a bug the way a None seed would be.
+        "negative_prompt": negative,
     }
     wf = substitute(json.loads(Path(workflow_path).read_text()), values)
 
@@ -238,7 +267,8 @@ def cmd_sweep(args):
     if not workflow.is_file():
         raise SystemExit(f"no such workflow file: {workflow}")
 
-    prompt = Path(args.prompt_file).read_text().strip() if args.prompt_file else (args.prompt or "")
+    raw_scene = Path(args.prompt_file).read_text().strip() if args.prompt_file else (args.prompt or "")
+    prompt, negative = parse_scene(raw_scene)
     if not prompt:
         raise SystemExit("give --prompt or --prompt-file")
 
@@ -260,12 +290,19 @@ def cmd_sweep(args):
         seed = int(time.time()) % 2_147_483_646
     print(f"scene={args.scene} seed={seed} (shared across every checkpoint) checkpoints={len(checkpoints)}")
     print(f"prompt[{len(prompt)} chars]: {prompt[:90]}...")
+    if negative:
+        print(f"negative[{len(negative)} chars]: {negative}")
+    else:
+        print("negative: (none declared -- the scene carries no areola suppression)")
 
     manifest_path = out_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
     manifest.update({
         "scene": args.scene,
         "prompt": prompt,
+        # B2 spine (#109): the scene negative as rendered. Absent when the
+        # scene declares none -- a fact about the scene, not a missing field.
+        **({"negative": negative} if negative else {}),
         "seed": seed,
         "workflow": str(workflow),
         "workflow_sha256": hashlib.sha256(workflow.read_bytes()).hexdigest(),
@@ -281,7 +318,7 @@ def cmd_sweep(args):
             status = 'skipped'
         else:
             try:
-                render_one(workflow, prompt, c, dest, seed, args.scene, args.retries)
+                render_one(workflow, prompt, c, dest, seed, args.scene, args.retries, negative)
                 status = 'ok'
             except RenderFailed as e:
                 # Continue: a checkpoint that cannot render is a result, not a crash.
@@ -315,7 +352,7 @@ def main():
 
     s = sub.add_parser("sweep", help="render one scene across several checkpoints on one shared seed")
     s.add_argument("--scene", required=True, help="group name; becomes the filename prefix")
-    s.add_argument("--prompt", help="the scene text substituted for {{prompt}}")
+    s.add_argument("--prompt", help="the scene text substituted for {{prompt}}; a line starting with 'Negative:' is the scene's own negative (PRD 0007 B2), not prompt text")
     s.add_argument("--prompt-file", help="read the scene text from a file (overrides --prompt)")
     s.add_argument("--out", required=True, help="pool directory (the elo-picker project folder)")
     s.add_argument("--checkpoints", default="all", help="'all' or a comma-separated subset of the approved set")
