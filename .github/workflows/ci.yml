@@ -37,11 +37,11 @@ jobs:
           ruby-version: .ruby-version
           bundler-cache: true
 
-      - name: Lint code for consistent style
-        run: bin/rubocop -f github
-
-      - name: Lint ERB templates
-        run: bundle exec erb_lint --lint-all
+      # The single lint entry point (PRD 0006 R8 / ticket #91): rubocop house
+      # style + erb_lint, with the repo-local configs pinned in the wrapper.
+      # -f github annotates the PR with findings.
+      - name: "Lint (single entry point: rubocop + erb_lint)"
+        run: bin/lint -f github
 
       - name: Lint Gherkin feature files (when any exist)
         run: |
@@ -134,8 +134,8 @@ jobs:
 
   verify:
     # The Tier-0 gate (PRD 0003; membership per PRD 0006 F3): bin/verify
-    # composes bin/rubocop -> bin/brakeman --no-pager -> bundler-audit ->
-    # bin/packwerk check -> erb_lint -> bin/rspec and stops at the first
+    # composes bin/lint -> bin/brakeman --no-pager -> bundler-audit ->
+    # bin/packwerk check -> parity -> bin/rspec and stops at the first
     # failure. A green "done" claim requires this job to pass; it is
     # fail-closed (a gate that cannot run is a failure, never a pass).
     runs-on: ubuntu-latest

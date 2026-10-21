@@ -47,7 +47,7 @@ RSpec.describe "parity audit (PRD 0006 W1.4 / ticket #90)" do
     expect(lines[9]).to match(/\APARITY OK — \d+ CONFORM, \d+ DEVIATION, 0 GAP/)
   end
 
-  it "reads the ratified state: five rails conform, four carry approved deviations" do
+  it "reads the ratified state: six rails conform, three carry approved deviations" do
     lines = rail_lines(run_audit)
     verdict = ->(i) { lines[i].split("  ", 3)[1] }
 
@@ -58,7 +58,7 @@ RSpec.describe "parity audit (PRD 0006 W1.4 / ticket #90)" do
     expect(verdict.call(6)).to eq("CONFORM") # R7 observability
     expect(verdict.call(0)).to eq("DEVIATION") # R1 — Q1 HAML, Q7 state machine, Q5 solid_*
     expect(verdict.call(3)).to eq("DEVIATION") # R4 — Q8 packs-rails wiring
-    expect(verdict.call(7)).to eq("DEVIATION") # R8 — #91 in progress (bin/lint + content contract)
+    expect(verdict.call(7)).to eq("CONFORM") # R8 — #91 landed (bin/lint single entry point)
     expect(verdict.call(8)).to eq("DEVIATION") # R9 — API lane dormant
   end
 

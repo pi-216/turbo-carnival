@@ -222,6 +222,13 @@ packs/README.md                    → absent
 **pillar index (`FOUNDERS.md`), its PR gate (`.github/pull_request_template.md`, the
 `pr-conventions-gate` skill) and its docs surfaces** do not exist.
 
+**Landed 2026-10-21 (ticket #91).** R8's remaining gap is closed: `bin/lint` is the single lint
+entry point — repo-local `.rubocop.yml` (via the `bin/rubocop` binstub, which also carries the
+cgroup OOM guard) and `.erb_lint.yml`, `--branch` mode for changed files, `-f` passthrough — and
+`bin/verify` and CI invoke it, not the underlying linters. `AGENTS.md` now carries the content
+contract (single lint entry point, generated files, comment policy, no exfiltration) with a guard
+spec. Rail R8: DEVIATION → CONFORM.
+
 **F7 — `THESIS.md` exists but is inert, so there is no live thesis pillar.** The file is stamped
 **HISTORICAL**, its content-strategy section is superseded by `docs/strategy-v2.md`, and *its one red line
 was withdrawn 2026-10-18 because an agent, not the founder, authored it*. The template requires `THESIS.md`

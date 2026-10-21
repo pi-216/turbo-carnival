@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# Single lint entry point (PRD 0006 R8 / ticket #91).
+#
+# The whole repo, one command:
+#   bin/lint             # rubocop (house style) + erb_lint, whole repo
+#   bin/lint --branch    # the same, on the files changed vs origin/main
+#
+# The wrapper pins the repo-local .rubocop.yml (via bin/rubocop, which also
+# carries the cgroup OOM guard) and .erb_lint.yml, so the rule set is the
+# repo's, never a config inherited off the operator's filesystem. bin/verify
+# and CI call this, not the underlying linters.
+#
+# Usage: bin/lint [--branch] [-f FORMAT]
+#   --branch    lint only files changed vs origin/main (HEAD + unstaged + untracked)
+#   -f FORMAT   rubocop formatter (CI passes `-f github` for PR annotations)
+
+set -euo pipefail
+
+BRANCH=0
+FORMAT=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --branch)
+      BRANCH=1
+      ;;
+    -f)
+      shift
+      FORMAT="${1:---}"
+      ;;
+    *)
+      echo "bin/lint: unknown argument: $1" >&2
+      echo "Usage: bin/lint [--branch] [-f FORMAT]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [ "$BRANCH" -eq 1 ]; then
+  base_ref="origin/main"
+  git rev-parse --verify "$base_ref" >/dev/null 2>&1 || base_ref="main"
+  base="$(git merge-base "$base_ref" HEAD 2>/dev/null || true)"
+
+  # HEAD-vs-base + unstaged + untracked, de-duplicated.
+  changed_files() {
+    {
+      if [ -n "$base" ]; then
+        git diff --name-only --diff-filter=ACMR "$base" HEAD
+      fi
+      git diff --name-only --diff-filter=ACMR
+      git ls-files --others --exclude-standard
+    } | sort -u
+  }
+
+  mapfile -t ruby_files < <(changed_files | grep -E '\.(rb|rake|gemspec)$|(^|/)Gemfile$|(^|/)Rakefile$' || true)
+  mapfile -t erb_files < <(changed_files | grep -E '\.erb$' || true)
+fi
+
+extra_args=()
+[ -n "$FORMAT" ] && extra_args+=(-f "$FORMAT")
+
+# The Ruby linter: the repo binstub pins the repo-local .rubocop.yml.
+if [ "$BRANCH" -eq 1 ]; then
+  # Every changed Ruby file must at least parse, independent of the rule set.
+  for f in "${ruby_files[@]}"; do
+    [ -f "$f" ] || continue
+    ruby -c "$f" >/dev/null
+  done
+  if [ "${#ruby_files[@]}" -gt 0 ]; then
+    bin/rubocop --force-exclusion "${extra_args[@]}" "${ruby_files[@]}"
+  else
+    echo "bin/lint: no changed Ruby files to lint"
+  fi
+else
+  bin/rubocop --force-exclusion "${extra_args[@]}"
+fi
+
+# The ERB linter: config discovered from the repo root, as in whole-repo mode.
+if [ "$BRANCH" -eq 1 ]; then
+  if [ "${#erb_files[@]}" -gt 0 ]; then
+    bundle exec erb_lint "${erb_files[@]}"
+  else
+    echo "bin/lint: no changed ERB files to lint"
+  fi
+else
+  bundle exec erb_lint --lint-all
+fi
+
+echo "bin/lint: OK"
