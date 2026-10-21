@@ -38,7 +38,10 @@ A rule with no enforcement is a preference. Every rule below names what actually
 | No known security vulnerability ships | `bin/brakeman --no-pager` — **in CI** |
 | Pack boundaries | `bin/packwerk check` — **0 violations** (29 declared, 12 baselined individually in `packs/*/package_todo.yml` — stale entries fail the check); run by `bin/verify` **in CI** (PRD 0003) |
 | The real test suite | `bin/rspec` — **run in CI** with the agent test-signal verdict gate (a 0-example run fails the lane); also run by `bin/verify` (PRD 0003). The signal's own contract is gated by `bin/test-agent-signal` (§ *the agent test signal*) |
-| Ticket linkage to the plan | intended `plan:check` — **does not exist yet** (PRD 0003) |
+| Command objects | `ApplicationCommand` (GLCommand: verb-first, transactional `run_after_commit`) — the base contract is held by `spec/commands/application_command_spec.rb` (runs in `bin/rspec`/CI); the pattern itself (route new business logic through a command) is **review-held (a preference — no runnable gate yet)** |
+| Factory truth | FactoryBot is the single test-data source (`spec/factories/`, wired in `spec/support/factory_bot.rb`); "factories, not inline builds" is **review-held (a preference — no runnable gate yet)** |
+| PR gate | `.github/pull_request_template.md` — the author + reviewer checklists are auto-applied to every PR and held by review (§ *the content contract*) |
+| Ticket linkage to the plan | `rake plan:check` — every board item cites a plan id, the generated index matches the board, and no dependency cycle exists (any of those failing exits non-zero); `rake plan:index` regenerates the state column from the board. Pure stdlib, no Rails/DB (PRD 0003, #48) |
 
 ## The gate
 
