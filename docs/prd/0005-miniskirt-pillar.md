@@ -26,9 +26,13 @@ by platform response per published post over a fixed window.
 
 - **The goal:** *"generate images in revealing miniskirts, that are still legal and allowed to be posted to
   instagram."* (2026-10-19) That is the target. **This experiment does not extend it** — it measures where
-  the boundary already is, and the top rung of the ladder is the founder's call, not the researcher's.
-- Risk class 3 (explicitness / intensity) is a **founder ruling**, not a system decision
-  (`AGENTS.md` → *the authority ladder*). The wardrobe axis may not be pushed further to improve a number.
+  the boundary already is. The top of the ladder is not a comfort level and not a pre-ruled founder
+  boundary: it is the **measured platform tolerance** (PRD 0007 B4), and the founder verifies each new
+  tier at its start (the A5 pre-flight).
+- Risk class 3 (explicitness / intensity) **was** a founder ruling (2026-10-19) and was **re-ruled
+  2026-10-20 (PRD 0007 A5): the system acts, measured**, bounded by the legal floor, with the founder
+  verifying each new tier at its start (the A5 pre-flight; `AGENTS.md` → *the authority ladder*). The
+  wardrobe axis may not be pushed further to improve a number.
 - The persona is **18**, and the visuals must not *read* younger. **No wardrobe rung may trade against the
   age read**, and a rung that trends younger-looking is rejected regardless of its yield.
 - **The existing pillars are fair game** (2026-10-19): the adopted wardrobe may land on an **existing** content
@@ -158,7 +162,9 @@ running the daily lane's own checks.
 
 ## Red lines
 
-- **No wardrobe rung may be pushed further to improve a number.** Intensity is a founder ruling.
+- **No wardrobe rung may be pushed further to improve a number.** Intensity is a system lever,
+  measured (PRD 0007 A5); the boundary is the measured platform tolerance (PRD 0007 B4), and a rung
+  is not extended to chase a number.
 - **No rung may trade against the age read.** A rung that trends younger-looking is rejected regardless of
   yield — that is account-terminating, not a tuning trade-off.
 - **The hemline is not the composition's subject.** Framing stays on the face and the persona; an
@@ -173,8 +179,10 @@ running the daily lane's own checks.
 
 ## Open questions
 
-1. **Where does the ladder top out?** L4/L5 descriptions are the researcher's draft against the founder's
-   wording; the *highest permitted intensity* is the founder's call. **Not decided here.**
+1. **Where does the ladder top out?** *Resolved 2026-10-20 (PRD 0007 B4, Q4/Q5): the top of the
+   ladder is the **measured platform tolerance**, not a pre-ruled founder boundary — the system pushes
+   tier by tier, and the founder verifies each new tier at its start (the A5 pre-flight). The L4/L5
+   descriptions remain the researcher's draft wording against that boundary.*
 2. **Is the secondary leg worth running before W1.2 lands?** Without per-asset attribution, an account-level
    response cannot be separated from the rest of the mix. *Lean: no — a confounded read is worse than no
    read, and the primary leg is independently useful.*

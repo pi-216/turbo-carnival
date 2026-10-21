@@ -49,6 +49,7 @@ been removed for precisely that reason — see the inventory below.
 | document | what it is |
 |---|---|
 | `PROJECT_PLAN.md` | **the spine.** Workstreams, ordering, ticket linkage contract, standing obligations |
+| `AGENTS.md` (root) | house conventions for this repo — the authority ladder, the gate, ticket-claiming rules. Replaced the OpenSpec managed block 2026-10-19 |
 | ~~`strategy-v3.md`~~ | **REMOVED 2026-10-19** — the operating model was duplicated across three documents, which is the drift this index exists to prevent. The authority ladder moved to `AGENTS.md`; the workstream contracts and the two founder requirements to `PROJECT_PLAN.md` §2; promotion to `PRD 0004`. Recoverable via `git log -- docs/strategy-v3.md` |
 | `strategy-v2.md` | distribution diagnosis, the two-venue design, platform findings, salvage map. *(§8–13 process sections are superseded by v3)* |
 | `experiment-backlog.md` | every experiment: pre-registration, verdict, and why. The evidence ledger |
@@ -86,6 +87,5 @@ acting.** Each should be promoted to CURRENT or moved to `archive/` at the next 
 | `THESIS.md` | the original thesis. Its content-strategy section is superseded by `strategy-v2.md`; one of its red lines (the Pornmaster prohibition) was **agent-authored, not founder-authored**, and was withdrawn 2026-10-18 |
 | `brainstorming.md` | early ideation |
 | `post-creation-interface.md` | an implementation-progress log, not a spec |
-| `AGENTS.md` (root) | **CURRENT** — house conventions for this repo. Replaced the OpenSpec block 2026-10-19 |
 | ~~`openspec/`~~ (114 files) | **REMOVED 2026-10-19** — dropped in favour of the PRD/ticket system. Recoverable from git history (`git log -- openspec`) |
 | `archive/` | documents moved here during cleanup |
