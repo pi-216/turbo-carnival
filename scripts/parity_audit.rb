@@ -314,7 +314,11 @@ def rail_r6
   end
 
   members = verify_members
-  expected = %w[rubocop brakeman bundler-audit packwerk erb_lint rspec]
+  # The template (ordered) set, with the turbo-carnival adjustments: the
+  # single lint entry point (PRD 0006 R8 / ticket #91) consolidates
+  # rubocop + erb_lint into the `lint` member; the BDD lane (Q2, ratified)
+  # and the parity gate (W1.4 / #90) are additions.
+  expected = %w[lint brakeman bundler-audit packwerk rspec]
   if Dir.glob("gherkin_specs/**/*.feature").any?
     expected += %w[cucumber gherkin_lint]
   end

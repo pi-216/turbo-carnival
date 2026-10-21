@@ -34,7 +34,7 @@ A rule with no enforcement is a preference. Every rule below names what actually
 | Never commit secrets; scan before any push | manual scan for `sk-…`/`gho_…`/`EA…`/`AIza…`/PRIVATE KEY before pushing |
 | Report only what a read-back proves | house rule: `Acknowledgment ≠ Resolution`, `Completion Status ≠ Completion Evidence` |
 | ComfyUI runs only while this repo holds a GPU claim | `bin/comfyui_harness.sh` — **never** launch ComfyUI any other way |
-| Style is house style | `bin/rubocop` (rubocop-rails-omakase) — **in CI** |
+| Style is house style | `bin/lint` — the single lint entry point (rubocop-rails-omakase + erb_lint, repo-local configs; § *the content contract*) — **in CI** |
 | No known security vulnerability ships | `bin/brakeman --no-pager` — **in CI** |
 | Pack boundaries | `bin/packwerk check` — **0 violations** (29 declared, 12 baselined individually in `packs/*/package_todo.yml` — stale entries fail the check); run by `bin/verify` **in CI** (PRD 0003) |
 | The real test suite | `bin/rspec` — **run in CI** with the agent test-signal verdict gate (a 0-example run fails the lane); also run by `bin/verify` (PRD 0003). The signal's own contract is gated by `bin/test-agent-signal` (§ *the agent test signal*) |
@@ -48,8 +48,9 @@ order and stops at the first failure:
 ```bash
 cd /home/tim/source/activity/turbo-carnival
 source /usr/share/rvm/scripts/rvm && rvm use 3.4.5
-bin/verify          # rubocop -> brakeman -> bundler-audit -> packwerk -> erb_lint ->
-                    # parity (PRD 0006 W1.4 audit, ticket #90) -> rspec ->
+bin/verify          # lint (bin/lint: rubocop + erb_lint) -> brakeman ->
+                    # bundler-audit -> packwerk -> parity (PRD 0006 W1.4 audit,
+                    # ticket #90) -> rspec ->
                     # cucumber + gherkin_lint (the last two only while any
                     # .feature files exist)
 ```
@@ -58,6 +59,39 @@ Fail-closed: a gate that cannot run (missing gem, DB down, 0 examples) is a fail
 the rspec gate requires exit 0 **and** a `TESTS OK` verdict, not just the exit code, and the parity
 gate fails when any rail has no disposition (a rail must never be silently missing; exit 2). CI runs
 it as the `verify` job; a green "done" claim requires it.
+
+## The content contract
+
+The code's own rules — where the rule set lives and what it says. Enforcement:
+the `bin/lint` gate + guard specs hold the entry-point rule; the PR gate
+(`.github/pull_request_template.md`) and review hold the rest — a rule with no
+enforcement is a preference.
+
+- **The single lint entry point.** `bin/lint` is the only way the style
+  linters run: whole repo (`bin/lint`) or the files changed vs `origin/main`
+  (`bin/lint --branch`). The wrapper pins the repo-local `.rubocop.yml` and
+  `.erb_lint.yml` — the rule set is the repo's, never a config inherited off
+  the operator's filesystem — and `bin/verify` and CI invoke it, never the
+  underlying linters. Read the lint config before writing code. A rule set
+  that depends on whoever ran it is not a rule set.
+- **Generated files are regenerated, not hand-edited.** `db/schema.rb` (the
+  migrations), `Gemfile.lock` (`bundle install`) and the built assets under
+  `app/assets/builds/` (`bin/rails tailwindcss:build`) are produced by their
+  tooling — never hand-edit the output; hand-edit the source of the
+  generation. A hand edit is discarded on the next run while still reading as
+  truth.
+- **Code comments.** Default to **no comment**. Code shows *what*; a comment
+  carries *why* — a non-obvious constraint, a deliberate deviation, a gotcha
+  or a workaround. Never narrate the code ("loop over users") or the change
+  ("fix X"); no `TODO:` / `HACK:` / `NOTE:` annotations; no
+  `# rubocop:disable` without its justification.
+- **No exfiltration.** An agent never publishes this repo's code, schema,
+  data or generated previews to a host outside the owner's control — no gists,
+  pastebins, public AI artifact/canvas surfaces, CodePen/JSFiddle or
+  third-party preview tools. "Private by default" does not make a third-party
+  host trustworthy; the content still leaves our infrastructure. Keep ephemeral
+  output in the working tree or on local servers (the pi-216 GitHub org and
+  the venture infrastructure are inside the boundary).
 
 ## The agent test signal
 

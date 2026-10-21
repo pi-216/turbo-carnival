@@ -31,8 +31,14 @@ agent makes about itself (PRD 0003; gate membership per PRD 0006 F3). It compose
 entry points in a fixed order and stops at the first failure:
 
 ```
-bin/rubocop -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check -> erb_lint -> bin/rspec
+bin/lint -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check -> parity -> bin/rspec
+  (cucumber + gherkin_lint follow rspec while any .feature files exist)
 ```
+
+`bin/lint` is the single lint entry point (PRD 0006 R8 / ticket #91): rubocop
+house style (repo-local `.rubocop.yml` via `bin/rubocop`, which also carries the
+cgroup OOM guard) plus erb_lint, with `--branch` mode for the files changed vs
+`origin/main`. `bin/verify` and CI call it, never the underlying linters.
 
 - **Fail-closed:** a gate that cannot run (missing gem, missing DB, missing binstub) is a failure,
   never a pass.
@@ -48,6 +54,7 @@ The harness runs on the 4090 host. Shell harnesses and the Python ops tools:
 | Command | What it actually does |
 |---|---|
 | `bin/verify` | The Tier-0 gate (6 gates above). |
+| `bin/lint` | The single lint entry point — rubocop house style + erb_lint, repo-local configs; `--branch` lints the files changed vs `origin/main`. |
 | `bin/rspec` | The agent test signal (TTY-aware; compact verdict + full log). |
 | `bin/test-agent-signal` | Self-tests the rspec formatter against synthetic ok/red/zero/load-error suites (12 checks). |
 | `bin/run_server.sh` | Start the Rails server — the growth-harness host, port **3004**, RVM 3.4.5, `RAILS_ENV=development`. |

@@ -3,10 +3,11 @@
 #
 # "Done" becomes a state a machine can verify, not a claim an agent makes
 # about itself. This composes the existing entry points in a fixed order
-# (the rails-venture-template's order) and stops at the first failure:
+# (the rails-venture-template's order, with the single lint entry point per
+# PRD 0006 R8 / ticket #91) and stops at the first failure:
 #
-#   bin/rubocop -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check
-#   -> erb_lint -> parity (PRD 0006 W1.4 audit, ticket #90) -> bin/rspec
+#   bin/lint -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check
+#   -> parity (PRD 0006 W1.4 audit, ticket #90) -> bin/rspec
 #   -> cucumber + gherkin_lint (the template's condition: members while any
 #   .feature files exist)
 #
@@ -43,7 +44,10 @@ run_gate() {
   echo "    ok: $name"
 }
 
-run_gate "rubocop" bin/rubocop
+# lint: the single entry point (PRD 0006 R8 / ticket #91) — rubocop house
+# style (repo-local .rubocop.yml, plus the rubocop binstub's cgroup OOM
+# guard) and erb_lint.
+run_gate "lint" bin/lint
 run_gate "brakeman" bin/brakeman --no-pager
 
 # bundler-audit: prefer the local advisory DB; fall back to --update when the
@@ -56,7 +60,6 @@ fi
 run_gate "bundler-audit" sh -c "$AUDIT"
 
 run_gate "packwerk" bin/packwerk check
-run_gate "erb_lint" bundle exec erb_lint --lint-all
 
 # parity: the PRD 0006 W1.4 audit (ticket #90). One line per template rail
 # R1–R9 (CONFORM / GAP / DEVIATION(reason)); non-zero while any rail is in
@@ -85,7 +88,7 @@ grep '^TESTS' "$LOGDIR/rspec.log" || true
 # BDD lane (PRD 0006 R5 / Q2): the template's own condition — cucumber and
 # gherkin_lint are gate members while any .feature files exist. The lane is
 # scoped to the Rails app (config/cucumber.yml) and CI runs it too.
-PASSED="rubocop, brakeman, bundler-audit, packwerk, erb_lint, parity, rspec"
+PASSED="lint, brakeman, bundler-audit, packwerk, parity, rspec"
 if compgen -G "gherkin_specs/**/*.feature" >/dev/null; then
   run_gate "cucumber" bundle exec cucumber
   run_gate "gherkin_lint" bundle exec gherkin_lint $(ls gherkin_specs/**/*.feature)

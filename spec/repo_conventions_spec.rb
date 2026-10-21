@@ -1,6 +1,7 @@
 require "rails_helper"
 
-# Guard for PRD 0006 F3 / ticket #78.
+# Guard for PRD 0006 F3 / ticket #78 (and R8 / ticket #91 for the single
+# lint entry point).
 #
 # The three gate members were absent from Gemfile.lock for as long as this repo has existed and
 # nothing noticed, because nothing asserted them -- the parity audit found them by hand. This spec
@@ -33,8 +34,41 @@ RSpec.describe "gate members (PRD 0006 F3 / ticket #78)" do
     expect(declaration).not_to include("require: false")
   end
 
-  it "runs bundler-audit and erb_lint as CI gates" do
+  it "runs bundler-audit as a CI gate" do
     expect(ci).to include("bundler-audit check")
-    expect(ci).to include("erb_lint --lint-all")
+  end
+
+  # PRD 0006 R8 / ticket #91: the style linters run through the single entry
+  # point; CI and bin/verify must not reach for the underlying linters
+  # directly, or the rule set becomes a property of whoever ran it.
+  it "runs rubocop and erb_lint through bin/lint, never directly" do
+    expect(ci).to include("bin/lint")
+    expect(ci).not_to include("bin/rubocop")
+    expect(Rails.root.join("bin/verify").read).to include("bin/lint")
+    expect(Rails.root.join("bin/verify").read).not_to include("bin/rubocop")
+  end
+end
+
+# PRD 0006 R8 / ticket #91: AGENTS.md is the agent contract, so the content
+# contract must stay in it — a rule with no enforcement is a preference.
+RSpec.describe "AGENTS.md content contract (PRD 0006 R8 / ticket #91)" do
+  let(:agents) { Rails.root.join("AGENTS.md").read }
+
+  it "states the single lint entry point" do
+    expect(agents).to include("bin/lint")
+    expect(agents).to match(/single lint entry point/i)
+  end
+
+  it "states the generated-files rule (regenerated, never hand-edited)" do
+    expect(agents).to match(/generated files/i)
+    expect(agents).to match(/never hand-edit/i)
+  end
+
+  it "states the code-comment policy" do
+    expect(agents).to match(/code comments/i)
+  end
+
+  it "states the no-exfiltration policy" do
+    expect(agents).to include("exfiltration")
   end
 end
