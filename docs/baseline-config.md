@@ -60,10 +60,17 @@ guards alone did NOT prevent two subjects (cyberrealisticponyV85 produced two pe
 ## Negative (node 79)
 
 ```
-score_5, score_4, worst quality, low quality, normal quality, lowres, bad anatomy, bad hands, extra limbs, poorly drawn face, poorly drawn hands, mutation, deformed, blurry, bad anatomy, disfigured, poorly drawn, bad picture, out of frame, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, sunken_eyes, 2girls, multiple girls, two women, nipples, areola
+score_5, score_4, worst quality, low quality, normal quality, lowres, bad anatomy, bad hands, extra limbs, poorly drawn face, poorly drawn hands, mutation, deformed, blurry, bad anatomy, disfigured, poorly drawn, bad picture, out of frame, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, sunken_eyes, 2girls, multiple girls, two women, {{negative_prompt}}
 ```
 
-`2girls, multiple girls, two women` and `nipples, areola` were added at the founder's direction.
+`2girls, multiple girls, two women` stay global (class-1 correctness: one subject, one hand).
+`nipples, areola` moved into the **scene spec** (PRD 0007 B2, #109): the node ends in the
+`{{negative_prompt}}` token, which the renderer resolves from the scene's own declaration — the
+scene files under `scenes/` declare `Negative: nipples, areola` (consumed by `tc_render.py`,
+kept out of the image prompt), and the production rail resolves it from the wardrobe rung in
+effect (`Growth::ContentGenerator` records it on the run row, next to `wardrobe_level`). A
+scene that covers in text carries the terms; a scene that exposes the areola in text is free of
+the suppression — the default is freedom, and a covering scene must say so.
 Deliberately NOT added: `naked` / `nude` / `topless` -- those would suppress the bare shoulders
 and legs the look depends on, and rear exposure is a POSE problem, not a coverage one.
 

@@ -264,6 +264,42 @@ Scenario: the age gate is tier-aware
   stands as the reason they exist at all); scenes that do not, are free of the suppression.
 - `2girls, multiple girls, two women` stay global: class-1 correctness (one subject, one hand).
 
+**Implementation (#109).** The declaration lives where the rung lives; the value lives where the
+render runs:
+
+- `ContentPillars::WardrobeAxis` — each rung declares `covers_areola` (declared, never inferred
+  from descriptor text, so a new rung cannot silently change a scene's negative);
+  `WardrobeAxis::AREOLA_NEGATIVE` ("nipples, areola") is the single source;
+  `WardrobeAxis.negative_for(level)` resolves the scene negative for a rung — a covered rung
+  carries the terms, an exposed or unknown rung carries nothing (the default is freedom; a
+  covering scene must say so).
+- Production rail — `Growth::ContentGenerator` records `negative_prompt` on the run row's
+  variables, from the same rung the prompt reads (next to `wardrobe_level`); the v2 graph's
+  negative node (79) ends in `{{negative_prompt}}`, which the job-payload substitution resolves
+  per run. The global negative keeps the anatomy and one-subject terms.
+- Experiment rail — `tc_render.py`'s `parse_scene` consumes a reserved `Negative:` field from the
+  scene spec (it does not enter the image prompt) and feeds the same `{{negative_prompt}}` token;
+  the pool manifest records the negative as rendered (absent when the scene declares none — a
+  fact, not a missing field); the scene files under `scenes/` declare
+  `Negative: nipples, areola`.
+- Gherkin: `gherkin_specs/harness/wardrobe_axis.feature` (@DEV-0109) — a covering scene carries
+  the terms in its own negative; a scene that exposes the areola in text carries no suppression.
+- Not in this ticket: the pony/carnival experiment step graphs (steps 39/40) — their global
+  negatives do not carry the areola terms, so re-tokenising them would add a literal-token hazard
+  without removing a suppression.
+
+**Landed 2026-10-20 (ticket #109).** `WardrobeAxis::LADDER` is now `Rung(level, descriptor,
+covers_areola)` (declared, never inferred); `negative_for` resolves the scene negative;
+`ContentGenerator` records `negative_prompt` on the run row next to `wardrobe_level`; the v2
+graph's node 79 ends in `{{negative_prompt}}` (registered against the development DB; the
+pre-change row is preserved in `ops/backups/pipeline_step_41_pre_scene_negative_*.json`).
+Verified from the stored DB workflow, not from the absence of an error: a covered run resolves
+the terms into the payload's node 79, an exposed run (`negative_prompt: ''`) resolves none —
+no areola terms remain and the only unresolved token is `auto_seed` (resolved in SubmitJob);
+`tc_render.py` dry-run agrees on both rails. rspec +5 examples (854 → 859, 0 failures) plus two
+@DEV-0109 Gherkin scenarios; `bin/verify` all six gates green. A live-render proof belongs to the
+B4 experiment lane, not this ticket.
+
 ### B3 · Realism gate → advisory
 
 - `RealismGate` stops rejecting. Aesthetic + sharpness are already persisted on the run; they become

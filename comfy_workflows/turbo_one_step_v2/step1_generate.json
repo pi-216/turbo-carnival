@@ -941,7 +941,7 @@
         "97",
         1
       ],
-      "text": "score_5, score_4, worst quality, low quality, normal quality, lowres, bad anatomy, bad hands, extra limbs, poorly drawn face, poorly drawn hands, mutation, deformed, blurry, bad anatomy, disfigured, poorly drawn, bad picture, out of frame, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, sunken_eyes, 2girls, multiple girls, two women, nipples, areola"
+      "text": "score_5, score_4, worst quality, low quality, normal quality, lowres, bad anatomy, bad hands, extra limbs, poorly drawn face, poorly drawn hands, mutation, deformed, blurry, bad anatomy, disfigured, poorly drawn, bad picture, out of frame, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, sunken_eyes, 2girls, multiple girls, two women, {{negative_prompt}}"
     }
   },
   "8": {
