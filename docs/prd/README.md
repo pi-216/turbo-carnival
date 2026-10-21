@@ -1,4 +1,14 @@
-# PRD index — turbo-carnival
+# PRDs — product requirement documents
+
+One PRD per product iteration: `000N-slug.md`, plus its Gherkin feature spec
+in `gherkin_specs/<domain>/<slug>.feature`. The PRD is the input to the
+autonomous pipeline (see AGENTS.md §loop & pipeline): publish the PRD →
+tickets on the board → the dev worker implements them.
+
+Every definition-of-done line in a PRD must map to an enforced gate; if a
+line can't be enforced, delete it at review.
+
+## This repo (turbo-carnival)
 
 The repo's product requirements live here as numbered PRDs. Status follows the
 `docs/README.md` convention (`CURRENT` is authoritative; `HISTORICAL` /
@@ -14,6 +24,7 @@ pi-216 project 5 (`https://github.com/orgs/pi-216/projects/5`), each carrying a
 | 0004 | the-experiment-lane | CURRENT | the experiment lane and its roles |
 | 0005 | miniskirt-pillar | CURRENT | the miniskirt content pillar |
 | 0006 | harness-conformance-to-rails-venture-template | CURRENT | parity conformance to `rails-venture-template` (W1.4) |
+| 0007 | safety-posture-reduction | CURRENT | the legal floor + A/B/C triage of the agent-authored controls (W1.5) |
 
 ## The two-layer Gherkin rule (PRD 0006 Q2, founder ruling 2026-10-19)
 
