@@ -48,12 +48,16 @@ order and stops at the first failure:
 ```bash
 cd /home/tim/source/activity/turbo-carnival
 source /usr/share/rvm/scripts/rvm && rvm use 3.4.5
-bin/verify          # rubocop -> brakeman -> bundler-audit -> packwerk -> erb_lint -> rspec
+bin/verify          # rubocop -> brakeman -> bundler-audit -> packwerk -> erb_lint ->
+                    # parity (PRD 0006 W1.4 audit, ticket #90) -> rspec ->
+                    # cucumber + gherkin_lint (the last two only while any
+                    # .feature files exist)
 ```
 
 Fail-closed: a gate that cannot run (missing gem, DB down, 0 examples) is a failure, never a pass —
-the rspec gate requires exit 0 **and** a `TESTS OK` verdict, not just the exit code. CI runs it as
-the `verify` job; a green "done" claim requires it.
+the rspec gate requires exit 0 **and** a `TESTS OK` verdict, not just the exit code, and the parity
+gate fails when any rail has no disposition (a rail must never be silently missing; exit 2). CI runs
+it as the `verify` job; a green "done" claim requires it.
 
 ## The agent test signal
 
