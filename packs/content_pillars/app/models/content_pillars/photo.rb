@@ -106,9 +106,18 @@ module ContentPillars
     # recorded -- and on the idempotent path (a render whose row already exists,
     # which is exactly the interrupted-producer case RenderSalvage exists for) the
     # score is BACKFILLED rather than dropped.
-    def self.import_render(path:, persona:, content_pillar:, run: nil, nsfw_score: nil, nsfw_flagged: nil)
+    #
+    # The REALISM measurement rides the same choke point too (PRD 0007 B3): the
+    # aesthetic score and the Laplacian sharpness become SELECTION inputs, so they
+    # have to be on the asset the selection layer reads. Same primitives rule, same
+    # backfill on the idempotent path.
+    def self.import_render(path:, persona:, content_pillar:, run: nil, nsfw_score: nil, nsfw_flagged: nil,
+                           aesthetic_score: nil, sharpness: nil)
       existing = find_by(path: path)
-      return existing.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged) if existing
+      if existing
+        return existing.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+                       .record_realism_score(aesthetic_score: aesthetic_score, sharpness: sharpness)
+      end
 
       created = create!(
         persona: persona,
@@ -118,11 +127,15 @@ module ContentPillars
         synthetic: true,
         nsfw_score: nsfw_score,
         nsfw_flagged: nsfw_flagged,
+        aesthetic_score: aesthetic_score,
+        sharpness: sharpness,
         provenance: PhotoProvenance.mark_asset(PhotoProvenance.for_run(run), path)
       )
       created
     rescue ActiveRecord::RecordInvalid
-      find_by(path: path)&.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+      find_by(path: path)
+        &.record_nsfw_score(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+        &.record_realism_score(aesthetic_score: aesthetic_score, sharpness: sharpness)
     end
 
     # Record a measured NSFW score on this asset (PRD 0007 A1). Used by the import
@@ -139,6 +152,23 @@ module ContentPillars
       return self if nsfw_score.nil? || self.nsfw_score.present?
 
       update_columns(nsfw_score: nsfw_score, nsfw_flagged: nsfw_flagged)
+      self
+    end
+
+    # Record the measured realism scores on this asset (PRD 0007 B3). Used by the
+    # import choke point and by Growth::LibraryFallback, which re-measures a library
+    # photo it is about to spend.
+    #
+    # Same contract as `record_nsfw_score`: a MEASUREMENT IS FILLED IN, NEVER
+    # CLOBBERED, and a nil score writes nothing. The `aesthetic_score` is the
+    # primary measurement here, so it is the one that decides whether the row is
+    # already scored -- the two come from one scorer invocation, so they arrive
+    # together or not at all. Re-scoring under a revised selection default is an
+    # explicit act, not a side effect of an import or a spend.
+    def record_realism_score(aesthetic_score:, sharpness: nil)
+      return self if aesthetic_score.nil? || self.aesthetic_score.present?
+
+      update_columns(aesthetic_score: aesthetic_score, sharpness: sharpness)
       self
     end
 

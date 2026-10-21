@@ -155,30 +155,24 @@ module Growth
                           "(#{nsfw.error || 'gate disabled'}) | #{image_path}")
       end
 
-      # Photo-realism / quality gate: aesthetics predictor + sharpness. A render can
-      # pass the NSFW measurement and still be sub-par, and THIS gate still vetoes --
-      # PRD 0007 demotes it to advisory in B3 (its own ticket), so until that lands a
-      # render can carry a persisted nsfw score on the run and never become an asset.
-      # Scores are persisted on the run for cohort-level analysis.
+      # Photo-realism / quality MEASUREMENT (PRD 0007 B3, founder ruling 2026-10-19:
+      # "Let's go with those values. We can keep assets that we think crossed the
+      # border for re-valuation at a later time."). This was the LAST veto in the
+      # render stack and it no longer rejects: the scores are persisted on the run
+      # (cohort-level analysis) AND on the asset row (the selection layer reads the
+      # ASSET). The aesthetic/sharpness defaults now only ORDER the pool --
+      # Photos::ListAvailable ranks a below-default asset last and nothing is purged,
+      # so an asset that crossed the border stays in the corpus for re-valuation.
       realism = Growth::RealismGate.new.call(image_path: image_path)
-      metrics = {
+      run.update!(quality_metrics: {
         nsfw_score: nsfw.nsfw_score,
         aesthetic_score: realism.aesthetic_score,
         sharpness: realism.sharpness
-      }
-      run.update!(quality_metrics: metrics)
-      unless realism.safe
-        log_realism_rejection(image_path, realism, run)
-        finish_run(run, 'failed', reason: "realism_rejected (#{realism.error || realism.reason})")
-        return {
-          success: false,
-          error: "realism_rejected (#{realism.error || realism.reason})",
-          run_id: run.id, comfyjob_id: comfyjob.id, image_path: image_path
-        }
-      end
+      })
+      log_realism_measurement(image_path, realism)
 
       # Import the fresh render as a content photo
-      photo = import_photo(image_path, run, nsfw)
+      photo = import_photo(image_path, run, nsfw, realism)
       unless photo
         finish_run(run, 'failed', reason: 'photo import failed')
         return { success: false, error: 'photo import failed' }
@@ -363,40 +357,37 @@ module Growth
       Rails.logger.error("Growth::ContentGenerator could not log comfyui_unclaimed: #{e.message}")
     end
 
-    # Photo-realism rejection: log the decision (so the harness brain can
-    # distinguish "unsafe" from "sub-par" content) and record the run's
-    # reject_reason for cohort-level analysis.
-    def log_realism_rejection(image_path, realism, run)
-      reason = if realism.error
-                 "realism gate error: #{realism.error}"
+    # The realism MEASUREMENT (PRD 0007 B3). Not a rejection any more, so this only
+    # logs: an advisory score must still be LOUD, because a reader of the run must be
+    # able to tell "measured low" from "never measured" (the scores stay NULL).
+    def log_realism_measurement(image_path, realism)
+      if realism.measured?
+        Rails.logger.info("Growth::ContentGenerator aesthetic=#{realism.aesthetic_score} " \
+                          "sharpness=#{realism.sharpness} flagged=#{realism.flagged} | #{image_path}")
       else
-                 "realism rejected (aesthetic=#{realism.aesthetic_score} sharpness=#{realism.sharpness}): #{realism.reason}"
+        Rails.logger.warn('Growth::ContentGenerator realism score unmeasured ' \
+                          "(#{realism.error || 'gate disabled'}) | #{image_path}")
       end
-      run.update!(reject_reason: reason)
-      Growth::Decision.create!(
-        goal: goal,
-        action: 'realism_rejected',
-        reason: "#{reason} | #{image_path}",
-        decided_at: Time.current
-      )
-      Rails.logger.warn("Growth::ContentGenerator #{reason} | #{image_path}")
     rescue StandardError => e
-      Rails.logger.error("Growth::ContentGenerator could not log realism rejection: #{e.message}")
+      Rails.logger.error("Growth::ContentGenerator could not log realism measurement: #{e.message}")
     end
 
-    def import_photo(image_path, run, nsfw = nil)
+    def import_photo(image_path, run, nsfw = nil, realism = nil)
       return nil unless image_path && File.exist?(image_path)
 
-      # The NSFW MEASUREMENT rides the import choke point (PRD 0007 A1): the score
-      # belongs on the asset row, not only on the run, because the selection layer and
-      # the tier pre-flight ask about the ASSET.
+      # The NSFW MEASUREMENT rides the import choke point (PRD 0007 A1) and the
+      # realism MEASUREMENT rides it too (PRD 0007 B3): both belong on the asset row,
+      # not only on the run, because the selection layer and the tier pre-flight ask
+      # about the ASSET.
       ContentPillars::Photo.import_render(
         path: image_path,
         persona: persona,
         content_pillar: @pillar,
         run: run,
         nsfw_score: nsfw&.nsfw_score,
-        nsfw_flagged: nsfw&.flagged
+        nsfw_flagged: nsfw&.flagged,
+        aesthetic_score: realism&.aesthetic_score,
+        sharpness: realism&.sharpness
       )
     end
   end

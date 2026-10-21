@@ -25,9 +25,13 @@ module Growth
   #   * ABANDONED_AFTER grace — a live producer is never raced into a duplicate
   #     post; only runs that have not moved for 30 min are eligible.
   #   * Gate re-run — a killed producer may have died BEFORE the NSFW / realism
-  #     gates, so both gates run again here and a rejection is recorded, never
-  #     scheduled. Runs whose reject_reason already names a gate rejection are
-  #     skipped outright (deterministic gates; no point paying for them twice).
+  #     measurements, so both run again here and are recorded on the recovered
+  #     asset. Neither one vetoes any more (PRD 0007 A1 for NSFW, B3 for realism),
+  #     so nothing is rejected here: a recovered render that scores low is still
+  #     PAID-FOR queue content, ranked last by the selector rather than discarded.
+  #     Runs whose reject_reason already names a gate rejection are skipped
+  #     outright (deterministic gates; a recorded historical verdict is not
+  #     resurrected and the gate is not paid for twice).
   #   * Post row = idempotency marker — a path whose image already has a POST
   #     has been finished by someone (producer or an earlier salvage) and is
   #     skipped, so re-running this service can never double-post. The marker is
@@ -182,16 +186,15 @@ module Growth
       # ADVISORY (PRD 0007 A1): the recovered render is re-measured and the score is
       # carried onto the asset row -- never vetoed. A killed producer's render that the
       # classifier happens to flag is still PAID-FOR queue content, and the selection
-      # layer / the founder's tier pre-flight decide what is used. (Realism still vetoes
-      # here: PRD 0007 B3 demotes it in its own ticket.)
+      # layer / the founder's tier pre-flight decide what is used.
 
+      # The realism MEASUREMENT (PRD 0007 B3) is advisory here too -- it was the last
+      # veto in this path, and removing it is the point of B3: a recovered render that
+      # scores below the selection defaults is still paid-for queue content, ranked
+      # last by the selector rather than thrown away.
       realism = Growth::RealismGate.new.call(image_path: path)
-      unless realism.safe
-        record(run, 'salvage_rejected', "realism gate re-run rejected the recovered render (#{realism.error || realism.reason})")
-        return [ :rejected, nil ]
-      end
 
-      photo = import_photo(run, path, nsfw)
+      photo = import_photo(run, path, nsfw, realism)
       return [ :skipped, nil ] unless photo
 
       post = schedule_post(run, photo, nsfw, realism)
@@ -207,20 +210,23 @@ module Growth
       [ :recovered, post.id ]
     end
 
-    def import_photo(run, path, nsfw)
+    def import_photo(run, path, nsfw, realism = nil)
       # ContentPillars::Photo.import_render is itself idempotent on `path` (it
       # find_or_creates), so an interrupted producer's Photo row is reused and
       # the recovery only has to add the missing post. It also records the
       # re-measured NSFW score onto that row (PRD 0007 A1) -- the score is a
       # property of the ASSET, and this recovery is the path where the row often
-      # already exists, so the backfill is the point.
+      # already exists, so the backfill is the point. The realism scores ride the
+      # same backfill (PRD 0007 B3).
       photo = ContentPillars::Photo.import_render(
         path: path,
         persona: goal.persona,
         content_pillar: run.content_pillar || fallback_pillar,
         run: run,
         nsfw_score: nsfw&.nsfw_score,
-        nsfw_flagged: nsfw&.flagged
+        nsfw_flagged: nsfw&.flagged,
+        aesthetic_score: realism&.aesthetic_score,
+        sharpness: realism&.sharpness
       )
       @logger.warn("Growth::RenderSalvage could not import #{path}") unless photo
       photo

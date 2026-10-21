@@ -18,7 +18,7 @@ RSpec.describe Growth::ContentGenerator do
 
   let(:gate_ok) { double('scheduler gate', ready?: true, raw: 'claim=busy', claim_state: 'busy', comfyui_up: true) }
   let(:nsfw_ok) { Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false) }
-  let(:realism_ok) { Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0) }
+  let(:realism_ok) { Growth::RealismGate::Result.new(aesthetic_score: 5.2, sharpness: 80.0, flagged: false) }
   let(:caption_ok) do
     double('caption result', success?: true, caption: 'A real caption',
                              caption_metadata: { model: 'gemma3:4b', model_selection: 'preferred_not_resident(gemma3:27b)' },
@@ -284,6 +284,52 @@ RSpec.describe Growth::ContentGenerator do
       expect(photo.nsfw_score).to be_nil
       expect(photo.nsfw_flagged).to be_nil
       expect(Growth::Decision.where(action: %w[nsfw_rejected nsfw_purge])).to be_empty
+    end
+
+    # PRD 0007 B3: realism was the LAST veto in the render stack. A render below the
+    # aesthetic/sharpness SELECTION defaults is a NORMAL, SUCCESSFUL render carrying
+    # two measurements -- it becomes an asset and a post, and the scores land on the
+    # run AND on the asset row so the selection layer can rank it last instead of
+    # losing it. Nothing is rejected and no `realism_rejected` decision is written.
+    it 'records a below-default realism score on the run and the asset instead of rejecting' do
+      allow(Growth::RealismGate).to receive(:new).and_return(
+        double('realism gate',
+               call: Growth::RealismGate::Result.new(aesthetic_score: 3.2, sharpness: 12.4,
+                                                     flagged: true, reason: 'aesthetic 3.2 < 4.5'))
+      )
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(true)
+
+      run = PipelineRun.find(result[:run_id])
+      expect(run.quality_metrics['aesthetic_score']).to eq(3.2)
+      expect(run.quality_metrics['sharpness']).to eq(12.4)
+      expect(run.reject_reason).to be_nil
+
+      photo = ContentPillars::Photo.find(result[:photo_id])
+      expect(photo.aesthetic_score).to eq(3.2)
+      expect(photo.sharpness).to eq(12.4)
+      expect(Scheduling::Post.exists?(photo_id: photo.id)).to be(true)
+
+      expect(Growth::Decision.where(action: 'realism_rejected')).to be_empty
+    end
+
+    # Fail-open on the MEASUREMENT (realism is not a floor control either), and the
+    # asset must read as unmeasured rather than as measured-low.
+    it 'does not fail the run when the realism score could not be measured' do
+      allow(Growth::RealismGate).to receive(:new).and_return(
+        double('realism gate', call: Growth::RealismGate::Result.new(error: 'aesthetic model dir missing: /nope'))
+      )
+      allow(PostAutomation::GenerateCaption).to receive(:call).and_return(caption_ok)
+
+      result = generator.generate_one(offset_days: 1)
+
+      expect(result[:success]).to be(true)
+      photo = ContentPillars::Photo.find(result[:photo_id])
+      expect(photo.aesthetic_score).to be_nil
+      expect(photo.sharpness).to be_nil
     end
   end
 end

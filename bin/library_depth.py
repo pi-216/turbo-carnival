@@ -6,11 +6,18 @@ WHY THIS EXISTS
 `Growth::LibraryFallback` is the only content source that needs no GPU: photos
 already in the corpus, unposted and servable. Its own docstring carries the rule
 that matters here -- "Do not size a hold against the raw candidate count;
-re-measure the gates" -- because the raw count and the SPENDABLE count differ by
-a factor of six (measured 2026-09-23/24: 51 candidates, 8 spendable). Nothing in
-the ops surface measured the spendable half, so the depth got re-derived by hand
-and was mis-stated as "51 candidates" in an ops report, which reads as a
-multi-week buffer and is really ~2.7 days.
+re-measure the gates" -- because when the gates still VETOED, the raw count and
+the SPENDABLE count differed by a factor of six (measured 2026-09-23/24: 51
+candidates, 8 spendable). Nothing in the ops surface measured the spendable half,
+so the depth got re-derived by hand and was mis-stated as "51 candidates" in an
+ops report, which reads as a multi-week buffer and is really ~2.7 days.
+
+**PRD 0007 A1 (NSFW) and B3 (realism) removed both vetoes**, so that factor is
+gone: the spend path now spends every servable, unposted photo and records both
+measurements on the asset, ranking a below-default one LAST rather than refusing
+it. The depth this script reports is therefore the candidate count, and the
+interesting annotation is no longer "how many pass" but "how many are
+low_priority" -- the number the selector pushes to the back.
 
 So the number lives here, as a COMMAND (memory cannot rot; a file in git is found
 by the next agent, unlike one in a profile directory).
@@ -24,9 +31,14 @@ WHAT IT DOES (GPU-free, CPU-only, read-only apart from its two artifacts)
    bin/aesthetics_gate.py), in the same order, but batched: one model load per
    gate for the whole set instead of one per photo. Verdicts are per-image and
    deterministic, so the decision is identical; only the cost changes.
+   NEITHER GATE VETOES (PRD 0007 A1 for NSFW, B3 for realism) -- the ONLY reject
+   stage left is the BYTES check, and a below-default score is reported as
+   `low_priority` (ranked last by the selector), never as a rejection. A gate
+   ERROR leaves the score unmeasured; it does not reject either.
 3. Writes `ops/library_depth.json` (the measured report, committed) and
    `tmp/library_depth_cache.json` (a verdict cache keyed by photo id + size +
-   mtime, so a re-run pays only for NEW or CHANGED photos).
+   mtime + CACHE_VERSION, so a re-run pays only for NEW or CHANGED photos and a
+   semantics change cannot silently reuse verdicts computed under the old rules).
 
 It does NOT spend the library, post anything, touch the scheduler, or need a GPU.
 
@@ -69,6 +81,13 @@ AES_MODEL = os.environ.get("AESTHETIC_MODEL_DIR",
 AES_PYTHON = os.environ.get("AESTHETIC_PYTHON", "/mnt/fscache/essdee/ComfyUI/venv/bin/python")
 AES_THRESHOLD = float(os.environ.get("AESTHETIC_THRESHOLD", "4.5"))
 SHARPNESS_THRESHOLD = float(os.environ.get("SHARPNESS_THRESHOLD", "30.0"))
+
+# Bump when the VERDICT SEMANTICS change (not when a photo changes). A cached record
+# carries a verdict computed under the rules in force when it was measured, so
+# reusing one across a semantics change would report an old answer as a current
+# measurement. v2 = PRD 0007 A1/B3: neither gate vetoes, so `low_priority` replaces
+# the nsfw/realism reject stages.
+CACHE_VERSION = 2
 
 RAILS_SCRIPT = (
     "p = Persona.first;"
@@ -176,7 +195,9 @@ def main():
     for c in cands:
         k = file_key(c["path"]) if c.get("path") else None
         hit = cache.get(str(c["id"]))
-        if hit and k and hit.get("key") == k and hit.get("verdict") in ("accept", "reject"):
+        if (hit and k and hit.get("key") == k
+                and hit.get("cache_version") == CACHE_VERSION
+                and hit.get("verdict") in ("accept", "reject")):
             verdicts[str(c["id"])] = hit
         else:
             missing.append(c)
@@ -198,29 +219,39 @@ def main():
 
         for c in missing:
             pid, path = str(c["id"]), c.get("path")
-            rec: dict = {"key": file_key(path) if path else None}
+            rec: dict = {"key": file_key(path) if path else None,
+                         "cache_version": CACHE_VERSION}
             n = (nsfw_out.get(path) or {}) if path else {}
             a = (aes_out.get(path) or {}) if path else {}
             if not path or not os.path.isfile(path):
+                # The ONLY veto left on the spend path: Growth::LibraryFallback skips
+                # a photo whose bytes are not servable.
                 rec.update(verdict="reject", stage="bytes", detail="no servable file")
-            elif nsfw_off and aes_off:
-                rec.update(verdict="accept", stage="bypass", detail="gates disabled by env")
-            elif not nsfw_off and not n:
-                rec.update(verdict="reject", stage="nsfw", detail="gate error (fail-closed)")
-            elif not nsfw_off and n.get("decision") != "accept":
-                rec.update(verdict="reject", stage="nsfw",
-                           detail=f"nsfw_score={n.get('nsfw_score')} >= {NSFW_THRESHOLD}")
-            elif not aes_off and not a:
-                rec.update(verdict="reject", stage="realism", detail="gate error (fail-closed)")
-            elif not aes_off and a.get("decision") != "accept":
-                rec.update(verdict="reject", stage="realism",
-                           detail=a.get("reason") or "rejected",
-                           aesthetic_score=a.get("aesthetic_score"),
-                           sharpness=a.get("sharpness"))
             else:
-                rec.update(verdict="accept", stage="both",
-                           aesthetic_score=a.get("aesthetic_score"),
-                           sharpness=a.get("sharpness"))
+                # PRD 0007 A1 (NSFW) and B3 (realism): NEITHER gate vetoes. The spend
+                # path spends every servable, unposted photo and records both
+                # measurements on the asset row; a below-default score only makes the
+                # photo LOW PRIORITY (Photos::ListAvailable ranks it last). A gate
+                # ERROR is not a rejection either -- it leaves the score unmeasured,
+                # which is why `unmeasured` is reported BESIDE the verdict rather than
+                # folded into it.
+                nsfw_score = n.get("nsfw_score")
+                aes_score = a.get("aesthetic_score")
+                sharp = a.get("sharpness")
+                rec.update(
+                    verdict="accept",
+                    stage="spend-path",
+                    nsfw_score=nsfw_score,
+                    nsfw_flagged=(nsfw_score is not None and nsfw_score >= NSFW_THRESHOLD),
+                    aesthetic_score=aes_score,
+                    sharpness=sharp,
+                    low_priority=(
+                        (aes_score is not None and aes_score < AES_THRESHOLD)
+                        or (sharp is not None and sharp < SHARPNESS_THRESHOLD)
+                    ),
+                    unmeasured=(nsfw_score is None or aes_score is None),
+                    gates_disabled=nsfw_off or aes_off,
+                )
             rec["id"] = int(pid)
             rec["path"] = path
             verdicts[pid] = rec
@@ -228,6 +259,8 @@ def main():
         save_cache(cache)
 
     spendable = [c for c in cands if verdicts.get(str(c["id"]), {}).get("verdict") == "accept"]
+    low_priority = [c for c in cands if verdicts.get(str(c["id"]), {}).get("low_priority")]
+    nsfw_flagged = [c for c in cands if verdicts.get(str(c["id"]), {}).get("nsfw_flagged")]
     rejects = {}
     for c in cands:
         v = verdicts.get(str(c["id"]), {})
@@ -239,10 +272,15 @@ def main():
 
     report = {
         "measured_at": now_iso(),
+        "cache_version": CACHE_VERSION,
         "candidate_count": len(cands),
         "candidate_ids": sorted(c["id"] for c in cands),
         "spendable": len(spendable),
         "spendable_ids": sorted(c["id"] for c in spendable),
+        "low_priority": len(low_priority),
+        "low_priority_ids": sorted(c["id"] for c in low_priority),
+        "nsfw_flagged": len(nsfw_flagged),
+        "nsfw_flagged_ids": sorted(c["id"] for c in nsfw_flagged),
         "rejects_by_stage": rejects,
         "cadence_per_day": cadence_f or None,
         "extension_days": round(extension_days, 2) if extension_days else None,
@@ -253,15 +291,18 @@ def main():
                   "aesthetic_disabled": os.environ.get("AESTHETIC_GATE_DISABLED") == "1"},
         "elapsed_s": round(time.time() - t0, 1),
         "note": ("GPU-free containment depth: photos already rendered, unposted and "
-                 "passing BOTH spend-path gates. `spendable` is the depth -- NOT "
-                 "candidate_count, which reads ~6x larger and is not a buffer."),
+                 "servable. Since PRD 0007 A1/B3 NEITHER gate vetoes, so `spendable` "
+                 "is the whole candidate set (the only reject stage left is the bytes "
+                 "check); `low_priority` is the subset below the aesthetic/sharpness "
+                 "SELECTION defaults, which Photos::ListAvailable ranks last."),
     }
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     with open(REPORT, "w") as fh:
         json.dump(report, fh, indent=1, sort_keys=True)
         fh.write("\n")
 
-    print(f"  spendable={len(spendable)} of {len(cands)} candidates; "
+    print(f"  spendable={len(spendable)} of {len(cands)} candidates "
+          f"(low_priority={len(low_priority)}, nsfw_flagged={len(nsfw_flagged)}); "
           f"rejects={rejects or '{}'}")
     print(f"  cadence={cadence_f}/day -> the library buys "
           f"{extension_days if extension_days is None else round(extension_days, 2)} day(s)")

@@ -17,25 +17,32 @@ module Growth
   #
   # The library is the only content source that needs no GPU: photos already in
   # the corpus, unposted and servable. Measured 2026-09-23 against the pipeline's
-  # OWN gates: 51 servable unposted photos, of which only **8 are spendable**.
-  # Both halves of the library fail for measured reasons:
-  #   * August (23 photos, ids 225-308): 8 pass BOTH gates; the other 15 are
+  # OWN gates: 51 servable unposted photos, of which only **8 were spendable**.
+  # Both halves of the library failed, for measured reasons:
+  #   * August (23 photos, ids 225-308): 8 passed BOTH gates; the other 15 are
   #     NSFW-classified (0.68-0.9999 -- e.g. 241 scores 0.9992). Those are the
   #     debris of the accept-loop failure this lever exists to cover.
-  #   * May (28 photos, ids 124-153): pass NsfwGate cleanly (0.0001-0.0222) but
-  #     ALL 28 fail RealismGate on sharpness (6.7-16.1 vs the 30.0 floor) --
-  #     aesthetics are fine (5.4-7.3), the images are simply soft. Verified by
+  #   * May (28 photos, ids 124-153): passed NsfwGate cleanly (0.0001-0.0222) but
+  #     ALL 28 failed RealismGate on sharpness (6.7-16.1 vs the 30.0 floor) --
+  #     aesthetics were fine (5.4-7.3), the images are simply soft. Verified by
   #     hand, not inferred: the pixels reproduce the gate's Laplacian variance
   #     exactly (numpy, 512px grayscale) and a visual read of photo 124 shows
   #     genuine blur against photo 308's clear detail. The older auto-* generator
   #     produced soft renders; the threshold sits in an empty valley (nothing
-  #     scores between 16 and 121), so no borderline case is being cut.
+  #     scores between 16 and 121), so no borderline case was being cut.
   #
-  # That is the reason this class gates EVERY photo it touches -- the library is
-  # not a pre-vetted pool, it is older renders of mixed provenance -- and it is
-  # also the honest size of the lever: **8 photos is ~2.7 days at a 3/day
-  # cadence**, NOT the multi-week buffer an ungated count of 51 suggests. Do not
-  # size a hold against the raw candidate count; re-measure the gates.
+  # **PRD 0007 B3 changes that number.** Realism no longer vetoes, so the 28 soft
+  # May photos are now SPENDABLE: they are ranked last by the selector
+  # (`Photos::ListAvailable` orders below-default assets last) rather than refused,
+  # and this class spends them like any other candidate. The "8 photos / ~2.7 days"
+  # figure above is therefore a PRE-B3 measurement, not a current one -- re-run
+  # `bin/library_depth.py` before quoting a depth. The rule it was measured under
+  # still stands: do NOT size a hold against the raw candidate count, re-measure
+  # through the gates the spend path actually applies.
+  #
+  # This class still MEASURES every photo it touches -- the library is not a
+  # pre-vetted pool, it is older renders of mixed provenance -- but since PRD 0007
+  # A1/B3 both measurements are recorded on the asset and neither one vetoes.
   #
   # The depth is a COMMAND now, not a remembered number: `bin/library_depth.py`
   # (GPU-free, CPU-only, ~30s) runs these same gates in batch over the current
@@ -45,10 +52,11 @@ module Growth
   # "8" rots exactly the way the raw "51" did (it was quoted as depth in an ops
   # report within a day of this measurement).
   #
-  # TODO(measurement gap): the May batch's RealismGate verdict was recorded here
-  # on 2026-09-23 but the photos stay in the library. If a future render stack
-  # legitimately produces soft images, revisit SHARPNESS_THRESHOLD rather than
-  # widening this lever.
+  # RESOLVED 2026-10-20 (PRD 0007 B3): the May batch's RealismGate verdict was
+  # recorded here on 2026-09-23 and those photos stayed in the library because the
+  # gate vetoed. Realism is a measurement now, so they are spendable and ranked
+  # last, and SHARPNESS_THRESHOLD stays a SELECTION default (re-tunable via ENV)
+  # rather than a lever to widen.
   #
   # RULES (each guards a specific misuse)
   #   * RUNWAY-TRIGGERED, never opportunistic. It acts only when the last future
@@ -60,9 +68,12 @@ module Growth
   #   * TOPS UP TO RUNWAY_TARGET_H, not to the cadence target: a fallback that
   #     filled the whole 7-day window would spend the entire library in one hold.
   #     The remainder stays on disk for the next time.
-  #   * GATES RE-RUN, fail-closed (same contract as RenderSalvage): a library photo
-  #     predates the current gate stack or its producer died before gating. A
-  #     rejection is recorded as a Growth::Decision and never scheduled.
+  #   * GATES RE-RUN, measurement-only (PRD 0007 A1/B3): a library photo predates
+  #     the current gate stack or its producer died before gating, so both scores
+  #     are re-measured here and written onto the ASSET row. Neither score vetoes,
+  #     so nothing is recorded as rejected and nothing is withheld -- the only
+  #     filter left is `gate_rejected?`, which honours a verdict a PRE-A1/A3
+  #     producer already recorded (deterministic gates; not re-scored).
   #   * IDEMPOTENT: the selector excludes any photo a post already references, and
   #     (photo_id, persona_id) is UNIQUE on scheduling_posts -- index
   #     `index_posts_on_photo_id_and_persona_id`, created by the original
@@ -234,11 +245,14 @@ module Growth
       # unmeasured) writes nothing: unmeasured must not read as measured-low.
       photo.record_nsfw_score(nsfw_score: nsfw.nsfw_score, nsfw_flagged: nsfw.flagged)
 
+      # The realism MEASUREMENT (PRD 0007 B3) is advisory too, and it was the LAST
+      # veto on this path: a library photo below the aesthetic/sharpness selection
+      # defaults is spent rather than refused, and the score lands on the asset row
+      # so the re-valuation the founder's ruling asks for has the numbers to work
+      # from. The ORDERING is what expresses "low quality" now, and it happens
+      # upstream in the selector (`Photos::ListAvailable`), not here.
       realism = Growth::RealismGate.new.call(image_path: path)
-      unless realism.safe
-        @rejections << "#{photo.id} (realism #{realism.error || realism.reason})"
-        return [ :rejected, nil ]
-      end
+      photo.record_realism_score(aesthetic_score: realism.aesthetic_score, sharpness: realism.sharpness)
 
       post = schedule_post(photo, nsfw, realism)
       return [ :skipped, nil ] unless post
