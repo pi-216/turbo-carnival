@@ -30,12 +30,13 @@ been removed for precisely that reason — see the inventory below.
 
 | question | the authoritative document | do not use |
 |---|---|---|
+| What is the venture, and what will it never do (problem / user / value + founder red lines)? | **`THESIS.md`** | the agent-authored red lines of the HISTORICAL revision (git history; withdrawn 2026-10-18) |
 | What work exists, in what order, and why? | **`PROJECT_PLAN.md`** | — |
 | How does the project operate (blocks, authority, promotion)? | **`AGENTS.md`** (*the authority ladder*) + **`PROJECT_PLAN.md`** §2–3 | `strategy-v2.md` §8–13, `THESIS.md` |
 | Why is the strategy what it is (distribution diagnosis, venues, platforms)? | **`strategy-v2.md` §1–7, §12.4** | `THESIS.md` |
 | What is the validated render configuration? | **`baseline-config.md`** | any render doc predating 2026-10-18 |
 | What experiments exist and what did they decide? | **`experiment-backlog.md`** | — |
-| What is the safety/risk posture, and what stays a hard gate? | **`prd/0007-safety-posture-reduction.md`** (the legal floor + the A/B/C triage of the agent-authored controls) | `THESIS.md` red lines (withdrawn), ad-hoc "founder ruling" phrasing |
+| What is the safety/risk posture, and what stays a hard gate? | **`prd/0007-safety-posture-reduction.md`** (the legal floor + the A/B/C triage of the agent-authored controls; the floor is mirrored in `THESIS.md`) | ad-hoc "founder ruling" phrasing, the HISTORICAL revision's red lines (git history) |
 | How are tickets cut and linked? | **`PROJECT_PLAN.md` §4** | `bin/publish_prd` (dropped 2026-10-18) |
 | How is the board wired? | **`config/autonomous/pipeline.yml`** | — |
 | What is the render engine's node topology? | **`baseline-config.md`** | `lily-vs-sarah-hand-inpaint.md` (a comparison, not the config) |
@@ -49,6 +50,8 @@ been removed for precisely that reason — see the inventory below.
 | document | what it is |
 |---|---|
 | `PROJECT_PLAN.md` | **the spine.** Workstreams, ordering, ticket linkage contract, standing obligations |
+| `AGENTS.md` (root) | house conventions for this repo — the authority ladder, the gate, ticket-claiming rules. Replaced the OpenSpec managed block 2026-10-19 |
+| `THESIS.md` | **the thesis.** Problem / user / value, the "We will NOT" list (founder-authored red lines only — the legal floor first, `prd/0007` §1), and the five locked pillars. Rebased to CURRENT 2026-10-21 (ticket #81, PRD 0006 F7); the HISTORICAL revision's agent-authored red lines were withdrawn 2026-10-18 (`strategy-v2.md` §12.3) |
 | ~~`strategy-v3.md`~~ | **REMOVED 2026-10-19** — the operating model was duplicated across three documents, which is the drift this index exists to prevent. The authority ladder moved to `AGENTS.md`; the workstream contracts and the two founder requirements to `PROJECT_PLAN.md` §2; promotion to `PRD 0004`. Recoverable via `git log -- docs/strategy-v3.md` |
 | `strategy-v2.md` | distribution diagnosis, the two-venue design, platform findings, salvage map. *(§8–13 process sections are superseded by v3)* |
 | `experiment-backlog.md` | every experiment: pre-registration, verdict, and why. The evidence ledger |
@@ -83,9 +86,7 @@ acting.** Each should be promoted to CURRENT or moved to `archive/` at the next 
 
 | document | why it is here |
 |---|---|
-| `THESIS.md` | the original thesis. Its content-strategy section is superseded by `strategy-v2.md`; one of its red lines (the Pornmaster prohibition) was **agent-authored, not founder-authored**, and was withdrawn 2026-10-18 |
 | `brainstorming.md` | early ideation |
 | `post-creation-interface.md` | an implementation-progress log, not a spec |
-| `AGENTS.md` (root) | **CURRENT** — house conventions for this repo. Replaced the OpenSpec block 2026-10-19 |
 | ~~`openspec/`~~ (114 files) | **REMOVED 2026-10-19** — dropped in favour of the PRD/ticket system. Recoverable from git history (`git log -- openspec`) |
 | `archive/` | documents moved here during cleanup |

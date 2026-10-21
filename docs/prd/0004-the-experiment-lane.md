@@ -47,8 +47,10 @@ Recorded verbatim where stated, because they are decisions and not preferences t
 12. **"The brain or experimenter should know that the existing pillars are fair game."** (2026-10-19) An
     experiment may target an **existing** content pillar — re-scope it, replace its wardrobe, retire it — and
     not only propose a new one. The pillar set is class 2 (`AGENTS.md` → *the authority ladder*), so *"should
-    this pillar exist at all?"* is inside the lane's remit; what a pillar **depicts** stays class 3–4 and
-    still stops for a founder ruling.
+    this pillar exist at all?"* is inside the lane's remit; what a pillar **depicts** stays class 3–4, but
+    under PRD 0007 A5 only class 4 stops: intensity (class 3) is the system's — measured, bounded by the
+    legal floor, with the A5 tier pre-flight at each tier start — while the persona's identity and age read
+    (class 4) still stop for a founder ruling.
 
 ## Problem / motivation
 
