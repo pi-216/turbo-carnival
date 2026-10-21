@@ -145,23 +145,25 @@ their tickets not yet cut._
 
 ### W1 — core-infrastructure
 
+<!-- plan:index:start W1 -->
 | id | item | PRD | state |
 |---|---|---|---|
-| **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **building** · tickets #20, #22–#27, #64, #66 · #22 (ruling) #23 (staged) #24 (harness) #25 (handoff) #26 (params) #27 (planner) #64 (nightly plan) #66 (idempotence) done · cadence: **nightly** (ruling 2026-10-19) |
-| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **building** · epic #36, tickets #37–#43 · #37 (attribution spine) done · #38 (prompt parts + the spine writer) done · #39 (per-post instrument, option B) done |
-| W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **OpenSpec dropped** `7e5ccee` · epic #44, tickets #45–#50 |
-| W1.4 | harness conformance to `rails-venture-template` | `docs/prd/0006-…` | **rulings landed** 2026-10-19 (Q1–Q9) · parity audit measured · epic #75, tickets #76–#85 + #90–#91 · #80 (governance stubs) done · rails R3/R6/R7/R8 open |
-| **W1.5** | safety-posture reduction — the legal floor + A/B/C triage of the agent-authored controls | `docs/prd/0007-…` | **building** · all five questions resolved 2026-10-20 (incl. the founder tier pre-flight) · epic #113, tickets #103–#112 · #103 (brain serving), #104 (NSFW advisory) done |
+| **W1.1** | local uncensored brain + phase machine | `docs/prd/0001-…` | **done** · epic #20 · tickets #22–#27, #64, #66 |
+| W1.2 | versioned content config + experiment DB spine | `docs/prd/0002-…` | **open** · epic #36 · tickets #37–#43, #73 · 3/8 done |
+| W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **open** · epic #44 · tickets #45–#50, #107, #112, #121 · 5/9 done |
+| W1.4 | harness conformance to `rails-venture-template` | `docs/prd/0006-…` | **open** · epic #75 · tickets #76–#85, #90–#91 · 10/12 done |
+| **W1.5** | safety-posture reduction — the legal floor + A/B/C triage of the agent-authored controls | `docs/prd/0007-…` | **done** · epic #113 · tickets #103–#106, #108–#111 |
+<!-- plan:index:end W1 -->
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
   legal and in-lane. The replacement is the local uncensored Qwen3.8-27B. Intake confirmed the brain
   and ComfyUI cannot be co-resident (22.08 GB of 24 GB), so the phase machine is a hard requirement,
-  not a preference. **Serves:** a Thinker that proposes without moralising, and renders that happen
-  on the same box.
+  not a preference. Cadence: **nightly** (ruling 2026-10-19). **Serves:** a Thinker that proposes
+  without moralising, and renders that happen on the same box.
 - **W1.2** — raw capture (models, prompts, **prompt parts**, seeds, time-of-day, weekday) keyed on
   `sha256`, so one query answers *which combination produced the images that earned the most
   non-follower reach*. **Serves:** attribution — the difference between evidence and anecdote.
-- **W1.3** — the OpenSpec estate is **gone**: dropped by the founder 2026-10-19, `AGENTS.md` rewritten as
+- **W1.3** — the OpenSpec estate is **gone**: dropped by the founder 2026-10-19 (`7e5ccee`), `AGENTS.md` rewritten as
   this repo's house conventions, `openspec/` (114 files) and its three workflow prompts removed,
   `agents_md` repointed at something true. What remains is the **gate**: a `bin/verify` over the **rspec**
   suite (630 examples — CI today runs an empty Minitest lane and reports green while executing nothing), a
@@ -174,30 +176,34 @@ their tickets not yet cut._
   re-scaffolded). So the divergence is closed deliberately: a per-rail **parity audit** against the
   template's nine rails, the gaps filed as tickets (the command base `ApplicationCommand`, the Sentry
   pillar, the missing gate members `bundler-audit`/`erb_lint`, the governance stubs), and the
-  **deviations resolved by ruling (2026-10-19)**: HAML adopted as a **deprioritised transition** (Q1);
+  **deviations resolved by ruling (2026-10-19, Q1–Q9)**: HAML adopted as a **deprioritised transition** (Q1);
   Gherkin adopted and **scoped to the Rails app** — house notation everywhere, executable Ruby/Cucumber for
   the Rails application only (Q2); the Sentry DSN **agent-provisioned** from an existing token (Q3); the
   template's doc homes **adopted** (Q4); **Sidekiq** as the single job substrate, retiring `solid_*` (Q5).
   Overlaps W1.3 only where the template names a gate member `bin/verify` composes; the
-  test-signal layer is issue #19. **Serves:** fleet uniformity — a parity audit that returns
+  test-signal layer is issue #19. Parity as of 2026-10-21: R8 (lint conformance) landed via #91;
+  R3/R6/R7 remain open. **Serves:** fleet uniformity — a parity audit that returns
   deviations-by-choice, not gaps-by-accident.
 - **W1.5** — the repo's safety/risk posture is agent-authored, not founder-authored, and it is what
   made the previous agents timid: a fail-closed NSFW veto that purges renders, a modest-clothing
   wardrobe floor, safety-tuned captions, a planner prompt that de-authorizes the brain, and a docs
   ladder where "intensity = founder ruling" parks the work. PRD 0007 demotes or removes all of it and
   keeps exactly one hard floor — the legal one (no minor read published, no real-person likeness,
-  synthetic mark on every asset, platform compliance). Ruling 2026-10-20: intensity is class 3 — the
+  synthetic mark on every asset, platform compliance). All five questions resolved 2026-10-20.
+  Ruling 2026-10-20: intensity is class 3 — the
   system acts, measured, bounded by the floor — with the founder verifying each new tier at its start
   (the A5 pre-flight). **Serves:** an uncensored model that finds no plausible story for being timid.
 
 ### W2 — experiment
 
+<!-- plan:index:start W2 -->
 | id | item | PRD | state |
 |---|---|---|---|
-| W2.1 | **the experiment lane** — the contract every experiment must satisfy | `docs/prd/0004-…` | **spec written** 2026-10-19 |
-| W2.2 | the E-lane discipline (pre-registration, blinding, decoders) | — | folds into W2.1 |
-| W2.3 | **experiment: the revealing-miniskirt pillar** | `docs/prd/0005-…` | **spec written** · epic #51, tickets #52–#60 · `experiments/0005-miniskirt-pillar/` |
+| W2.1 | **the experiment lane** — the contract every experiment must satisfy | `docs/prd/0004-…` | no tickets yet |
+| W2.2 | the E-lane discipline (pre-registration, blinding, decoders) | — | no tickets yet |
+| W2.3 | **experiment: the revealing-miniskirt pillar** | `docs/prd/0005-…` | **open** · epic #51 · tickets #52–#60 · 0/9 done |
 | — | render-axis experiment, parked | *its own PRD required* | un-run; keep/drop is the founder's call (§8) |
+<!-- plan:index:end W2 -->
 
 - **W2** — the lane is a **contract**, not a list of experiments. Each experiment gets **its own PRD**, its
   own code folder `experiments/<PRD-number>-<slug>/`, a **designated researcher**, and its own tickets.
@@ -207,6 +213,8 @@ their tickets not yet cut._
   **the day-to-day flow does not depend on an experiment.** Roles: the **Thinker** proposes
   (*"try a miniskirt pillar and see if people react"*); the **researcher** owns one experiment end-to-end,
   including evaluating data, generating its images, and asking for eyes; the founder is the instrument.
+  Where the tickets stand: W2.1 spec written 2026-10-19 (no tickets cut yet); W2.2 folds into W2.1;
+  W2.3 spec written, its code in `experiments/0005-miniskirt-pillar/`.
   **Serves:** the system answering its own open questions without a human in the loop and without the
   daily flow ever waiting on research.
 
