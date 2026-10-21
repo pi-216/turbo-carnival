@@ -112,7 +112,7 @@ jobs:
         # failed run the runner is ephemeral, so keep the report + captured
         # lanes as an artifact for post-mortem.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rspec-report
           path: |
