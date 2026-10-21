@@ -18,7 +18,7 @@ RSpec.describe Growth::RenderSalvage do
     Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false)
   end
   let(:realism_ok) do
-    Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0)
+    Growth::RealismGate::Result.new(aesthetic_score: 5.2, sharpness: 80.0, flagged: false)
   end
 
   # A sync-produced run that a killed producer abandoned: render finished, run
@@ -212,6 +212,27 @@ RSpec.describe Growth::RenderSalvage do
 
       expect(post.caption).to eq('Fresh look ✨')
       expect(post.caption_metadata['error']).to eq('captioner raised before returning a result')
+    end
+
+    # PRD 0007 B3: the realism re-run no longer vetoes, so a recovered render that
+    # scores below the selection defaults is still PAID-FOR queue content. The scores
+    # ride the run and the asset row, where the selector ranks it last.
+    it 'recovers a below-default render instead of rejecting it' do
+      allow(Growth::RealismGate).to receive(:new).and_return(
+        double('realism_gate',
+               call: Growth::RealismGate::Result.new(aesthetic_score: 3.4, sharpness: 11.0, flagged: true))
+      )
+
+      result = salvage.call(limit: 3)
+
+      expect(result.recovered).to eq(1)
+      expect(result.rejected).to eq(0)
+
+      post = Scheduling::Post.find(result.post_ids.first)
+      expect(post.photo.aesthetic_score).to eq(3.4)
+      expect(post.photo.sharpness).to eq(11.0)
+      expect(run.reload.quality_metrics['aesthetic_score']).to eq(3.4)
+      expect(Growth::Decision.where(action: 'salvage_rejected')).to be_empty
     end
   end
 end

@@ -105,8 +105,8 @@ the run, because the selection layer and the tier pre-flight ask about the asset
 model, missing image, gate disabled) **fails open** and is logged per run — NULL is not "safe", and it is not
 `false` either. `ContentGenerator` drops the `nsfw_rejected`/`nsfw_purge` path, `RenderSalvage` and
 `LibraryFallback` no longer veto on the score, and `CadenceEngine`'s NSFW pillar-rotation is retired with the
-rejection it existed for. Realism still vetoes until **B3 (#110)**; the age gate and the rest of the floor
-(§1) are untouched.
+rejection it existed for. Realism followed in **B3 (#110)**, which removed the LAST veto in the render
+stack; the age gate and the rest of the floor (§1) are untouched.
 
 ```gherkin
 Scenario: a high-scoring render is measured, not rejected
@@ -306,6 +306,46 @@ B4 experiment lane, not this ticket.
   selection inputs (quality is a measured axis per strategy-v2 §12.1 — the gate's own docstring says
   "it is a control, not a gate," and the code disagrees). The env bypass
   (`AESTHETIC_GATE_DISABLED`) is no longer needed but harmless.
+
+**Landed 2026-10-20 (ticket #110).** `Growth::RealismGate` returns a *measurement*: no `safe` member, no
+reject branch, no purge — the posture `Growth::NsfwGate` took in A1, and realism was the **last veto in the
+render stack**. The scores now ride the **asset row** (`photos.aesthetic_score` / `photos.sharpness`, both
+nullable with no default, so NULL reads as unmeasured rather than as 0.0) beside the run's
+`quality_metrics`, and `record_realism_score` fills a measurement in without clobbering it. An error **fails
+open** (nil scores, a loud per-run log line), because realism is not a floor control (§1 is). The vetoes are
+gone from `ContentGenerator`, `RenderSalvage` and `LibraryFallback`, and `bin/library_depth.py` — which
+re-implements the spend path's verdicts for the reserve depth — loses its nsfw/realism reject stages with
+them (that half was already stale from A1; the only veto left there is the bytes check).
+
+**The thresholds are SELECTION defaults (4.5 / 30.0), not rails.** `Photos::ListAvailable` ranks a
+below-default asset **last** and never filters it, so an asset that crossed the border stays in the corpus
+for re-valuation exactly as the founder's ruling requires. The defaults are read from the same ENV knobs the
+gate reads (`AESTHETIC_THRESHOLD` / `SHARPNESS_THRESHOLD`), so one knob moves the flag and the ordering
+together, and `low_quality_last: false` restores pure recency for a caller that wants the raw order. An
+**unmeasured** asset is ranked by recency: treating NULL as low quality would bury the legacy library, which
+is the reserve the GPU-free fallback exists to spend. No `flagged` column is persisted, deliberately — a
+derived flag would freeze a verdict computed under an older default, so the comparison happens at selection
+time against the defaults then in force (contrast `photos.nsfw_flagged`, a compliance verdict of record).
+
+```gherkin
+Scenario: a below-default render is measured, not rejected
+  Given a rendered image whose aesthetic score is 3.2 and sharpness is 12.4
+  When the realism measurement runs
+  Then the result is measured and flagged
+  And the result offers no veto for a caller to act on
+```
+
+```gherkin
+Scenario: a below-default asset is ranked last, not purged
+  Given a library holding a below-default asset and a sharp asset
+  When the available photos are listed
+  Then both assets are listed
+  And the below-default asset is last
+```
+
+- Gherkin: `gherkin_specs/harness/realism_advisory.feature` (@DEV-0110) — the gate's advisory contract and
+  the selector's ordering, driven through the real gate and the real selector (the scorer stood in for at
+  the subprocess boundary, so neither the NAS model nor the ComfyUI venv is needed).
 
 ### B4 · Strategy doc reframe
 

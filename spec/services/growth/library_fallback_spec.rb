@@ -14,7 +14,7 @@ RSpec.describe Growth::LibraryFallback do
     Growth::NsfwGate::Result.new(label: 'normal', nsfw_score: 0.01, flagged: false)
   end
   let(:realism_ok) do
-    Growth::RealismGate::Result.new(safe: true, aesthetic_score: 5.2, sharpness: 80.0)
+    Growth::RealismGate::Result.new(aesthetic_score: 5.2, sharpness: 80.0, flagged: false)
   end
 
   # One servable, unposted library photo per call.
@@ -100,7 +100,7 @@ RSpec.describe Growth::LibraryFallback do
   describe 'the gates' do
     # PRD 0007 A1: the reserve is where "keep flagged assets for re-valuation" has to
     # be visible, so the score is recorded ON THE ASSET ROW -- and the spend proceeds.
-    # (Realism still vetoes; see the next example.)
+    # Realism takes the same posture in B3; see the next example.
     it 'spends a flagged library photo and records the score on the asset instead of vetoing' do
       allow(Growth::NsfwGate).to receive(:new)
         .and_return(double('nsfw', call: Growth::NsfwGate::Result.new(nsfw_score: 0.9992, label: 'nsfw',
@@ -118,18 +118,27 @@ RSpec.describe Growth::LibraryFallback do
       expect(Scheduling::Post.exists?(photo_id: flagged.id)).to be(true)
     end
 
-    it 'never schedules a library photo the realism gate rejects' do
+    # PRD 0007 B3: realism was the LAST veto on this path. A library photo below the
+    # aesthetic/sharpness SELECTION defaults is spent, not refused -- and the scores
+    # land on the asset row so the re-valuation the founder's ruling asks for has the
+    # numbers to work from. The ordering (ranked last by Photos::ListAvailable) is
+    # what expresses "low quality" now; see spec/commands/photos/list_available_spec.rb.
+    it 'spends a below-default library photo and records the scores on the asset' do
       allow(Growth::RealismGate).to receive(:new)
-        .and_return(double('realism', call: Growth::RealismGate::Result.new(safe: false,
-                                                                           reason: 'aesthetic 3.1')))
+        .and_return(double('realism', call: Growth::RealismGate::Result.new(aesthetic_score: 3.1, sharpness: 9.4,
+                                                                           flagged: true)))
       queued_post!(hours: 24)
-      rejected = library_photo!
+      soft = library_photo!
 
       result = fallback.call
 
-      expect(result.created).to eq(0)
-      expect(result.rejected).to eq(1)
-      expect(Scheduling::Post.exists?(photo_id: rejected.id)).to be(false)
+      expect(result.created).to eq(1)
+      expect(result.rejected).to eq(0)
+      soft.reload
+      expect(soft.aesthetic_score).to eq(3.1)
+      expect(soft.sharpness).to eq(9.4)
+      expect(Scheduling::Post.exists?(photo_id: soft.id)).to be(true)
+      expect(Growth::Decision.where(action: 'library_rejected')).to be_empty
     end
   end
 
