@@ -190,7 +190,7 @@ bundle exec sidekiq
 bin/rails pipeline:create_run[3,"Beach Shoot","person on the beach, sunset"]
 ```
 
-See `docs/PIPELINE_SETUP.md` for complete setup guide.
+See `OPS.md` for the render-pipeline mechanics (the validated configuration lives in `docs/baseline-config.md`).
 
 ### Running Autonomous Workers
 
@@ -269,7 +269,7 @@ bin/rails scheduling:post_scheduled
 open http://localhost:3000/personas/:id/scheduling/posts/new
 ```
 
-See `docs/instagram-scheduling.md` for detailed setup instructions.
+See `OPS.md` for the posting rail (the hourly `bin/scheduled_posting.sh`).
 
 **Job Selection Strategy**:
 The system uses a **per-parent breadth-first** approach with **round-robin run selection**:
@@ -556,7 +556,7 @@ bin/rails pipeline:create_run[3,"Park Shoot","person in park, walking dog"]
 bundle exec sidekiq
 ```
 
-For detailed setup instructions, see `docs/PIPELINE_SETUP.md`.
+For the command inventory and runbook, see `OPS.md`.
 
 #### Pipeline Setup (Manual)
 
@@ -898,8 +898,7 @@ All core functionality is implemented and tested. The system can autonomously:
 
 **Developer Tools** ✅
 - Rake tasks for pipeline setup
-- Comprehensive documentation (README, PIPELINE_SETUP, CONVENTIONS)
-- Integration roadmap and migration guides
+- Comprehensive documentation (the four doc homes: ARCHITECTURE, CONTRACTS, OPS, DESIGN)
 - Packwerk pack structure with enforced boundaries
 - RSpec test suite with FactoryBot
 - GLCommand pattern with transaction safety
@@ -943,23 +942,24 @@ See `docs/CONVENTIONS.md` for full details:
 
 ## Project Documentation
 
-### Core Guides
-- `docs/PIPELINE_SETUP.md` - Complete guide for creating and running AI generation pipelines
-- `docs/instagram-scheduling.md` - Instagram API setup and scheduling configuration
-- `docs/CONVENTIONS.md` - Coding conventions and testing strategy
-- `docs/WORKFLOW_VARIABLES.md` - ComfyUI workflow variable system documentation
+The documentation index and status rules live in `docs/README.md`. The four root doc homes:
 
-### Architecture & Planning
-- `INTEGRATION_ROADMAP.md` - Phased integration plan and feature timeline
-- `INTEGRATION_REPORT.md` - Technical analysis of repository merge
-- `DESIGN_SYSTEM.md` - UI component guidelines and Tailwind conventions
-- `openspec/project.md` - Project conventions and tech stack details
-- `openspec/AGENTS.md` - AI agent collaboration guidelines
+- `ARCHITECTURE.md` — the app's structure: stack, pack boundaries, the command rail, the render
+  pipeline, the brain seat, the growth harness, the data spine.
+- `CONTRACTS.md` — the behavioral and data contracts: the legal floor, each gate's contract, the
+  command/state-machine contracts, the claim contract, the agent test-signal contract, the
+  attribution spine.
+- `OPS.md` — operations: the `bin/verify` gate, the honest `bin/*.sh` + `bin/*.py` command
+  inventory, the cron fleet, the GPU claim lifecycle, the ComfyUI and brain runbooks, deploy.
+- `DESIGN.md` — the app UI design system: Tailwind v4 tokens, the ViewComponent library,
+  navigation, the lookbook.
 
-### Development
-- `docs/brainstorming.md` - Product vision and algorithm details
-- `openspec/changes/` - Active change proposals
-- `openspec/specs/` - Capability specifications
+Other current docs: `docs/PROJECT_PLAN.md` (the spine), `docs/strategy-v2.md` (distribution
+diagnosis), `docs/experiment-backlog.md` (the experiment lane), `docs/baseline-config.md` (the
+validated render configuration), `THESIS.md`, `FOUNDERS.md`, `AGENTS.md`.
+
+Superseded and historical documents (the pre-rebuild guides, the Catalyst/integration reports, the
+archived design-system docs) live under `docs/archive/`.
 
 
 ## Testing
