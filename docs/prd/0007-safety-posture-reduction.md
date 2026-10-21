@@ -364,6 +364,17 @@ Scenario: a below-default asset is ranked last, not purged
   Closes ops board `withheld-renders-publicly-served`, which becomes stale-by-design once A1 removes
   the purge.
 
+**Landed 2026-10-20 (ticket #111).** `Scheduling::Post#selection_state` reads a post as
+`:published` (status posted, or a provider post id exists), `:queued` (an unpublished post carrying a
+publish slot), or `:held` (a gate cleared both publisher clocks, a post never queued, or a failed
+post). The still and reel endpoints serve `:published` and `:queued` and 404 `:held` — not 403, so the
+platform never learns the asset exists. Nothing is deleted: held/flagged bytes stay on disk and in the
+corpus for re-valuation (the A1 retention rule). A held post is recognised by its CLEARED CLOCKS, not
+by scanning `caption_metadata` — both gates hold a post by clearing `scheduled_at` AND
+`optimal_time_calculated` while keeping the row — which keeps the rule inside the scheduling pack
+(no upward reference to the gates). State→HTTP matrix: `spec/requests/media_spec.rb` (31 examples) and
+`spec/models/scheduling/post_selection_state_spec.rb` (15 examples).
+
 ## 5. What this PRD does NOT touch
 
 - **Operational gates** (C3): cadence ladder, GPU claims, near-duplicate hold, publish pacing,
