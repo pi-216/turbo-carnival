@@ -6,7 +6,9 @@
 # (the rails-venture-template's order) and stops at the first failure:
 #
 #   bin/rubocop -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check
-#   -> erb_lint -> bin/rspec
+#   -> erb_lint -> parity (PRD 0006 W1.4 audit, ticket #90) -> bin/rspec
+#   -> cucumber + gherkin_lint (the template's condition: members while any
+#   .feature files exist)
 #
 # Fail-closed: a gate that cannot run (missing gem, missing DB, missing
 # binstub) is a FAILURE, never a pass. The rspec gate is verdict-gated, not
@@ -56,6 +58,13 @@ run_gate "bundler-audit" sh -c "$AUDIT"
 run_gate "packwerk" bin/packwerk check
 run_gate "erb_lint" bundle exec erb_lint --lint-all
 
+# parity: the PRD 0006 W1.4 audit (ticket #90). One line per template rail
+# R1–R9 (CONFORM / GAP / DEVIATION(reason)); non-zero while any rail is in
+# GAP. It boots the app (test env) for the live mechanism probes and runs
+# before the long lanes so harness drift fails fast; a boot failure is a
+# fail-closed probe error, never a pass.
+run_gate "parity" bundle exec ruby scripts/parity_audit.rb
+
 # rspec: AGENT_TEST=1 forces the compact signal even on a TTY, so the verdict
 # line is always present and checkable (the binstub's documented agent mode).
 # Success requires BOTH exit 0 AND the TESTS OK verdict — exit 0 alone also
@@ -73,5 +82,15 @@ fi
 echo "    ok: rspec"
 grep '^TESTS' "$LOGDIR/rspec.log" || true
 
-echo "VERIFY OK: rubocop, brakeman, bundler-audit, packwerk, erb_lint, rspec all passed"
+# BDD lane (PRD 0006 R5 / Q2): the template's own condition — cucumber and
+# gherkin_lint are gate members while any .feature files exist. The lane is
+# scoped to the Rails app (config/cucumber.yml) and CI runs it too.
+PASSED="rubocop, brakeman, bundler-audit, packwerk, erb_lint, parity, rspec"
+if compgen -G "gherkin_specs/**/*.feature" >/dev/null; then
+  run_gate "cucumber" bundle exec cucumber
+  run_gate "gherkin_lint" bundle exec gherkin_lint $(ls gherkin_specs/**/*.feature)
+  PASSED="$PASSED, cucumber, gherkin_lint"
+fi
+
+echo "VERIFY OK: $PASSED all passed"
 exit 0
