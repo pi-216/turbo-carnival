@@ -48,6 +48,30 @@ module Scheduling
     # the account actually did must go through this scope.
     scope :published_to_platform, -> { where.not(provider_post_id: nil) }
 
+    # B5 (PRD 0007): the public media endpoint serves a post's bytes only while
+    # the post is in the queue or already published. A HELD post (a pre-publish
+    # gate cleared both publisher clocks), a never-queued post, and a failed
+    # post are all withheld -- the endpoint 404s them without confirming the
+    # asset exists.
+    #
+    # A HELD post is recognised by its CLEARED CLOCKS, not by scanning
+    # caption_metadata: both pre-publish gates (Growth::PersonaAgeGate and
+    # Growth::NearDuplicateGate) hold a post by clearing scheduled_at AND
+    # optimal_time_calculated while keeping the row, so "no slot" is the hold
+    # signal. Keying off the slots keeps this rule inside the scheduling pack
+    # (no upward reference to the gates) and stays correct for any gate that
+    # reuses the same hold mechanism.
+    QUEUED_STATUSES = %w[draft scheduled posting].freeze
+
+    scope :publicly_servable, -> {
+      where(status: 'posted')
+        .or(where.not(provider_post_id: nil))
+        .or(
+          where(status: QUEUED_STATUSES)
+            .where('scheduled_at IS NOT NULL OR optimal_time_calculated IS NOT NULL')
+        )
+    }
+
     state_machine :status, initial: :draft do
       state :draft           # Created, may or may not have image yet
       state :awaiting_image  # PipelineRun in progress
@@ -84,6 +108,27 @@ module Scheduling
 
     def ready_to_post?
       %w[scheduled posting posted].include?(status)
+    end
+
+    # The post's SELECTION STATE, as the public media endpoint reads it (B5).
+    #   :published  posted -- status :posted, or a provider post id exists
+    #   :queued     an unpublished post carrying a publish slot (will be, or is
+    #               being, published, so its bytes must be tunnel-reachable)
+    #   :held       a HELD post (both publisher clocks cleared by a gate), or a
+    #               post that was never queued (draft with no slot, awaiting an
+    #               image, or failed). None of these is served.
+    def selection_state
+      return :published if posted? || provider_post_id.present?
+      return :queued if QUEUED_STATUSES.include?(status) &&
+                        (scheduled_at.present? || optimal_time_calculated.present?)
+
+      :held
+    end
+
+    # The endpoint serves a post's bytes only while its selection state is
+    # :published or :queued (B5); :held 404s.
+    def publicly_servable?
+      %i[published queued].include?(selection_state)
     end
 
     # Transition to :failed AND persist why.

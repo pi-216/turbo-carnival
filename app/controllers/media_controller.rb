@@ -6,29 +6,26 @@ class MediaController < ApplicationController
   def photo
     photo = ContentPillars::Photo.find(params[:id])
 
-    # WITHHELD RENDERS ARE NOT PUBLICLY DOWNLOADABLE (2026-09-23).
+    # SERVE ONLY QUEUED / PUBLISHED ASSETS (PRD 0007 B5, 2026-10-21).
     #
     # This endpoint is fronted by the Cloudflare tunnel and takes a SEQUENTIAL
-    # id, so /media/photos/1..N is enumerable -- while the only consumer that
-    # needs these bytes over the wire is the publisher, which mints the URL from
-    # `post.photo` at publish time (Scheduling::Commands::GeneratePublicPhotoUrl,
-    # reached from schedule_post.rb and scheduled_posting.rake). Captioning does
-    # NOT use this URL: ImageEncoder base64s `servable_file_path` locally. So the
-    # withhold is a rule the serving layer can own outright: serve a photo only
-    # while a post still references it.
+    # id, so /media/photos/1..N is enumerable. The only consumer that needs
+    # these bytes over the wire is the platform, which fetches the URL at
+    # publish time (Scheduling::Commands::GeneratePublicPhotoUrl, reached from
+    # schedule_post.rb and scheduled_posting.rake). Captioning does NOT use this
+    # URL: ImageEncoder base64s `servable_file_path` locally. So the serving
+    # rule the endpoint can own outright is: serve a photo's bytes only while a
+    # post for it is in the QUEUE or already PUBLISHED.
     #
-    # WHAT THIS CLOSES: when a post is PURGED (13 of them, action=nsfw_purge,
-    # scores 0.93-0.9999) the post ROW is deleted and the Photo row + bytes stay
-    # -- so an image deliberately withheld from the feed remained one guessable
-    # URL away from anyone. Measured 2026-09-23: `GET /media/photos/241` -> 200
-    # for a purged photo, and the same held for the 51 renders of this persona
-    # that never became a post (38 unlinked + 13 purged).
-    #
-    # ONE-SIDED ON PURPOSE: a photo with ANY post is untouched -- and that is
-    # every photo the publishing path can ask for, because the URL is built from
-    # a post that already exists -- so this cannot break a publish, while a
-    # render no post references has no publishing consumer to lose.
-    unless Scheduling::Post.where(photo_id: photo.id).exists?
+    # A HELD post (a pre-publish gate cleared both publisher clocks while
+    # keeping the row), a post that was never queued, a failed post, a purged
+    # post (row deleted), and a render no post references all read as :held --
+    # the endpoint 404s them, NOT 403, so the platform never learns the asset
+    # exists. Nothing is deleted: held/flagged assets stay on disk and in the
+    # corpus for re-valuation (A1 retention); only their public URL goes away.
+    # The state the endpoint reads (Scheduling::Post#selection_state):
+    #   :published / :queued -> serve    :held -> 404
+    unless Scheduling::Post.publicly_servable.where(photo_id: photo.id).exists?
       head :not_found
       return
     end
@@ -56,16 +53,17 @@ class MediaController < ApplicationController
   # uncallable.
   #
   # THE WITHHOLD RULE IS THE STILL PATH'S, and it is even tighter here: the id
-  # IS a post id, so bytes are served exactly while the post that owns them
-  # exists. A purged/rejected reel post stops being downloadable the moment its
-  # row goes -- the same one-sided rule #photo applies, with nothing extra to
-  # enumerate (there is no separate video row to walk).
+  # IS a post id, so bytes are served only while that post's selection state is
+  # :queued or :published (B5). A held reel post (a gate cleared both publisher
+  # clocks) or a purged one stops being downloadable the moment it is withheld --
+  # the same one-sided rule #photo applies, with nothing extra to enumerate
+  # (there is no separate video row to walk).
   #
   # The bytes are the file at `post.reel_path`, which Growth::ReelBuilder wrote
   # with the IPTC synthetic mark embedded in the container metadata, so the asset
   # Meta fetches carries the same machine-readable disclosure as the stills.
   def reel
-    post = Scheduling::Post.find_by(id: params[:id])
+    post = Scheduling::Post.publicly_servable.find_by(id: params[:id])
 
     file = post&.reel_path
     return head :not_found unless file.present?
