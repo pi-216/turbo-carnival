@@ -1,0 +1,14 @@
+{
+  "key": "publish-gap",
+  "title": "nothing published for 138h (warn 36h, critical 96h)",
+  "severity": "critical",
+  "evidence": "newest posted_at is 137.6h old; posted in last 24h=0; future queue=11. check_publish_liveness only counts rows that were DUE, so a drained queue is invisible to it -- this is the expected-event absence it cannot see (2026-09-10 -> 09-17: eight silent days).",
+  "status": "open",
+  "first_seen": "2026-10-21T18:06:30-0400",
+  "last_seen": "2026-10-21T22:36:48-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [],
+  "route_source": "check"
+}

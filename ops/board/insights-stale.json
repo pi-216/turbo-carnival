@@ -1,0 +1,14 @@
+{
+  "key": "insights-stale",
+  "title": "engagement insights are 51h old (213 posted item(s) older than 24h)",
+  "severity": "warn",
+  "evidence": "newest insights_updated_at is 51h old; posted items older than 24h with a provider id=213. Growth::WeeklyReview aggregates engagement_rate per pillar to steer hashtags and content, so a stale insights column silently zeroes its only content signal. Producer: scheduling:collect_insights (bin/scheduled_posting.sh, hourly). Measured 2026-09-20: newest write 2026-05-27 with 107 items NULL.",
+  "status": "open",
+  "first_seen": "2026-10-21T18:06:30-0400",
+  "last_seen": "2026-10-21T22:36:48-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [],
+  "route_source": "check"
+}

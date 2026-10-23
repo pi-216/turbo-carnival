@@ -68,6 +68,25 @@ module PrdLink
     match[1]
   end
 
+  # The checkout root, so a missing `docs/prd` can be reported by path rather
+  # than guessed at.
+  def worktree_root(runner: method(:capture))
+    out, ok = runner.call('git', 'rev-parse', '--show-toplevel')
+    raise Error, 'not inside a git work tree — cannot locate docs/prd' unless ok
+
+    out
+  end
+
+  # fail-closed: without a PRD directory this repo does not use PRDs, and an
+  # "ok" over an empty set would be a green check about nothing (#14).
+  def require_prd_dir(root)
+    dir = File.join(root, 'docs/prd')
+    return dir if File.directory?(dir)
+
+    raise Error, "#{dir} is missing — a repo without PRDs has no parent edges to " \
+                 'check; create docs/prd or run this from the venture root'
+  end
+
   # PRD tickets are found by TITLE because the PRD ticket itself carries no
   # `prd:NNNN` label (#36, #44, #51 carry none — the label lives on children).
   def prd_tickets(repo, runner: method(:capture))
@@ -167,6 +186,7 @@ end
 
 begin
   repo ||= PrdLink.repo_from_remote
+  PrdLink.require_prd_dir(PrdLink.worktree_root)
   tickets = PrdLink.prd_tickets(repo)
   expected = PrdLink.expected_children(repo, tickets)
 
