@@ -10,7 +10,9 @@ A Rails 8 application that runs an autonomous Instagram growth harness for a **s
 plus the ComfyUI render pipeline behind it. Two venues: a discovery surface (Instagram), pushed to its
 measured platform tolerance (PRD 0007 B4), and a permissive payload venue behind a second isolated
 persona. Work is organised as **PRDs + GitHub tickets** on board `pi-216` project **#5**
-(`https://github.com/orgs/pi-216/projects/5`).
+(`https://github.com/orgs/pi-216/projects/5`). A ticket's link to its PRD is the
+GitHub **parent edge** (`bin/prd_link`), not the `prd:NNNN` label — the label is a
+filterable tag.
 
 ## Read these, in this order
 
@@ -42,6 +44,7 @@ A rule with no enforcement is a preference. Every rule below names what actually
 | Factory truth | FactoryBot is the single test-data source (`spec/factories/`, wired in `spec/support/factory_bot.rb`); "factories, not inline builds" is **review-held (a preference — no runnable gate yet)** |
 | PR gate | `.github/pull_request_template.md` — the author + reviewer checklists are auto-applied to every PR and held by review (§ *the content contract*) |
 | Ticket linkage to the plan | `rake plan:check` — every board item cites a plan id, the generated index matches the board, and no dependency cycle exists (any of those failing exits non-zero); `rake plan:index` regenerates the state column from the board. Pure stdlib, no Rails/DB (PRD 0003, #48) |
+| PRD parent edge | `bin/prd_link --check` — every open ticket carrying a `prd:NNNN` label is a **sub-issue** of that PRD's `[PRD] PRD NNNN — …` ticket, and every PRD ticket is top-level; `bin/prd_link --apply` repairs a missing edge. **The edge is the linkage; the label is a tag.** Run in CI, and `.github/scripts/test-prd-link.sh` proves the repair with a stubbed `gh` (#121) |
 
 ## The gate
 

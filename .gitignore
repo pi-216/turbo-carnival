@@ -53,3 +53,4 @@ __pycache__/
 # a second copy of the Sarah render corpus on this box's local NVMe, so a NAS
 # volume loss cannot take the only copy with it. Large and never committed.
 /corpus-backup/
+.worktrees/

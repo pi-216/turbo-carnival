@@ -1,0 +1,263 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/prd_link — the PRD parent-edge gate and repairer (ticket #121).
+#
+# The edge, not the label, is the linkage: every open ticket carrying a
+# `prd:NNNN` label is a sub-issue of that PRD's own `[PRD] PRD NNNN — …` ticket.
+# `prd:NNNN` stays on the children as a filterable tag for the PM and the worker.
+#
+#   bin/prd_link --check        report only; exit 1 when any edge is missing or
+#                               when a PRD ticket itself has a parent
+#   bin/prd_link --apply        repair the missing edges in place
+#   bin/prd_link --prd 0007     limit either mode to one PRD
+#
+# WHY A COMMAND AND NOT A CONVENTION: the tranches were parented by hand, so the
+# next tranche depended on somebody remembering, and a tranche that lost an edge
+# could not be repaired by re-running anything. This is the re-run.
+#
+# RULES THIS ENFORCES (ticket red lines):
+#   * never give a PRD's own ticket a parent — a PRD child that IS the PRD ticket
+#     is dropped from the expected set rather than linked to itself;
+#   * never create or reopen an issue — this links, nothing else;
+#   * never move a board Status — an already-started item keeps its status;
+#   * `-F`, never `-f` — `-f` stringifies the id and GitHub answers 422;
+#   * children derive from the label, never from the title.
+
+require 'json'
+require 'open3'
+
+module PrdLink
+  PRD_TITLE = /\A\[PRD\]\s*PRD\s*(\d{4})/i
+  LABEL = /\Aprd:(\d{4})\z/
+
+  class Error < StandardError; end
+
+  # Everything that talks to the outside world goes through a runner so the
+  # regression test can inject a stub and prove behaviour without a token.
+  module_function
+
+  def capture(*argv)
+    out, status = Open3.capture2e(*argv)
+    [out.strip, status.success?]
+  end
+
+  def gh(*argv, runner: method(:capture))
+    out, ok = runner.call(*argv)
+    raise Error, out unless ok
+
+    out
+  end
+
+  def json(*argv, runner: method(:capture))
+    out = gh(*argv, runner: runner)
+    JSON.parse(out)
+  rescue JSON::ParserError => e
+    raise Error, "unparseable gh output (#{e.message})"
+  end
+
+  # owner/name, from the checkout's own remote so a fork or a worktree resolves
+  # to the repo the tickets actually live in.
+  def repo_from_remote(runner: method(:capture))
+    out, ok = runner.call('git', 'remote', 'get-url', 'origin')
+    raise Error, 'no `origin` remote — cannot resolve the repo (pass --repo)' unless ok
+
+    match = out.match(%r{github\.com[:/]([^/]+/[^/\s]+?)(?:\.git)?\z})
+    raise Error, "cannot parse owner/repo from #{out.inspect}" unless match
+
+    match[1]
+  end
+
+  # The checkout root, so a missing `docs/prd` can be reported by path rather
+  # than guessed at.
+  def worktree_root(runner: method(:capture))
+    out, ok = runner.call('git', 'rev-parse', '--show-toplevel')
+    raise Error, 'not inside a git work tree — cannot locate docs/prd' unless ok
+
+    out
+  end
+
+  # fail-closed: without a PRD directory this repo does not use PRDs, and an
+  # "ok" over an empty set would be a green check about nothing (#14).
+  def require_prd_dir(root)
+    dir = File.join(root, 'docs/prd')
+    return dir if File.directory?(dir)
+
+    raise Error, "#{dir} is missing — a repo without PRDs has no parent edges to " \
+                 'check; create docs/prd or run this from the venture root'
+  end
+
+  # PRD tickets are found by TITLE because the PRD ticket itself carries no
+  # `prd:NNNN` label (#36, #44, #51 carry none — the label lives on children).
+  def prd_tickets(repo, runner: method(:capture))
+    issues = json('gh', 'issue', 'list', '--repo', repo, '--state', 'all',
+                  '--limit', '500', '--json', 'number,title,state', runner: runner)
+    issues.each_with_object({}) do |issue, acc|
+      m = issue['title'].to_s.match(PRD_TITLE)
+      acc[m[1]] = issue if m
+    end
+  end
+
+  # number => [child numbers], from the label. The PRD's own ticket is excluded:
+  # #75 carries `prd:0006` and linking it to itself is the failure mode.
+  def expected_children(repo, prd_tickets, runner: method(:capture))
+    issues = json('gh', 'issue', 'list', '--repo', repo, '--state', 'open',
+                  '--limit', '500', '--json', 'number,labels', runner: runner)
+    by_prd = Hash.new { |h, k| h[k] = [] }
+    issues.each do |issue|
+      issue['labels'].each do |label|
+        m = label['name'].to_s.match(LABEL)
+        by_prd[m[1]] << issue['number'] if m
+      end
+    end
+    by_prd.each_key do |number|
+      prd_ticket = prd_tickets.dig(number, 'number')
+      by_prd[number] = (by_prd[number] - [prd_ticket]).uniq.sort
+    end
+    by_prd
+  end
+
+  # The link is NOT idempotent (re-adding a child is a 422), so the parent's
+  # current children are read once and used as the skip list.
+  def linked_children(repo, parent, runner: method(:capture))
+    out = gh('gh', 'api', "repos/#{repo}/issues/#{parent}/sub_issues",
+             '--jq', '[.[].number]', runner: runner)
+    JSON.parse(out).map(&:to_i)
+  rescue JSON::ParserError => e
+    raise Error, "unparseable sub_issues payload (#{e.message})"
+  end
+
+  # A PRD ticket must be top-level. GitHub exposes this only over GraphQL.
+  def parent_of(repo, number, runner: method(:capture))
+    owner, name = repo.split('/', 2)
+    query = 'query($owner:String!,$name:String!,$number:Int!){' \
+            "repository(owner:$owner,name:$name){issue(number:$number){parent{number}}}}"
+    out = gh('gh', 'api', 'graphql', '-f', "query=#{query}", '-f', "owner=#{owner}",
+             '-f', "name=#{name}", '-F', "number=#{number}", runner: runner)
+    payload = JSON.parse(out).dig('data', 'repository', 'issue', 'parent')
+    payload && payload['number']
+  rescue JSON::ParserError => e
+    raise Error, "unparseable GraphQL payload (#{e.message})"
+  end
+
+  def link(repo, parent, child, runner: method(:capture))
+    child_id = json('gh', 'api', "repos/#{repo}/issues/#{child}", '--jq', '.id',
+                    runner: runner).to_i
+    raise Error, "no database id for issue ##{child}" unless child_id.positive?
+
+    # -F, never -f: it type-infers the integer; a string id is a 422.
+    gh('gh', 'api', '--method', 'POST', "repos/#{repo}/issues/#{parent}/sub_issues",
+       '-F', "sub_issue_id=#{child_id}", runner: runner)
+  end
+end
+
+def usage
+  <<~TEXT
+    bin/prd_link [--check|--apply] [--prd NNNN] [--repo owner/name]
+
+      --check   report only (default); exit 1 when any edge is missing or a PRD
+                ticket has a parent
+      --apply   repair missing edges in place; never creates an issue
+      --prd     limit to one PRD number, e.g. --prd 0007
+  TEXT
+end
+
+mode = :check
+only_prd = nil
+repo = nil
+
+args = ARGV.dup
+until args.empty?
+  arg = args.shift
+  case arg
+  when '--check' then mode = :check
+  when '--apply' then mode = :apply
+  when '--prd' then only_prd = args.shift.to_s.rjust(4, '0')
+  when '--repo' then repo = args.shift
+  when '-h', '--help'
+    puts usage
+    exit 0
+  else
+    warn "prd_link: unknown argument #{arg.inspect}"
+    warn usage
+    exit 2
+  end
+end
+
+begin
+  repo ||= PrdLink.repo_from_remote
+  PrdLink.require_prd_dir(PrdLink.worktree_root)
+  tickets = PrdLink.prd_tickets(repo)
+  expected = PrdLink.expected_children(repo, tickets)
+
+  prd_numbers = (tickets.keys | expected.keys).sort
+  prd_numbers = prd_numbers.select { |n| n == only_prd } if only_prd
+
+  created = 0
+  repaired = 0
+  skipped = 0
+  failed = 0
+  violations = 0
+  drifting = 0
+
+  puts "prd_link #{mode == :apply ? '--apply' : '--check'} · #{repo}"
+
+  prd_numbers.each do |prd|
+    ticket = tickets[prd]
+    unless ticket
+      puts "  prd:#{prd} — #{expected[prd].size} open child ticket(s) but no [PRD] ticket found"
+      violations += 1
+      next
+    end
+
+    parent = ticket['number']
+    wanted = expected[prd] || []
+    current = PrdLink.linked_children(repo, parent)
+    missing = wanted - current
+    extra = current - wanted
+    parent_edge = PrdLink.parent_of(repo, parent)
+
+    puts "  prd:#{prd} parent=##{parent} expected=#{wanted.size} actual=#{current.size}" \
+         "#{missing.empty? ? '' : " missing=#{missing.map { |c| "##{c}" }.join(',')}"}" \
+         "#{extra.empty? ? '' : " extra=#{extra.map { |c| "##{c}" }.join(',')}"}"
+
+    if parent_edge
+      puts "    ! PRD ticket ##{parent} has parent ##{parent_edge} — a PRD ticket must stay top-level"
+      violations += 1
+    end
+
+    skipped += (wanted & current).size
+    drifting += 1 if missing.any?
+
+    if mode == :apply && missing.any?
+      missing.each do |child|
+        begin
+          PrdLink.link(repo, parent, child)
+          repaired += 1
+          puts "    + linked ##{child} -> ##{parent}"
+        rescue PrdLink::Error => e
+          failed += 1
+          puts "    ! failed ##{child} -> ##{parent} — #{e.message}"
+        end
+      end
+    end
+  end
+
+  if mode == :apply
+    puts "created=#{created} repaired=#{repaired} skipped=#{skipped} failed=#{failed}" \
+         "#{violations.zero? ? '' : " violations=#{violations}"}" \
+         ' (created is always 0: this command never creates an issue)'
+    exit(violations.zero? && failed.zero? ? 0 : 1)
+  end
+
+  if drifting.positive? || violations.positive?
+    puts 'DRIFT: at least one PRD edge is missing or a PRD ticket is not top-level'
+    exit 1
+  end
+
+  puts "ok: every prd:NNNN child is a sub-issue of its PRD ticket, and every PRD ticket is top-level"
+  exit 0
+rescue PrdLink::Error => e
+  warn "prd_link: #{e.message}"
+  exit 2
+end
