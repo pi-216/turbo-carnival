@@ -112,6 +112,7 @@ four doc homes:
 | `archive/CONVENTIONS.md` | command/state-machine/packwerk conventions now in `ARCHITECTURE.md` + `CONTRACTS.md`; house rules in `AGENTS.md` |
 | `archive/DESIGN_SYSTEM.md`, `archive/view_components.md`, `archive/nav.md`, `archive/navigation-architecture.md`, `archive/viewcomponent-guidelines.md`, `archive/progress.md` | the app UI design system — now `DESIGN.md` |
 | `archive/CATALYST_MIGRATION_SUMMARY.md`, `archive/CLUSTER_REMOVAL_SUMMARY.md`, `archive/CREDENTIALS_STATUS.md`, `archive/INTEGRATION_REPORT.md`, `archive/INTEGRATION_ROADMAP.md`, `archive/PERSONAS_INTEGRATION_STATUS.md`, `archive/PERSONA_INTEGRATION_SUMMARY.md`, `archive/migration_audit_notes.md` | early integration/migration summaries — historical provenance only |
+| `archive/SESSION_NOTES.md`, `archive/SESSION_NOTES_DEC3_EVENING.md` | early session notes (Dec 2024) — the only record of how the current tree was assembled; restored from git history, historical provenance only |
 | `brainstorming.md` | early ideation (provenance) |
 | `post-creation-interface.md` | an implementation-progress log, not a spec |
 | ~~`openspec/`~~ (114 files) | **REMOVED 2026-10-19** — dropped in favour of the PRD/ticket system. Recoverable from git history (`git log -- openspec`) |
