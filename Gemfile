@@ -122,5 +122,5 @@ gem "tailwindcss-rails"
 # Lookbook for component development and documentation
 gem "lookbook", group: :development
 
-gem "aws-sdk-s3", "~> 1.206"
+gem "aws-sdk-s3", "~> 1.234"
 gem "kaminari"
