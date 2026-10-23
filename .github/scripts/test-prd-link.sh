@@ -117,6 +117,16 @@ rc=$?
 assert_eq "no origin remote exits 2" 2 "$rc"
 assert_contains "no origin remote says so" 'no `origin` remote' "$(cat "$work/err")"
 
+# --- a remote but no docs/prd must not report a vacuous ok ---------------
+noprd="$work/noprd"
+mkdir -p "$noprd"
+( cd "$noprd" && git init -q . \
+    && git remote add origin git@github.com:pi-216/turbo-carnival.git \
+    && "$LINK" --check >/dev/null 2>"$work/err2" )
+rc=$?
+assert_eq "no docs/prd exits 2" 2 "$rc"
+assert_contains "no docs/prd names the directory" "docs/prd is missing" "$(cat "$work/err2")"
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "TESTS OK ($pass assertions)"

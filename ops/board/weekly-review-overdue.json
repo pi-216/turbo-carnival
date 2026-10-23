@@ -1,0 +1,14 @@
+{
+  "key": "weekly-review-overdue",
+  "title": "the pre-registered GO/PIVOT/KILL read did not run: 62h past its due instant (10-19 13:01Z) with no weekly review since 10-12 13:01Z",
+  "severity": "critical",
+  "evidence": "the newest Growth::Review row is 10-12 13:01Z; the goal's review_interval_days puts the next read at 10-19 13:01Z, which passed 62h ago and produced no review row. This event is the pre-registration's own arm (the gate is read BY that review), so until it runs there is no verdict at all -- and the next scheduled opportunity is a full week away. Nothing else on this board can see it: check_weekly_review_gate_wired asserts the review's CODE still emits the gate, check_cron_delivery reads delivery targets, and check_gate_cohort_starved only forecasts the cohort. Check it in this order: the job store (`tc-weekly-persona-review`: enabled, next_run_at, last_status in cron/jobs.json) for a scheduler gap or a drift refusal; cron/executions.db for an error row; then the review task's own output file under cron/output/<job-id>/ for an exception in the task itself. Recovery is in-repo -- force `growth:weekly_review[Sarah]` and RECORD THAT THE READ WAS LATE, because the window it reads is anchored at the review instant, so a late read is not the registered one.",
+  "status": "open",
+  "first_seen": "2026-10-21T18:06:30-0400",
+  "last_seen": "2026-10-21T22:36:49-0400",
+  "seen_count": 3,
+  "source": "probe",
+  "route": "agent",
+  "notes": [],
+  "route_source": "check"
+}
