@@ -1,0 +1,74 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# A `gh` stand-in for .github/scripts/test-prd-link.sh: no token, no network.
+#
+# State lives in $STUB_DIR:
+#   prd_tickets.json  output of `gh issue list --state all`
+#   children.json     output of `gh issue list --state open`
+#   links.txt         the CURRENT edges, one "parent:child" per line
+#   parents.txt       optional "child:parent" lines, to simulate a PRD ticket
+#                     that wrongly carries a parent
+#
+# Env:
+#   STUB_BREAK_LINK=1 the POST succeeds but appends nothing — the sabotage run
+#                     that proves the test bites.
+
+require 'json'
+
+dir = ENV.fetch('STUB_DIR')
+links_path = File.join(dir, 'links.txt')
+parents_path = File.join(dir, 'parents.txt')
+File.write(links_path, '') unless File.exist?(links_path)
+
+def read_links(path)
+  File.read(path).split("\n").reject(&:empty?).map { |l| l.split(':').map(&:to_i) }
+end
+
+args = ARGV.dup
+mode = args.shift
+
+case mode
+when 'issue'
+  state = args[args.index('--state') + 1]
+  print File.read(File.join(dir, state == 'all' ? 'prd_tickets.json' : 'children.json'))
+when 'api'
+  if args.first == 'graphql'
+    number = args[args.index('-F') + 1].to_s.split('=', 2).last.to_i
+    parent = File.exist?(parents_path) ? File.read(parents_path).split("\n")
+                                              .map { |l| l.split(':').map(&:to_i) }
+                                              .find { |child, _| child == number }&.last : nil
+    puts({ data: { repository: { issue: { parent: parent ? { number: parent } : nil } } } }.to_json)
+    exit 0
+  end
+
+  rest = args.dup
+  method = 'GET'
+  if rest.first == '--method'
+    rest.shift
+    method = rest.shift
+  end
+  path = rest.shift
+  number = path[%r{/issues/(\d+)}, 1].to_i
+  sub_issue_id = rest.join(' ')[/sub_issue_id=(\d+)/, 1]
+
+  if method == 'POST' && path.end_with?('/sub_issues')
+    child = sub_issue_id.to_i.positive? ? (sub_issue_id.to_i - 7) / 1000 : nil
+    unless ENV['STUB_BREAK_LINK'] == '1'
+      File.open(links_path, 'a') { |f| f.puts("#{number}:#{child}") } if child
+    end
+    puts '{}'
+  elsif path.end_with?('/sub_issues')
+    puts read_links(links_path).select { |parent, _| parent == number }.map(&:last).to_json
+  elsif rest.include?('.id')
+    puts((number * 1000) + 7)
+  else
+    warn "stub-gh: unhandled api path #{path}"
+    exit 1
+  end
+when 'git'
+  puts "git@github.com:pi-216/turbo-carnival.git"
+else
+  warn "stub-gh: unhandled #{mode.inspect}"
+  exit 1
+end
