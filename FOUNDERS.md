@@ -1,5 +1,7 @@
 # FOUNDERS — pillar index
 
+> **Status:** CURRENT — the pillar index; the founder's rails and thesis live in `THESIS.md`.
+
 Each pillar: **Lock / Enforcement / Red line**. Status-tagged:
 `#harness/status/locked` · `in-review` · `rebuilding`. Keep it living.
 
