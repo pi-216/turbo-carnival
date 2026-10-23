@@ -16,6 +16,23 @@ The repo's product requirements live here as numbered PRDs. Status follows the
 pi-216 project 5 (`https://github.com/orgs/pi-216/projects/5`), each carrying a
 `prd:NNNN` label.
 
+**The parent edge is the linkage; `prd:NNNN` is a tag.** A ticket belongs to a
+PRD because it is a **sub-issue** of that PRD's own `[PRD] PRD NNNN — …` ticket,
+not because it wears a label. The label stays — the PM and the worker filter on
+it — but it is a tag, never the link.
+
+That edge is owned by one command, and a re-run is the repair:
+
+```bash
+bin/prd_link --check     # the drift gate: exit 1 if any child is unparented
+                         # or a PRD ticket itself has a parent
+bin/prd_link --apply     # repairs missing edges in place (created=0, always)
+```
+
+It never creates or reopens an issue, never moves a board Status, and never
+gives a PRD's own ticket a parent. CI runs `--check`, so a tranche that loses an
+edge fails the build instead of waiting for an audit (#121).
+
 | PRD | slug | status | scope |
 |---|---|---|---|
 | 0001 | local-uncensored-brain-and-phase-machine | CURRENT | the uncensored local brain + phase machine |

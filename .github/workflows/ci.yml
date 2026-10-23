@@ -25,6 +25,29 @@ jobs:
       - name: Audit gems for known security defects
         run: bundle exec bundler-audit check --update
 
+  prd_link:
+    runs-on: ubuntu-latest
+    # Reading issues and sub-issue edges is all this job needs; the default token
+    # is broader than the check requires.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The PRD parent edge is the linkage; `prd:NNNN` is only a tag. A tranche
+      # that lost an edge must fail here rather than wait for an audit (#121).
+      # Its own contract is proven offline by the stubbed-gh regression test.
+      - name: "PRD parent edge (bin/prd_link --check)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/prd_link --check
+
+      - name: "PRD linker regression test (stubbed gh, no token)"
+        run: .github/scripts/test-prd-link.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:
