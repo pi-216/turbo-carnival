@@ -21,6 +21,14 @@ module Attribution
     belongs_to :asset, class_name: "Attribution::Asset", optional: true, inverse_of: :renders
     belongs_to :pipeline_run, optional: true
 
+    # The CONFIG this render ran under (#40). Optional because a render that predates the
+    # spine has UNKNOWN attribution -- and "unknown" is a fact about the record, not something
+    # a default version may paper over. A render created NOW must reference one; that rule is
+    # enforced by the writer (`RecordRender`), not by this association, so an existing row can
+    # still be backfilled honestly.
+    belongs_to :content_config_version, class_name: "Attribution::ContentConfigVersion",
+               optional: true, inverse_of: :renders
+
     # The candidate this render produced -- i.e. the image that was actually published.
     # Declared on THIS side because the reverse (ImageCandidate -> render) would make
     # packs/pipeline reference packs/attribution while attribution already depends on
@@ -95,8 +103,13 @@ module Attribution
     end
 
     # The full input set, from columns and rows only -- no blob is parsed to answer it.
+    #
+    # `content_config_version` is the ADDRESS of the config this render ran under (#40): the
+    # digest, not the id, so two rows that name the same config are visibly the same config
+    # without a second lookup.
     def inputs
       {
+        content_config_version: content_config_version&.digest,
         checkpoint: checkpoint,
         seed: seed,
         sampler: sampler,

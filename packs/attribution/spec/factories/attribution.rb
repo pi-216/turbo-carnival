@@ -51,6 +51,33 @@ FactoryBot.define do
     position { 0 }
   end
 
+  # #40: the content config version. NO digest attribute: the model derives it from the pins,
+  # so a factory that authored one could only ever produce a record whose digest does not name
+  # its own content -- a fixture that lies about the one thing the row means.
+  #
+  # `checkpoint` is sequenced because the digest is unique: two factory versions with identical
+  # pins ARE the same config, and the second insert must fail rather than fork it.
+  factory :attribution_content_config_version, class: "Attribution::ContentConfigVersion" do
+    sequence(:checkpoint) { |n| "CRPv18_PM25_#{n}.safetensors" }
+    negative_prompt { "score_5, worst quality, low quality" }
+    workflow_sha256 { Digest::SHA256.hexdigest("turbo_one_step_v2/step1_generate.json") }
+    workflow_path { "comfy_workflows/turbo_one_step_v2/step1_generate.json" }
+    wardrobe_level { 2 }
+
+    # The children are BUILT, never created after the parent: the digest covers them, so
+    # attaching a part to an already-saved version would produce a row whose digest no longer
+    # describes its own pins. That is the defect this ticket exists to make impossible.
+    trait :with_pins do
+      after(:build) do |version|
+        version.prompt_parts.build(name: "identity", text: "sarah1a3, slender, freckles", position: 0)
+        version.prompt_parts.build(name: "scene", text: "sunlit bedroom, three-quarter front view", position: 1)
+        version.prompt_parts.build(name: "wardrobe", text: "short cream linen apron", position: 2)
+        version.loras.build(layer: "base", name: "pony/sarah1a3_pony_pornmaster_v1.safetensors",
+                            strength: 0.8, enabled: true, position: 0)
+      end
+    end
+  end
+
   factory :attribution_assessment, class: "Attribution::Assessment" do
     association :render, factory: :attribution_render
     assessor_model { "auraface" }

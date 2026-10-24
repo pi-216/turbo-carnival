@@ -4,12 +4,16 @@
 # produced it, the prompt in named parts, the LoRA set with strengths, and the per-render
 # assessments. PRD 0002 / plan item W1.2.
 #
-# `packs/pipeline` is a dependency because a render belongs to a `PipelineRun`; the edge runs
-# one way (attribution -> pipeline), so there is no cycle.
+# `packs/pipeline` is a dependency because a render belongs to a `PipelineRun` and a config
+# version pins a `PipelineStep`; the edge runs one way (attribution -> pipeline), so there is
+# no cycle.
 
 enforce_dependencies: true
 dependencies:
   - "."
   - "packs/pipeline"
+  # A config version pins the pillar it configures (#40). packs/content_pillars reads no
+  # attribution class -- it reaches only personas and the root -- so this edge stays one-way.
+  - "packs/content_pillars"
 metadata:
   owner: Attribution

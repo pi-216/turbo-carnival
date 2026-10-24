@@ -6,6 +6,9 @@ RSpec.describe Attribution::Render, type: :model do
   describe "associations" do
     it { should belong_to(:asset).class_name("Attribution::Asset").optional }
     it { should belong_to(:pipeline_run).optional }
+    # #40: the config the render ran under. Optional on the association (a pre-spine render has
+    # UNKNOWN attribution); required by the writer for a render created now.
+    it { should belong_to(:content_config_version).class_name("Attribution::ContentConfigVersion").optional }
     it { should have_many(:prompt_parts).class_name("Attribution::PromptPart").dependent(:destroy) }
     it { should have_many(:loras).class_name("Attribution::Lora").dependent(:destroy) }
     it { should have_many(:assessments).class_name("Attribution::Assessment").dependent(:destroy) }

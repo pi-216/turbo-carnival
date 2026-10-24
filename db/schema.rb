@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_24_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -91,6 +91,44 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_140000) do
     t.index ["pipeline_run_id"], name: "index_comfyui_jobs_on_pipeline_run_id"
     t.index ["pipeline_step_id"], name: "index_comfyui_jobs_on_pipeline_step_id"
     t.index ["status"], name: "index_comfyui_jobs_on_status"
+  end
+
+  create_table "content_config_version_loras", force: :cascade do |t|
+    t.bigint "content_config_version_id", null: false
+    t.string "layer", default: "base", null: false
+    t.string "name", null: false
+    t.decimal "strength", precision: 5, scale: 3
+    t.boolean "enabled"
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["content_config_version_id", "layer", "name"], name: "index_ccv_loras_on_version_and_layer_and_name", unique: true
+  end
+
+  create_table "content_config_version_prompt_parts", force: :cascade do |t|
+    t.bigint "content_config_version_id", null: false
+    t.string "name", null: false
+    t.text "text"
+    t.string "text_sha256"
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["content_config_version_id", "name"], name: "index_ccv_prompt_parts_on_version_and_name", unique: true
+  end
+
+  create_table "content_config_versions", force: :cascade do |t|
+    t.bigint "content_pillar_id"
+    t.bigint "pipeline_step_id"
+    t.integer "wardrobe_level"
+    t.string "checkpoint"
+    t.text "negative_prompt"
+    t.string "workflow_sha256"
+    t.string "workflow_path"
+    t.string "digest", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["content_pillar_id"], name: "index_content_config_versions_on_content_pillar_id"
+    t.index ["digest"], name: "index_content_config_versions_on_digest", unique: true
   end
 
   create_table "content_pillars", force: :cascade do |t|
@@ -389,7 +427,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_140000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "image_candidate_id"
+    t.bigint "content_config_version_id"
     t.index ["asset_id"], name: "index_renders_on_asset_id"
+    t.index ["content_config_version_id"], name: "index_renders_on_content_config_version_id"
     t.index ["image_candidate_id"], name: "index_renders_on_image_candidate_id", unique: true
     t.index ["pipeline_run_id"], name: "index_renders_on_pipeline_run_id"
   end
@@ -448,6 +488,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_140000) do
   add_foreign_key "comfyui_jobs", "image_candidates", column: "parent_candidate_id"
   add_foreign_key "comfyui_jobs", "pipeline_runs"
   add_foreign_key "comfyui_jobs", "pipeline_steps"
+  add_foreign_key "content_config_version_loras", "content_config_versions"
+  add_foreign_key "content_config_version_prompt_parts", "content_config_versions"
+  add_foreign_key "content_config_versions", "content_pillars"
+  add_foreign_key "content_config_versions", "pipeline_steps"
   add_foreign_key "content_pillars", "personas"
   add_foreign_key "content_strategy_histories", "personas"
   add_foreign_key "content_strategy_histories", "scheduling_posts", column: "post_id"
@@ -470,6 +514,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_140000) do
   add_foreign_key "render_loras", "renders"
   add_foreign_key "render_prompt_parts", "renders"
   add_foreign_key "renders", "assets"
+  add_foreign_key "renders", "content_config_versions"
   add_foreign_key "renders", "pipeline_runs"
   add_foreign_key "scheduling_posts", "content_suggestions"
   add_foreign_key "scheduling_posts", "personas"

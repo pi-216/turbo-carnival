@@ -12,10 +12,16 @@ RSpec.describe Attribution::RecordRender do
     )
   end
 
+  # #40: a render created now must reference the config version it ran under.
+  let(:config_version) do
+    Attribution::RecordContentConfigVersion.call(prompt_parts: parts, wardrobe_level: 2).version
+  end
+
   def record(**overrides)
     described_class.call(
       pipeline_run: run,
       prompt_parts: parts,
+      content_config_version: config_version,
       checkpoint: "CRPv18_PM25.safetensors",
       seed: 20_261_019,
       steps: 125,
@@ -40,6 +46,23 @@ RSpec.describe Attribution::RecordRender do
         .to eq([ [ "pony/sarah1a3.safetensors", 0.8 ] ])
     end
 
+    # #40 criterion 1: every new render references a version id -- the config's ADDRESS, so a
+    # metric shift can be traced to the change that caused it.
+    it "links the content config version the render ran under" do
+      render = record.render
+
+      expect(render.content_config_version).to eq(config_version)
+      expect(render.inputs[:content_config_version]).to eq(config_version.digest)
+    end
+
+    it "records two renders of the same config against the same version" do
+      first = record(seed: 1).render
+      second = record(seed: 2).render
+
+      expect(first.content_config_version).to eq(second.content_config_version)
+      expect(Attribution::ContentConfigVersion.count).to eq(1)
+    end
+
     # The run's blob deliberately carries DIFFERENT values: if any input were still read from
     # `variables`, this example would answer with the decoy. The decoy is set at CREATION
     # time, not by an update: a PipelineRun update fires its Turbo broadcast, which is not
@@ -60,7 +83,7 @@ RSpec.describe Attribution::RecordRender do
     end
 
     it "leaves an axis nobody passed as NULL, never as a default" do
-      render = described_class.call(prompt_parts: parts).render
+      render = described_class.call(prompt_parts: parts, content_config_version: config_version).render
 
       expect(render.seed).to be_nil
       expect(render.checkpoint).to be_nil
@@ -109,6 +132,27 @@ RSpec.describe Attribution::RecordRender do
       expect(result).not_to be_success
       expect(result.full_error_message).to match(/not a known part/)
       expect(Attribution::Render.count).to eq(0)
+    end
+
+    # #40 criterion 1. Same shape as the empty-part refusal above, and for the same reason: a
+    # render with no addressable config cannot vote on a config change.
+    it "refuses a NEW render that references no content config version" do
+      result = described_class.call(pipeline_run: run, prompt_parts: parts)
+
+      expect(result).not_to be_success
+      expect(result.full_error_message).to match(/must reference the content config version/)
+      expect(Attribution::Render.count).to eq(0)
+    end
+
+    # ...and the exemption, so the rule cannot be read as "no render may ever lack a version":
+    # filling in an EXISTING row leaves absent attribution absent rather than inventing one.
+    it "leaves the version of an existing render alone when a later write omits it" do
+      render = record.render
+
+      result = described_class.call(render: render, prompt_parts: parts)
+
+      expect(result).to be_success
+      expect(render.reload.content_config_version).to eq(config_version)
     end
 
     it "refuses to rewrite parts already recorded for a render" do
