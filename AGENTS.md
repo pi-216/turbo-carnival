@@ -25,6 +25,28 @@ Every document carries a status line — `CURRENT` / `REFERENCE` / `HISTORICAL` 
 `SUPERSEDED`. **Only `CURRENT` is authoritative.** If two documents disagree and both say CURRENT, that is
 a defect: fix one, don't average them. One truth per topic — never write a `v(N+1)` alongside the old one.
 
+## Skills
+
+Project knowledge lives in skills kept **in this repo** at `./.agents/skills/`, so it is versioned and
+reviewed with the code and loads from the checkout you run in — not from the Hermes home directory.
+
+**Exactly one skills root: `.agents/skills/`.** This repo already has a `.hermes/` directory holding plan
+files plus a gitignored `executions.db`; it must not become a skills root. Hermes treats `.hermes/skills/`
+and `.agents/skills/` as the same tier, where two same-named copies become an `Ambiguous skill name`
+refusal.
+
+Load `turbo-carnival-development` when working here: it is the operational knowledge behind this file —
+the render pipeline, ComfyUI queue and workflow mechanics, the brain seat, board and GGUF ops, the
+experiment and growth harnesses, and 26 `references/` files. Its `references/` is the detail layer; this
+file stays the contract.
+
+Shared skills this repo uses but does not own: `rails-command-objects`, `venture-agent-harness`,
+`venture-suggestion-pass`, `gherkin-bdd-pipeline`, `github-issue-to-pr`, `github-pr-workflow`,
+`test-driven-development`. `founders-harness` lives in `pi-216/venture-infra`, at
+`.agents/skills/founders-harness/` — a cross-repo pointer, not a name in this repo's tree.
+
+A skill must not restate a fact written in this file.
+
 ## Rules, and how each is enforced
 
 A rule with no enforcement is a preference. Every rule below names what actually holds it.
@@ -146,7 +168,7 @@ signal and not the suite (§ *traps*).
   fingerprint matches. This cost a killed experiment run once.
 - **`--input -` is required** for `gh api` to read a body from stdin; without it the body is dropped
   silently and GitHub returns a misleading `422 links/0/schema`. See
-  `skills/…/references/github-board-api.md`.
+  `.agents/skills/turbo-carnival-development/references/github-board-api.md`.
 - **The pipeline is not deterministic.** Two identical renders differ by ~4/255 over ~5% of the frame. An
   axis must clear ≳4–6 levels over ~5% of the frame to be rankable at all.
 - **The mask guard's protection is its polarity.** `LazySwitchKJ` fires `on_true` when the mask is
