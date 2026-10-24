@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'json'
+require "json"
 
 # Board-item resolution for bin/publish_prd.
 #
@@ -10,7 +10,7 @@ require 'json'
 # leaving a silent partial publication. The already-exists answer is therefore a
 # success path — the item id is resolved from the board instead of created.
 module PrdBoard
-  ALREADY_EXISTS = 'already exists in this project'
+  ALREADY_EXISTS = "already exists in this project"
 
   class Error < StandardError; end
 
@@ -34,24 +34,24 @@ module PrdBoard
     out, ok = runner.call(*item_list_args(project))
     raise Error, out unless ok
 
-    items = parse(out).fetch('items', [])
-    item = items.find { |candidate| candidate.dig('content', 'number') == number }
-    found = item&.dig('id').to_s
+    items = parse(out).fetch("items", [])
+    item = items.find { |candidate| candidate.dig("content", "number") == number }
+    found = item&.dig("id").to_s
     found.empty? ? nil : found
   end
 
   def item_add_args(issue_url, project)
-    ['gh', 'project', 'item-add', project[:number].to_s, '--owner', project[:owner],
-     '--url', issue_url, '--format', 'json']
+    [ "gh", "project", "item-add", project[:number].to_s, "--owner", project[:owner],
+     "--url", issue_url, "--format", "json" ]
   end
 
   def item_list_args(project)
-    ['gh', 'project', 'item-list', project[:number].to_s, '--owner', project[:owner],
-     '--limit', '500', '--format', 'json']
+    [ "gh", "project", "item-list", project[:number].to_s, "--owner", project[:owner],
+     "--limit", "500", "--format", "json" ]
   end
 
   def item_id(out)
-    id = parse(out)['id'].to_s
+    id = parse(out)["id"].to_s
     raise Error, "gh returned no project item id (#{out})" if id.empty?
 
     id
