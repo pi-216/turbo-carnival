@@ -7,6 +7,15 @@ source: PROJECT_PLAN
 
 > **Status:** CURRENT · draft for founder review · 2026-10-18 · revised 2026-10-19
 > Plan item: **W1.1** · Track: `core-infrastructure` · Owner: unassigned
+>
+> **Serving engine — re-pointed 2026-10-24 by PRD 0008 (W1.6).** The *requirement* that this seat be served
+> by `llama.cpp`'s `llama-server` moves to **Ollama**, which already holds the same artefact by hash. Read
+> every `llama-server`/`llama.cpp` statement below as the **current implementation**, not as a standing
+> requirement, and the `serving:` values in `config/autonomous/brain.yml` as measured facts about that
+> implementation. Everything else here is unchanged and still authoritative: the phase machine, the
+> claim discipline, the one-claim-per-batch rule, the measured-free-VRAM handoff, the artefact and its
+> projector, and the nightly cadence ruling. The switch's price (MTP has no Ollama equivalent) and its
+> acceptance criteria live in `docs/prd/0008-ollama-served-brain.md`.
 
 ## Summary
 
