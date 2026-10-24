@@ -132,8 +132,9 @@ Ordering is the part the board cannot express, so it is stated here explicitly.
 - **W1.6** (the brain seat served by Ollama) — blocks no capability; it **re-points W1.1's serving half**
   without moving its phase machine, so nothing that waits on W1.1 re-opens. It is on the critical path only
   for *ownership*: the daemon actually serving the seat today is a hand-started process in a login session
-  (PRD 0008 F4), so until W1.6 lands the seat's availability is not something this repo controls. Its Q1 is a
-  GPU policy — the founder's.
+  (PRD 0008 F4), so until W1.6 lands the seat's availability is not something this repo controls. Its Q1 is
+  **resolved** (founder ruling, 2026-10-24: keep a running model, start one without keep-alive) — the
+  ownership rule for residency, so the spec is buildable.
 - **W1.5** (safety-posture reduction) — blocks no capability; its A items are what the intensity
   experiment (PRD 0005's wardrobe ladder) waits on, and the founder's tier pre-flight (PRD 0007 §A5)
   is the only gate there. Nothing blocks it — the spec is complete, all five questions resolved

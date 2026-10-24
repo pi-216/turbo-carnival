@@ -14,7 +14,9 @@ source: PROJECT_PLAN
 > requirement, and the `serving:` values in `config/autonomous/brain.yml` as measured facts about that
 > implementation. Everything else here is unchanged and still authoritative: the phase machine, the
 > claim discipline, the one-claim-per-batch rule, the measured-free-VRAM handoff, the artefact and its
-> projector, and the nightly cadence ruling. The switch's price (MTP has no Ollama equivalent) and its
+> projector, and the nightly cadence ruling. **One refinement, not a reversal:** "the brain is never left
+> resident" becomes an ownership rule under PRD 0008 Q1 (founder ruling, 2026-10-24) — a model the harness
+> *adopted* is left running, a model it *launched* is not left resident. The switch's price (MTP has no Ollama equivalent) and its
 > acceptance criteria live in `docs/prd/0008-ollama-served-brain.md`.
 
 ## Summary

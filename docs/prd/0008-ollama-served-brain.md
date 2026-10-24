@@ -5,7 +5,7 @@ source: PROJECT_PLAN
 
 # PRD 0008 — The brain seat is served by Ollama
 
-> **Status:** CURRENT · spec written 2026-10-24 · draft for founder review · waits on **Q1** (GPU policy: the seat's residency shape)
+> **Status:** CURRENT · spec written 2026-10-24 · draft for founder review · **Q1 resolved** (founder ruling 2026-10-24: keep a running model; start one without keep-alive)
 > Plan item: **W1.6** · Track: `core-infrastructure` · Owner: unassigned
 
 ## Summary
@@ -307,12 +307,19 @@ Scenario: the seat is never loaded without a live claim
   And the refusal appears as a brain_unclaimed decision row
   And the 4090 holds no brain-model allocation afterwards
 
-Scenario: a claim held by us is released with the model, not left resident
-  Given we hold a claim and the brain model is resident
-  When the nightly window ends
-  Then the model is unloaded and residency is verified from the device
-  And the claim is released
-  And a later ollama ps shows no brain model
+Scenario: a model that was already resident is left running
+  Given the brain model is already resident when the harness arrives
+  When the harness takes its claim and the window ends
+  Then the model is NOT unloaded
+  And this is recorded as an adopted residency, not a launched one
+  And the claim is released without the model being stopped
+
+Scenario: a model the harness had to start does not outlive its window
+  Given the brain model was not resident
+  When the harness loads it to serve the window
+  Then the load carries no keep-alive
+  And at the window's end the model is no longer resident
+  And residency is verified from the device, never from an unload's exit code
 
 Scenario: an up seat is not read as down
   Given the Ollama seat is answering
@@ -382,6 +389,9 @@ Scenario: a failed load is never reported as success
   model left resident with no claim makes the scheduler read the 4090 as idle — the double-book failure the
   harness exists to prevent. **The claim must cover model residency, not merely process existence**, because
   Ollama's daemon is idle at 0 VRAM and only the *model* occupies the card.
+- **Residency follows ownership** (Q1, below). A model already resident when the harness arrives is **left
+  running**; a model the harness had to start is loaded **without keep-alive**, so it does not outlive the
+  window that needed it. Do not unload what you did not load.
 - **An unmanaged daemon is not a seat.** F4 must be resolved before anything else is built on it: a server
   that lives in a login session cannot be a dependency.
 - **`stop-server` changes meaning, and must keep its meaning.** Under llama.cpp it SIGTERMs a process; under
@@ -402,6 +412,44 @@ Scenario: a failed load is never reported as success
 - **One truth per topic.** The switch lands with the llama.cpp launch path **removed from the requirement**,
   not left beside it. Two live serving paths under one name is the drift the repo's doc rules exist to stop.
 
+## The residency rule — founder ruling (2026-10-24)
+
+**Q1, resolved.** Recorded verbatim:
+
+> *"if the model was running, keep it running. If it had to be started, it should have been started without
+> keepalive"*
+
+This is not a new concept — it is the **ownership rule PRD 0001 already applies to processes, extended to
+residency.** The harness already records which side of that line it is on: `log/brain_claim.json`'s fourth
+line is `origin=launched|adopted`, and `shutdown`/`stop-server` already refuse to stop an adopted server
+(*"adopted instance … left running — not ours to stop"*). Residency takes the same field:
+
+| | when | the rule |
+|---|---|---|
+| **adopted residency** | the model is already resident when the harness arrives | **keep it running.** The harness takes its claim, serves, and releases — it does not unload a model it did not load |
+| **launched residency** | the model was not resident, so the harness had to load it | the load carries **no keep-alive**, so it does not outlive the work that needed it; the card is not left held by a load we created |
+
+Consequences, so the next agent does not re-derive them:
+
+- **Both halves are the same sentence.** Half one forbids killing a stranger's residency; half two forbids
+  bequeathing our own. Neither is a preference about the card — it is the line between *mine* and *not mine*,
+  which is exactly what `origin` already encodes.
+- **`ollama ps` becomes the residency ledger**, and it is a better instrument than a pid: it names the resident
+  model and its `size_vram` and `expires_at`. The check-in's `brain_up && !ours` arm (a model resident with no
+  claim covering it) is unchanged and now has a direct read.
+- **This corrects the PRD's own first lean** (*"unload at window end"*). That lean was unconditional, and
+  therefore wrong in the adopted case: it would have had the harness evict a model it did not start, which is
+  the "never kill a foreign tenant" red line applied to residency. The ruling is *conditional on ownership*,
+  and it is the better rule.
+- **One implementation detail is left to the ticket, not the founder:** whether "no keep-alive" means a literal
+  `keep_alive: 0` per request (which expires the model the moment the request finishes, and would force a cold
+  load per request — ~17.6 GiB from NFS each time, a measurable cost) or simply *omitting a pin* so
+  `OLLAMA_KEEP_ALIVE` governs the idle window. The ticket **measures** which reading satisfies the ruling at
+  acceptable cost; do not guess it here, and do not pin the model forever in either reading.
+- **Truthfulness over tidiness:** after the window, `ollama ps` may legitimately still show the model — because
+  it was adopted. An entry there is **not** by itself a leak; it is a leak only when no claim covers it.
+  Reporting residency as a proxy for "we cleaned up" is the reading this rule forbids.
+
 ## Metrics / definition of done
 
 Every line maps to an enforced gate. Two lines name numbers; both name their emitted metric.
@@ -411,22 +459,23 @@ Every line maps to an enforced gate. Two lines name numbers; both name their emi
 | D1 | the seat is served by Ollama — `deps` reports the Ollama seat and no llama-server path | a `--check`-able `bin/brain_harness.sh deps`, asserted by a spec |
 | D2 | the seat's identity is checkable offline: the build names the same artefact + projector hashes as `brain.yml` | a new offline gate (`bin/check_brain_seat.rb`), an `bin/verify` member, fail-closed on a missing tree |
 | D3 | a claim is required to load the model; the refusal is a `brain_unclaimed` decision row | `Growth::BrainGate` + the existing check-in cron |
-| D4 | the model is unloaded and the card visibly freed at window end | the harness's unload step, evidenced by `ollama ps` and a device read in `log/brain_harness.log` |
+| D4 | a model the harness **started** is not resident after its window; a model it **adopted** is left running | the harness's `origin=launched` / `origin=adopted` record plus `ollama ps`, and a device read in `log/brain_harness.log` |
 | D5 | the probe answers correctly against Ollama (up ⇒ true, down ⇒ false) | `spec/services/ai_brain_client_spec.rb` |
 | D6 | a planning role runs against the Ollama seat in a real nightly window | `rake brain:plan` writes suggestions (the PRD 0001 definition of done, re-pointed) |
 | D7 | the age-gate vision read still grounds against a known frame | a recorded read-back in the ticket evidence, plus the gate's own fail-open spec |
 | D8 | **number:** the seat's decode rate under Ollama is measured and recorded next to the 51.8 t/s it replaces | emitted by the seat probe and written into `log/brain_harness.log` / the ticket evidence — *measurement gap to name: this repo has no dashboard for it; the record is the log and the PRD* |
 | D9 | **number:** `num_ctx 131072` is placed on the GPU, not silently offloaded | `ollama ps` (`CONTEXT` and `PROCESSOR` columns) read at the first real load — *measurement gap to name: no automated assertion exists; the reading is manual* |
 | D10 | no caller's meaning changed: the caption path, the age gate and the planner behave as before, or their degradation is recorded | `bin/verify` (lint, packwerk, rspec, cucumber) |
+| D11 | the residency rule holds by ownership: an adopted model is never unloaded, and a resident model with no claim covering it is recorded as a leak | `Growth::BrainGate`'s `brain_up && !ours` arm + the check-in cron, re-pointed at `ollama ps` |
 
 ## Open questions
 
-1. **The seat's residency policy — GPU policy, so the founder's call.** May the brain model be left resident on
-   the 4090 between windows (fast first answer, card held), or must the harness unload it at the end of every
-   window (the current invariant: no tenant without a claim)?
-   **Lean: unload at window end.** The seat is nightly and pull-based; nothing waits on it, and the double-book
-   risk is the one thing PRD 0001 exists to prevent. Leaving it resident would make the scheduler's view of
-   the card untrue, which is the failure shape this repo has already paid for twice.
+1. ~~**The seat's residency policy** — GPU policy, so the founder's call.~~ **RESOLVED — founder ruling,
+   2026-10-24:** *"if the model was running, keep it running. If it had to be started, it should have been
+   started without keepalive."* Restated as the ownership rule for residency — adopted residency is left
+   running, launched residency carries no keep-alive — in **§ The residency rule** above. This supersedes the
+   PRD's first lean (*"unload at window end"*), which was unconditional and would therefore have evicted a
+   model the harness did not start.
 2. **What throughput fails the transition?** The MTP loss is real and unbounded until measured (F3/F5). The
    seat must answer a vision request inside its own `serving.timeout_s`, or every caption degrades to
    `brain_unavailable`.
