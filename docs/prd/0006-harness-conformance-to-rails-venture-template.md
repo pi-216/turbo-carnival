@@ -417,7 +417,7 @@ Every rail, marked. The dispositions are the input to the tickets.
 
 | rail | template requires | turbo-carnival today (2026-10-19) | disposition |
 |---|---|---|---|
-| R1 stack | Rails 8 · pg · Puma · importmap · Turbo/Stimulus · **HAML** · ViewComponent · Tailwind | Rails 8.1 · pg · Puma · importmap · Turbo/Stimulus · **ERB** · ViewComponent · Tailwind | **ADOPT — Q1** (HAML transition, deprioritised) · **ADOPT — Q5** (retire `solid_*`; Sidekiq only) |
+| R1 stack | Rails 8 · pg · Puma · importmap · Turbo/Stimulus · **HAML** · ViewComponent · Tailwind | Rails 8.1 · pg · Puma · importmap · Turbo/Stimulus · **ERB** · ViewComponent · Tailwind | **ADOPT/deferred — #84** (HAML transition; ERB stays until the batch lands) · **ADOPT — Q5** (retire `solid_*`; Sidekiq only) |
 | R2 Turbo | head `meta` trigger + body marker + importmap/controllers | meta ✓ · controllers (5) ✓ · `importmap.rb` ✓ · body marker ✗ | **GAP** (marker) · **RATIFIED** (trigger present) |
 | R3 command | `GLCommand::Callable` + `ApplicationCommand#run_after_commit` | `GLCommand::Callable` ✓ · `ApplicationCommand` ✗ (F1) | **GAP** — port byte-identical + reparent + spec |
 | R4 packs | packwerk + pack autoload wiring | packwerk ✓ · 12 packs ✓ · wiring via **`packs-rails`** railtie (32 autoload + 12 view paths) · 47 offenses | **ADOPT — Q8** (ratify `packs-rails`; no hand-wiring) · offenses = **PRD 0003 / #46** |
@@ -467,7 +467,7 @@ PRD 0003 or predate this PRD: `bin/verify` (**#47**), the CI rewire (**#45**), t
 - **`<body data-turbo-morph>` present, and the layout spec asserts the head `meta` trigger.** *Gate:* a
   spec failing if the meta is removed.
 - **HAML is adopted as a deprioritised transition** — a ticket exists and nothing treats it as a blocker.
-  *Gate:* the ticket is on the board in W1.4. (Q1)
+  *Gate:* the ticket (#84) is on the board in W1.4. (Q1)
 - **`sidekiq` is the only job substrate.** `config.active_job.queue_adapter` is `:sidekiq`, no
   `solid_queue`/`solid_cache`/`solid_cable` remains in `Gemfile`, and no new `solid_*` usage is introduced.
   *Gate:* `bin/verify` fails on a `solid_*` reference and on a non-Sidekiq adapter. (Q5)

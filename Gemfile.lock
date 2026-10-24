@@ -253,6 +253,16 @@ GEM
       sentry-sidekiq
     globalid (1.4.0)
       activesupport (>= 6.1)
+    haml (7.5.1)
+      prism (>= 1.1.0)
+      temple (>= 0.8.2)
+      thor
+      tilt
+    haml-rails (3.1.0)
+      actionpack (>= 5.1)
+      activesupport (>= 5.1)
+      haml (>= 4.0.6)
+      railties (>= 5.1)
     htmlbeautifier (1.4.3)
     htmlentities (4.4.2)
     i18n (1.15.2)
@@ -591,12 +601,14 @@ GEM
     tailwindcss-ruby (4.3.3-aarch64-linux-musl)
     tailwindcss-ruby (4.3.3-x86_64-linux-gnu)
     tailwindcss-ruby (4.3.3-x86_64-linux-musl)
+    temple (0.10.7)
     term-ansicolor (1.11.3)
       tins (~> 1)
     thor (1.5.0)
     thruster (0.1.27)
     thruster (0.1.27-aarch64-linux)
     thruster (0.1.27-x86_64-linux)
+    tilt (2.9.0)
     timeout (0.6.1)
     tins (1.61.0)
       bigdecimal
@@ -666,6 +678,7 @@ DEPENDENCIES
   faraday-retry (~> 2.2)
   gherkin_lint
   gl_command (~> 2.0)
+  haml-rails
   image_processing (~> 2.2)
   importmap-rails
   kamal

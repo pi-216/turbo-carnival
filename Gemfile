@@ -116,6 +116,11 @@ gem "importmap-rails"
 # ViewComponent for reusable UI components
 gem "view_component"
 
+# HAML templates (PRD 0006 R1 / ticket #84): the adopted-but-deferred transition.
+# ERB views stay ERB until their batch lands; this only makes new .html.haml views
+# authorable. Blocks nothing.
+gem "haml-rails"
+
 # Tailwind CSS for styling
 gem "tailwindcss-rails"
 
