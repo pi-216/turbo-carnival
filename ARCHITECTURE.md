@@ -34,7 +34,7 @@
 |---|---|
 | Framework | Rails 8 |
 | Language / runtime | Ruby 3.4.5 (RVM) |
-| Database | PostgreSQL (Rails solid stack: `solid_cache`, `solid_cable`) |
+| Database | PostgreSQL |
 | Background worker | **Sidekiq** 8.1 (the live queue substrate — see *divergences*) |
 | Command rail | `gl_command` 2.0 (verb-first, rollback) |
 | State machines | `state_machines-activerecord` 0.9 (string status columns) |
@@ -148,9 +148,9 @@ what it measures, its verdict, and its failure mode — is in `CONTRACTS.md`.
 
 ## Where reality diverges from this file
 
-- **Queue substrate.** The `Gemfile` carries `solid_queue`, but the live background worker is
-  **Sidekiq** (`bin/run_worker.sh`, `JobPollerWorker`, `config/initializers/sidekiq.rb`). Sidekiq is
-  the queue that runs the harness; treat `solid_queue` as present-but-unused for the worker.
+- **Queue substrate.** The substrate is **Sidekiq only** (`bin/run_worker.sh`, `JobPollerWorker`,
+  `config/initializers/sidekiq.rb`); `solid_queue`/`solid_cache`/`solid_cable` are retired (PRD 0006
+  Q5 / #85), and the `job_substrate` gate in `bin/verify` fails on a `solid_*` reference.
 - **Render workflow name.** The validated config is `docs/baseline-config.md`
   (`comfy_workflows/turbo_one_step_v2/step1_generate.json`), generated from the live workflow.
   Older docs cite different node numbers/workflow names; **defer to `baseline-config.md`** for the

@@ -158,8 +158,9 @@ jobs:
   verify:
     # The Tier-0 gate (PRD 0003; membership per PRD 0006 F3): bin/verify
     # composes bin/lint -> bin/brakeman --no-pager -> bundler-audit ->
-    # bin/packwerk check -> parity -> bin/rspec and stops at the first
-    # failure. A green "done" claim requires this job to pass; it is
+    # bin/packwerk check -> job_substrate (PRD 0006 Q5) -> parity -> bin/rspec
+    # and stops at the first failure. A green "done" claim requires this job to
+    # pass; it is
     # fail-closed (a gate that cannot run is a failure, never a pass).
     runs-on: ubuntu-latest
 

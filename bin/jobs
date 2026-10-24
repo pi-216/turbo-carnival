@@ -1,6 +1,11 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 require_relative "../config/environment"
-require "solid_queue/cli"
+require "sidekiq/cli"
 
-SolidQueue::Cli.start(ARGV)
+# bin/jobs — run the Sidekiq worker process (the single job substrate, PRD 0006
+# Q5 / ticket #85). This replaced the retired solid_queue CLI runner. The
+# canonical entry point is bin/run_worker.sh; this file keeps the name for the
+# Kamal job role.
+Sidekiq::CLI.instance.run

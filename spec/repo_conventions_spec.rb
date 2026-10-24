@@ -47,6 +47,14 @@ RSpec.describe "gate members (PRD 0006 F3 / ticket #78)" do
     expect(Rails.root.join("bin/verify").read).to include("bin/lint")
     expect(Rails.root.join("bin/verify").read).not_to include("bin/rubocop")
   end
+
+  # PRD 0006 Q5 / ticket #85: the job_substrate gate must be a real bin/verify
+  # member, or a check that passes standalone proves nothing when nothing invokes
+  # it. Assert the wiring, not just the script.
+  it "runs the job_substrate gate (bin/check_job_substrate.rb) from bin/verify" do
+    verify = Rails.root.join("bin/verify").read
+    expect(verify).to include("bin/check_job_substrate.rb")
+  end
 end
 
 # PRD 0006 R8 / ticket #91: AGENTS.md is the agent contract, so the content

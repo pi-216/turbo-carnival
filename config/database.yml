@@ -84,15 +84,3 @@ production:
     database: turbo_carnival_production
     username: turbo_carnival
     password: <%= ENV["TURBO_CARNIVAL_DATABASE_PASSWORD"] %>
-  cache:
-    <<: *primary_production
-    database: turbo_carnival_production_cache
-    migrations_paths: db/cache_migrate
-  queue:
-    <<: *primary_production
-    database: turbo_carnival_production_queue
-    migrations_paths: db/queue_migrate
-  cable:
-    <<: *primary_production
-    database: turbo_carnival_production_cable
-    migrations_paths: db/cable_migrate
