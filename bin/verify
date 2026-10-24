@@ -7,7 +7,8 @@
 # PRD 0006 R8 / ticket #91) and stops at the first failure:
 #
 #   bin/lint -> bin/brakeman --no-pager -> bundler-audit -> bin/packwerk check
-#   -> parity (PRD 0006 W1.4 audit, ticket #90) -> bin/rspec
+#   -> job_substrate (PRD 0006 Q5, ticket #85) -> parity (PRD 0006 W1.4 audit,
+#   ticket #90) -> bin/rspec
 #   -> cucumber + gherkin_lint (the template's condition: members while any
 #   .feature files exist)
 #
@@ -61,6 +62,13 @@ run_gate "bundler-audit" sh -c "$AUDIT"
 
 run_gate "packwerk" bin/packwerk check
 
+# job_substrate: PRD 0006 Q5 (ticket #85) — Sidekiq is the sole job substrate.
+# Fails if a solid_* reference reappears in the Gemfile/Gemfile.lock/config or if
+# any environment configures a non-Sidekiq ActiveJob adapter (bin/verify fails
+# on a solid_* reference and on a non-Sidekiq adapter). Cheap, so it runs before
+# the parity boot.
+run_gate "job_substrate" ruby bin/check_job_substrate.rb
+
 # parity: the PRD 0006 W1.4 audit (ticket #90). One line per template rail
 # R1–R9 (CONFORM / GAP / DEVIATION(reason)); non-zero while any rail is in
 # GAP. It boots the app (test env) for the live mechanism probes and runs
@@ -88,7 +96,7 @@ grep '^TESTS' "$LOGDIR/rspec.log" || true
 # BDD lane (PRD 0006 R5 / Q2): the template's own condition — cucumber and
 # gherkin_lint are gate members while any .feature files exist. The lane is
 # scoped to the Rails app (config/cucumber.yml) and CI runs it too.
-PASSED="lint, brakeman, bundler-audit, packwerk, parity, rspec"
+PASSED="lint, brakeman, bundler-audit, packwerk, job_substrate, parity, rspec"
 if compgen -G "gherkin_specs/**/*.feature" >/dev/null; then
   run_gate "cucumber" bundle exec cucumber
   run_gate "gherkin_lint" bundle exec gherkin_lint $(ls gherkin_specs/**/*.feature)

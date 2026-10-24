@@ -33,8 +33,8 @@ port ENV.fetch("PORT", 3000)
 # Allow puma to be restarted by `bin/rails restart` command.
 plugin :tmp_restart
 
-# Run the Solid Queue supervisor inside of Puma for single-server deployments
-plugin :solid_queue if ENV["SOLID_QUEUE_IN_PUMA"]
+# Sidekiq runs as its own process (bin/run_worker.sh), not inside Puma; the
+# Solid Queue puma plugin is retired (PRD 0006 Q5 / ticket #85).
 
 # Specify the PID file. Defaults to tmp/pids/server.pid in development.
 # In other environments, only set the PID file if requested.

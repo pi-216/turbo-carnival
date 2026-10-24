@@ -59,5 +59,9 @@ module TurboCarnival
 
     # Configure session store
     config.session_store :cookie_store, key: "_turbo_carnival_session"
+
+    # Single job substrate: Sidekiq (PRD 0006 Q5 / ticket #85). Set once here so
+    # every environment enqueues on Sidekiq; no environment file overrides it.
+    config.active_job.queue_adapter = :sidekiq
   end
 end

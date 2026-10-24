@@ -191,7 +191,8 @@ reproducible deploys. The Cloudflare tunnel exposes the harness surfaces under `
 
 - **`bin/growth_harness.sh`** is intentionally dead — the live publisher is
   `bin/scheduled_posting.sh`. If you see a second hourly driver, that is a bug (the two-driver race).
-- **`solid_queue`** is in the Gemfile but not the worker substrate — the live worker is Sidekiq.
+- **The job substrate is Sidekiq only.** `solid_queue`/`solid_cache`/`solid_cable` are retired
+  (PRD 0006 Q5 / #85); `bin/verify`'s `job_substrate` gate fails if a `solid_*` reference reappears.
 - **The agent crons** live in the Hermes profile, not in this repo; `hermes cron list` is the
   authoritative view of the live fleet, and this table is a summary that must be reconciled against
   it.
