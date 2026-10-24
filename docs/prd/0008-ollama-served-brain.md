@@ -449,6 +449,16 @@ Consequences, so the next agent does not re-derive them:
 - **Truthfulness over tidiness:** after the window, `ollama ps` may legitimately still show the model — because
   it was adopted. An entry there is **not** by itself a leak; it is a leak only when no claim covers it.
   Reporting residency as a proxy for "we cleaned up" is the reading this rule forbids.
+- **The ruling breaks the check-in's leak test as it stands — this is a defect, not a footnote.** Adopted
+  residency makes *"model resident, claim released"* a **legitimate** end state, but the check-in currently
+  treats exactly that as an anomaly: `brain:checkin`'s `(gate.ours && !gate.brain_up) || (gate.brain_up &&
+  !gate.ours)` arm fires on `brain_up && !ours`, which is precisely the state an adopted window leaves behind.
+  Shipped unchanged, every adopted window files a **false `brain_unclaimed` decision row**. So the harness
+  must record adoption where the gate can read it (it already stores `origin=adopted` in
+  `log/brain_claim.json`, but `Growth::BrainGate.parse` reads only `claim=/job=/ours=/brain=` off the status
+  line, so the status line needs the residency owner in it), and the check-in becomes: resident + no claim
+  **+ no adoption record** = leak. Getting this wrong turns a correct ruling into an alarm that cries every
+  night — and a noisy alarm is one nobody reads when the real orphan appears.
 
 ## Metrics / definition of done
 
