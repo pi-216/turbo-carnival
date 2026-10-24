@@ -150,6 +150,12 @@ Photo.source  →  PipelineRun.id  →  gates' verdicts  →  Persona  →  Post
 
 - Every gate verdict of record is persisted on the run/asset row (age band+tier, NSFW
   score+flag, realism score), so a later audit can reconstruct *why* a post was published.
+- A render created now references the **content config version** it ran under
+  (`renders.content_config_version_id` → `content_config_versions`, PRD 0002 / #40). The version is
+  **append-only**: a config change writes a new version, never an edit to an existing one. That is
+  enforced three ways — the digest is derived from the pinned axes, `#readonly?` refuses every
+  ActiveRecord write path, and a database trigger refuses `update_all`/raw SQL — because an
+  editable version would rewrite the attribution of every render that referenced it, retroactively.
 - A failed create is **never** reported as a no-op; a broken link in the chain is a defect to be
   repaired, not a status to be glossed over.
 - The *shape* of the model graph is in `ARCHITECTURE.md`; this entry is the *contract* (what each

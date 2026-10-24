@@ -17,12 +17,15 @@ module Attribution
   #   * rewriting recorded parts (or LoRAs). Recorded attribution is not editable -- a changed
   #     part is a NEW render. Editing a record in place destroys the comparison it exists to
   #     support, retroactively.
+  #   * a NEW render with no `content_config_version` (#40). The version is the ADDRESS of the
+  #     config a render ran under; without one, a metric shift has nothing to be attributed
+  #     to. A render filling in an EXISTING row may still omit it -- absent stays absent.
   #
   # Absent stays absent: only the values actually passed are written, so an update fills facts
   # in and never blanks one that was already known.
   class RecordRender < ApplicationCommand
     requires :prompt_parts
-    allows :render, :pipeline_run, :image_candidate, :asset,
+    allows :render, :pipeline_run, :image_candidate, :asset, :content_config_version,
            :asset_sha256, :asset_path, :asset_byte_size, :asset_width, :asset_height,
            :checkpoint, :seed, :sampler, :scheduler, :steps, :cfg, :denoise,
            :width, :height, :negative_prompt, :workflow_sha256, :workflow_path, :produced_at, :loras
@@ -41,6 +44,7 @@ module Attribution
 
       ActiveRecord::Base.transaction do
         render = locate_render
+        require_config_version!(render)
         assign_axes(render)
         assign_associations(render)
         render.save!
@@ -99,9 +103,27 @@ module Attribution
     def assign_associations(render)
       render.pipeline_run = context.pipeline_run if context.pipeline_run
       render.image_candidate = context.image_candidate if context.image_candidate
+      render.content_config_version = context.content_config_version if context.content_config_version
 
       asset = resolve_asset
       render.asset = asset if asset
+    end
+
+    # #40 criterion 1: "every new render references a version id". A render created NOW must
+    # name the content config version it ran under -- the same rule the parts already carry
+    # ("a render created now must name its parts"), for the same reason: an unversioned render
+    # is indistinguishable from the pre-spine corpus, so a metric shift would have no address
+    # to attach to.
+    #
+    # A render being FILLED IN on an existing row is deliberately exempt, exactly as an
+    # existing part set is: absent attribution stays absent rather than being invented, and a
+    # backfill may legitimately know the axes without knowing the config.
+    def require_config_version!(render)
+      return unless render.new_record?
+      return if context.content_config_version
+
+      stop_and_fail!("a render created now must reference the content config version it ran " \
+                     "under: an unversioned render cannot be attributed to a config change")
     end
 
     def resolve_asset

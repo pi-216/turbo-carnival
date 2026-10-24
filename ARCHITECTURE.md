@@ -133,10 +133,17 @@ Every published post carries an unbroken chain, owned by the `attribution` pack:
 
 ```
 Photo  →  PipelineRun  →  gates' verdicts  →  Persona  →  Post (posted_at)
+
+Render  →  ContentConfigVersion   (the config the render ran under)
 ```
 
+A `ContentConfigVersion` is the config as a first-class, **immutable** object: it pins the pillar,
+the wardrobe rung, the checkpoint, the LoRA set, the negative, the workflow sha and the prompt
+parts, and it is content-addressed by the digest of those pins. Editing the config writes a **new**
+version — never an edit to an existing one — so a metric shift has an address.
+
 Key models (pack-owned): `Photo`, `PipelineRun`, `ComfyuiJob`, `Post`, `Persona`, `ContentPillar`,
-`ContentSuggestion`, `GapAnalysis`. The **attribution-spine contract** — what each link must carry
+`ContentSuggestion`, `GapAnalysis`, `ContentConfigVersion`. The **attribution-spine contract** — what each link must carry
 and why — is in `CONTRACTS.md`; this file only fixes the shape.
 
 ## Gates (summary)
