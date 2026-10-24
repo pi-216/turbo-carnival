@@ -1,0 +1,391 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# publish_prd — turn a PRD + its .feature file into GitHub Project tickets
+# (issues) on the turbo-carnival board.
+#
+# Usage:
+#   bin/publish_prd <PRD.md> <feature_file>
+#   bin/publish_prd docs/prd/0002-organization-auth.md gherkin_specs/identity/organization_auth.feature
+#
+# Behavior (idempotent):
+#   1. Ensures the pipeline labels exist in the repo.
+#   2. Creates ONE ticket for the PRD itself — the `[PRD]` epic issue — and adds
+#      it to the Project. It is the parent of every generated scenario ticket.
+#   3. Creates ONE issue per Scenario in the .feature (self-contained body),
+#      adds each to the Project at Status=Todo, labelled `ticket`, and links it
+#      as a native SUB-ISSUE of the PRD's ticket — the edge the board and
+#      GitHub's own UI render as parent/child.
+#      NOTE: tickets are NOT labelled `approved` — the dev worker only works
+#      tickets a product owner has approved (add the `approved` label manually
+#      when you're ready to build).
+#   4. Prints a summary of created/skipped/failed SCENARIO tickets; the epic is
+#      reported inline (`+ epic` / `~ epic already exists` / `! epic`) and is not
+#      part of those counters. `created` counts tickets fully published (issue +
+#      board item at Todo), so created + skipped + failed == the number of
+#      scenarios.
+#   5. Exits non-zero when anything was genuinely left unpublished — a scenario
+#      ticket or the epic — and one bad ticket never aborts the rest of the
+#      tranche.
+#   6. Converges on re-run: an existing issue whose board item is missing (a
+#      previous run created the issue but could not add it) is put back on the
+#      board at Todo, and a scenario ticket missing its parent edge is re-linked
+#      to the PRD's ticket. An item already on the board keeps its status.
+#
+# Board 2 auto-adds newly created issues to the Project, racing the explicit
+# item-add below; the race is absorbed in PrdBoard (lib/prd_board.rb).
+#
+# Uses `gh` CLI. Requires repo + project scopes (classic GH_PAT or full token).
+
+require "yaml"
+require "date"
+require "json"
+require "open3"
+require_relative "../lib/prd_board"
+
+ROOT = File.expand_path("..", __dir__)
+CONF = YAML.load_file(File.join(ROOT, "config/autonomous/pipeline.yml"))
+PROJECT = { owner: CONF["owner"], number: CONF["project_number"] }.freeze
+
+# --dry-run: plan the tranche and read what already exists, but write nothing. The reads
+# still happen, so the created/skipped split a dry run prints is real, not a guess.
+DRY = ARGV.delete("--dry-run") ? true : false
+
+# One ticket could not be published. The tranche keeps going; the failure is
+# counted and reported in the final summary.
+class PublishError < StandardError; end
+
+# Fail-closed: for setup and reads, where a failure means nothing at all can be
+# published.
+def sh(*args)
+  out, ok = capture(*args)
+  abort("command failed: #{args.join(' ')}\n#{out}") unless ok
+  out
+end
+
+# Injectable seam for gh invocations: ->(*argv) { [output, success] }.
+def capture(*args)
+  out, status = Open3.capture2e(*args)
+  [out.strip, status.success?]
+end
+
+def ensure_labels!
+  if DRY
+    puts "  ~ would ensure #{CONF['labels'].size} pipeline label(s)"
+    return
+  end
+  CONF["labels"].each do |name, desc|
+    existing = sh("gh", "label", "list", "--repo", "#{CONF['owner']}/#{CONF['repo']}", "--json", "name")
+    next if existing.include?(name)
+    sh("gh", "label", "create", name, "--repo", "#{CONF['owner']}/#{CONF['repo']}", "--color", "5319e7", "--description", desc)
+    puts "  + label #{name}"
+  end
+end
+
+# The typed ticket->PRD edge: one `prd:NNNN` label per PRD, created on demand.
+def ensure_prd_label!(id, repo)
+  return if DRY
+  name = "prd:#{id}"
+  existing = sh("gh", "label", "list", "--repo", repo, "--json", "name")
+  return if existing.include?(name)
+
+  sh("gh", "label", "create", name, "--repo", repo, "--color", "0e8a16",
+     "--description", "Belongs to PRD-#{id}")
+  puts "  + label #{name}"
+end
+
+def parse_prd(path)
+  body = File.read(path)
+  title = body[/^#\s+(.+)$/, 1]&.strip || File.basename(path, ".md")
+  prd_tag = title[/PRD(-?\d+)?/i] || title
+  # Identity comes from the filename (NNNN-slug.md); the parent edge from
+  # frontmatter. No id field is duplicated into the PRD body.
+  prd_id = File.basename(path)[/\A(\d{4})/, 1]
+  fm = body[/\A---\n(.*?)\n---/m, 1]
+  data = begin
+    # PRD frontmatter is allowed to carry dates (`measured: 2026-10-23`). Without
+    # permitted_classes, safe_load raises DisallowedClass on ANY dated frontmatter and
+    # the whole publish aborts before it reads the PRD at all.
+    fm ? (YAML.safe_load(fm, permitted_classes: [Date, Time], aliases: true) || {}) : {}
+  rescue Psych::SyntaxError
+    {}
+  end
+  [title, prd_tag, prd_id, data["venture"], data["source"]]
+end
+
+def parse_scenarios(feature_path)
+  lines = File.readlines(feature_path)
+  scenarios = []
+  current = nil
+  pending_tags = []
+  lines.each do |ln|
+    if ln =~ /^\s*(@[\w:-]+)/
+      pending_tags.concat(ln.scan(/@[\w:-]+/))
+      next
+    end
+    if ln =~ /^\s*(?:Scenario|Scenario Outline):\s*(.+)$/
+      current = { name: Regexp.last_match(1).strip, steps: [], tags: pending_tags.dup }
+      scenarios << current
+      pending_tags = []
+      next
+    end
+    if current
+      stripped = ln.chomp
+      if stripped.strip.empty?
+        current[:steps] << ""
+      elsif stripped =~ /^\s*(Given|When|Then|And|But|Examples?):?\s*/
+        current[:steps] << stripped.strip
+      end
+    end
+  end
+  scenarios.reject { |s| s[:name] == "background" || s[:name].downcase.start_with?("background") }
+end
+
+# The PRD's declared work intent — `moves:<metric>` or `maintenance` — or nil
+# when it declares none (Gate 2: absence must be as loud as failure).
+def declared_intent(path)
+  body = File.read(path)
+  intent = body[/^\s*intent:\s*(.+)$/i, 1]&.strip
+  return nil if intent.nil?
+  intent if intent =~ /\Amoves:\S+\z/ || intent == "maintenance"
+end
+
+# The open issue number for this exact title, or nil when it does not exist.
+def existing_issue_number(title, repo)
+  out = sh("gh", "issue", "list", "--repo", repo, "--state", "open", "--json", "title,number", "--limit", "200")
+  issue = PrdBoard.parse(out).find { |candidate| candidate["title"] == title }
+  number = issue&.dig("number").to_i
+  number.positive? ? number : nil
+end
+
+# A re-publish must converge: an existing issue whose board item went missing (a
+# previous run created the issue but failed to add it) is put back on the board
+# at Todo. An item already on the board keeps its status — a re-publish must
+# never drag a started ticket back to Todo.
+def ensure_board_item(number, repo)
+  return if DRY
+  return if PrdBoard.item_id_for(number, project: PROJECT, runner: method(:capture))
+
+  add_to_project("https://github.com/#{repo}/issues/#{number}", number)
+end
+
+# The parent edge. GitHub keys a sub-issue link on the CHILD's database id (not
+# its number) and the link is not idempotent — re-adding an existing child is a
+# 422 — so the parent's current children are read once and used as a skip list.
+def existing_child_numbers(parent_number, repo)
+  out = sh("gh", "api", "repos/#{repo}/issues/#{parent_number}/sub_issues",
+           "--jq", "[.[].number]")
+  PrdBoard.parse(out).map(&:to_i)
+end
+
+# Link one scenario ticket to the PRD's own ticket. Raises PublishError so the
+# caller counts the failure and the tranche keeps going.
+def link_to_parent(parent_number, child_number, repo, linked)
+  return if DRY
+  return if linked.include?(child_number)
+
+  out, ok = capture("gh", "api", "repos/#{repo}/issues/#{child_number}", "--jq", ".id")
+  raise PublishError, out unless ok
+
+  child_id = out.to_i
+  raise PublishError, "no database id for issue ##{child_number}" unless child_id.positive?
+
+  # -F, never -f: it type-infers the integer; a string id is a 422.
+  out, ok = capture("gh", "api", "--method", "POST",
+                    "repos/#{repo}/issues/#{parent_number}/sub_issues",
+                    "-F", "sub_issue_id=#{child_id}")
+  raise PublishError, out unless ok
+
+  linked << child_number
+end
+
+# Runs one item's publish step. A failure is reported and counted instead of
+# aborting the tranche; returns the number of failed items (0 or 1).
+def attempt(label)
+  yield
+  0
+rescue PrdBoard::Error, PublishError => e
+  puts "  ! #{label} — #{e.message}"
+  1
+end
+
+def add_to_project(issue_url, number)
+  return nil if DRY
+  item_id = PrdBoard.add_or_resolve(issue_url, number: number, project: PROJECT, runner: method(:capture))
+  out, ok = capture("gh", "project", "item-edit",
+                    "--id", item_id.to_s, "--project-id", CONF["project_id"],
+                    "--field-id", CONF["status_field_id"],
+                    "--single-select-option-id", CONF["status_options"]["todo"])
+  raise PublishError, out unless ok
+
+  item_id
+end
+
+def create_issue(title, body, repo, labels: ["ticket"])
+  if DRY
+    puts "  ~ would create  #{title}"
+    return [0, ""]
+  end
+  args = ["gh", "issue", "create", "--repo", repo, "--title", title, "--body", body]
+  labels.each { |l| args += ["--label", l] }
+  out, ok = capture(*args)
+  raise PublishError, out unless ok
+
+  number = out[/\d+\Z/].to_i
+  raise PublishError, "could not read the issue number from #{out.inspect}" unless number.positive?
+
+  [number, out]
+end
+
+# One scenario ticket: create the issue, rewrite the body with its own number,
+# then put it on the board at the pipeline's Todo status.
+def publish_ticket(title, body, repo, labels: ["ticket"])
+  number, url = create_issue(title, body, repo, labels: labels)
+  return 0 if DRY
+  out, ok = capture("gh", "issue", "edit", number.to_s, "--repo", repo,
+                    "--body", body.gsub("<this-issue-number>", number.to_s))
+  raise PublishError, out unless ok
+
+  add_to_project(url, number)
+  number
+end
+
+def make_body(prd_title, prd_tag, ep, scenario, intent)
+  lineage = ([prd_tag] + scenario[:tags]).map { |t| t.to_s.sub(/\A@/, "") }.uniq.reject { |t| t == "wip" }.join(" / ")
+  steps = scenario[:steps].join("\n")
+  <<~MD
+    ## Goal
+    Implement this behavior TDD-first (RED→GREEN→REFACTOR).
+
+    ## Work intent
+    intent: #{intent}
+
+    ## Source spec
+    - PRD: `#{prd_title}`
+    - Feature: `#{ep}`
+    - Scenario: **#{scenario[:name]}**
+    - Lineage: `#{lineage}`
+
+    ## Scenario (authoritative behavior)
+    ```gherkin
+    #{steps}
+    ```
+
+    ## Steps
+    1. Read `AGENTS.md` — pack boundaries, command pattern (side effects via `run_after_commit`), org scoping, factory truth.
+    2. Write step definitions under `gherkin_specs/**/step_definitions/` and implement the code TDD-first.
+    3. Remove this scenario's `@wip` tag once it passes.
+    4. Verify every factory you need in `spec/factories/` (never guess names/fields/associations).
+    5. Run `bin/verify` — all Tier-0 gates must pass (rubocop, brakeman, bundler-audit, packwerk, erb_lint, rspec, cucumber, gherkin_lint, rswag:verify).
+    6. Open a PR whose body is exactly `Closes ##{ENV['GH_ISSUE'] || '<this-issue-number>'}`. When CI is green, set this project item's Status to **Done** in #{CONF['repo']} and close the issue.
+
+    ## Success criteria
+    - [ ] Scenario passes under `bundle exec cucumber`
+    - [ ] `bin/verify` green
+    - [ ] PR opened linking this issue; CI green
+    - [ ] Project status set to **Done**
+
+    ## Red lines
+    - Respect Packwerk pack boundaries — `packwerk check` stays green.
+    - Org scoping: every cross-org request returns 403/404 — never leak another org's data.
+    - Side effects only after DB commit (`run_after_commit`); idempotency keys on external writes.
+    - Never run or evaluate anyone's fitness function — the only fitness input is the customer-reported number.
+    - Never commit secrets; keep master.key gitignored.
+  MD
+end
+
+def main
+  prd_path = ARGV[0] || abort("usage: bin/publish_prd <PRD.md> <feature_file>")
+  feature_path = ARGV[1] || abort("usage: bin/publish_prd <PRD.md> <feature_file>")
+  abort("PRD not found: #{prd_path}") unless File.exist?(prd_path)
+  abort("feature not found: #{feature_path}") unless File.exist?(feature_path)
+
+  repo = "#{CONF['owner']}/#{CONF['repo']}"
+  prd_title, prd_tag, prd_id, venture, source = parse_prd(prd_path)
+  scenarios = parse_scenarios(feature_path)
+  abort("no scenarios found in #{feature_path}") if scenarios.empty?
+
+# Placement contract, enforced at publication (fail-closed): a PRD must carry
+  # an identity (filename NNNN) and a parent edge (`venture:` frontmatter).
+  abort("PRD has no NNNN identity — filename must be docs/prd/NNNN-slug.md") unless prd_id
+  if venture.to_s.strip.empty?
+    abort("PRD is missing its parent edge: add `venture: <slug>` frontmatter to #{prd_path}")
+  end
+  if source.to_s.strip.empty?
+    abort("PRD is missing its provenance: add `source: <who created this PRD>` frontmatter to #{prd_path}")
+  end
+  prd_labels = ["ticket", "prd:#{prd_id}"]
+
+  intent = declared_intent(prd_path)
+  if intent.nil?
+    # Gate 2: an undeclared intent is a refusal, not a blank to fill in. A dry run is
+    # non-mutating, so it plans the tranche and reports the refusal it would hit.
+    abort("PRD declares no work intent — add `intent: moves:<metric>` or `intent: maintenance`") unless DRY
+    warn "! PRD declares no work intent — a REAL publish would refuse here (Gate 2)."
+    warn "  Add `intent: moves:<metric>` or `intent: maintenance` to the frontmatter."
+    intent = "unstated (Gate 2 would refuse)"
+  end
+
+  puts "=== ensure labels ==="
+  ensure_labels!
+  ensure_prd_label!(prd_id, repo)
+
+  created = skipped = failed = 0
+
+  puts "\n=== PRD ticket: #{prd_title} ==="
+  epic_title = "[PRD] #{prd_title}"
+  existing_epic = existing_issue_number(epic_title, repo)
+  epic_number = existing_epic
+  if existing_epic
+    epic_failed = attempt("epic") do
+      ensure_board_item(existing_epic, repo)
+      puts "  ~ PRD ticket already exists (skipped)"
+    end
+  else
+    epic_failed = attempt("epic") do
+      number, url = create_issue(epic_title,
+                                 "Ticket for #{prd_title} itself. Every generated scenario ticket is a sub-issue of this one; the whole tranche lives in the **t-genetics** Project (Status=Todo).",
+                                 repo, labels: prd_labels)
+      # Set before the board add: a failed item-add must not cost the tranche its
+      # parent edge.
+      epic_number = number
+      add_to_project(url, number)
+      puts "  + PRD ticket ##{number} #{url}"
+    end
+  end
+
+  puts "\n=== scenario tickets ==="
+  epic_number = nil if DRY && epic_number.to_i.zero?
+  linked = epic_number ? existing_child_numbers(epic_number, repo) : []
+  scenarios.each do |sc|
+    title = "[#{prd_tag}] #{sc[:name]}"
+    existing = existing_issue_number(title, repo)
+    if existing
+      failed += attempt(title) do
+        ensure_board_item(existing, repo)
+        link_to_parent(epic_number, existing, repo, linked) if epic_number
+        puts "  ~ #{title} (exists — skipped)"
+        skipped += 1
+      end
+      next
+    end
+    failed += attempt(title) do
+      number = publish_ticket(title, make_body(prd_title, prd_tag, feature_path, sc, intent), repo, labels: prd_labels)
+      link_to_parent(epic_number, number, repo, linked) if epic_number
+      puts "  + ##{number} #{title}" unless DRY
+      created += 1
+    end
+  end
+
+  parent = epic_number ? "PRD ticket ##{epic_number}" : "PRD ticket UNAVAILABLE"
+  verb = DRY ? "would create" : "created"
+  puts "\n=== summary: #{verb}=#{created}, skipped=#{skipped}, failed=#{failed} (board #{CONF['project_number']}, #{parent}) ==="
+  puts "Open https://github.com/orgs/#{CONF['owner']}/projects/#{CONF['project_number']} to see the board."
+  return if failed.zero? && epic_failed.zero?
+
+  warn "publish incomplete — #{failed} scenario ticket(s) and #{epic_failed} epic failure(s)."
+  warn "Fix the cause and re-run (idempotent): existing issues are skipped and a missing board item is restored."
+  exit 1
+end
+
+main if __FILE__ == $0
