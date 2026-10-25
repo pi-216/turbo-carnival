@@ -5,16 +5,21 @@ source: PROJECT_PLAN
 
 # PRD 0008 — The brain seat is served by Ollama
 
-> **Status:** CURRENT · spec written 2026-10-24 · draft for founder review · **Q1 resolved** (founder ruling 2026-10-24: keep a running model; start one without keep-alive)
+> **Status:** CURRENT · spec written 2026-10-24 · draft for founder review · **Q1–Q4 all resolved** (founder rulings, 2026-10-24)
 > Plan item: **W1.6** · Track: `core-infrastructure` · Owner: unassigned
 
 ## Summary
 
 Move the **serving requirement** for the brain seat (PRD 0001) off `llama.cpp`'s `llama-server` and onto
 **Ollama**, which on this box already serves the *same* weights — the same file, the same sha256 — as the
-Ollama model `brain:latest`. The seat's own data (`config/autonomous/brain.yml`) stays the single source of
-truth; the claim discipline does not move; the three llama.cpp-only serving features that have no Ollama
-equivalent are recorded as *paid*, not glossed.
+Ollama model `brain:latest`.
+
+Per the founder's Q3 ruling, that Ollama is **shared, externally managed infrastructure**: this repo neither
+builds the model nor runs the daemon. It **consumes** the seat, **verifies** that what is served is the seat
+it requires, and **survives** the seat being absent. The seat's own data
+(`config/autonomous/brain.yml`) stays the single source of truth for *what this repo requires of the seat*;
+the claim discipline does not move; the llama.cpp-only serving features that have no Ollama equivalent are
+recorded as *paid*, not glossed.
 
 This PRD changes **who serves the seat**. It does not change the model, the phase machine, the gates, or the
 legal floor.
@@ -118,10 +123,9 @@ Two gains worth recording: `tools` is a declared capability of the Ollama model 
 asks for today (`BrainClient` sends no `tools`), and an Ollama model is content-addressed — the *identity* of
 what is served becomes checkable, which it currently is not.
 
-### F4 — the daemon that actually answers is unmanaged, and the unit is crash-looping
+### F4 — the daemon we depend on is unmanaged, and under Q3 it is not ours
 
-This is the finding with teeth. There are two Ollama server processes fighting for one port, and the managed
-one is losing.
+Two Ollama server processes are fighting for one port, and the managed one is losing.
 
 ```bash
 $ systemctl status ollama --no-pager | head -5
@@ -140,33 +144,31 @@ $ systemctl status 527519 --no-pager | head -2
 
 $ ss -ltnp | grep 11434
 LISTEN 0 4096 *:11434 *:* users:(("ollama",pid=527519,fd=4))
-```
 
-Read together: the systemd unit has restarted **164,432** times at `RestartSec=3` and has never bound the
-port; the process that *is* serving `:11434` was hand-started on **2026-10-08**, is owned by `tim`, sits in a
-transient **desktop login session** (`session-31.scope`, parent PID 1), and owns the listening socket. Its
-environment carries **only** `OLLAMA_HOST` and `OLLAMA_MODELS`:
-
-```bash
 $ tr '\0' '\n' < /proc/527519/environ | grep -c '^OLLAMA'
 2
 ```
 
-so it has **no** `OLLAMA_FLASH_ATTENTION=1` (the unit sets it), **no** `OLLAMA_KV_CACHE_TYPE`, and **no**
-`OLLAMA_NUM_PARALLEL`.
+Read together: the systemd unit has restarted **164,432** times at `RestartSec=3` and has never bound the
+port; the process that *is* serving `:11434` was hand-started on **2026-10-08**, is owned by `tim`, sits in a
+transient **desktop login session** (`session-31.scope`, parent PID 1), owns the listening socket, and carries
+**only** `OLLAMA_HOST` and `OLLAMA_MODELS` — so **no** `OLLAMA_FLASH_ATTENTION=1` (the unit sets it), **no**
+`OLLAMA_KV_CACHE_TYPE`, and **no** `OLLAMA_NUM_PARALLEL`.
 
-Two consequences, both already-named failure shapes in this repo:
+**Q3 ruled this is not a defect for this repo to repair — the Ollama service is shared, externally managed
+infrastructure.** That does not make it irrelevant; it changes what the finding *is*. It is a **dependency
+risk to record, report and survive**, not a bug to fix:
 
-- **The seat's daemon is outside systemd, outside the repo, and outside any GPU claim.** It holds 0 VRAM
-  *right now* (`ollama ps` → `{"models":[]}`), but the first request against it loads ~17.6 GiB of blobs onto
-  the 4090 with nothing covering the card — the same **false-idle double-book** risk
-  `bin/comfyui_harness.sh` exists to prevent for ComfyUI, and which PRD 0001 made the brain harness's whole
-  point.
-- **A daemon tied to a login session is not a service.** It dies with the session, and nothing in this repo
-  can start, stop, verify, or account for it. A seat whose server is a stranger's shell process cannot be a
-  requirement.
+- **The seat we consume may not be the seat `brain.yml` describes.** The daemon holds none of the three env
+  settings the seat needs (F5), and a daemon living inside a login session dies with that session.
+- **So the repo's job is to verify and to degrade**, not to adopt. The identity and placement checks (D2, D9)
+  are what make a mis-served or CPU-offloaded seat *visible* instead of fluent; the serving-layer contract
+  (degrade by value, never a hard fail) is what makes its absence survivable. Both already exist — this PRD
+  points them at the shared seat.
+- **We report it, once, to the infra owner** — the login-session daemon and the stamped-out unit are the infra
+  owner's call, and nothing in this repo should take an action against either.
 
-### F5 — the KV setting the wrap needs to fit 131072 is absent, and the GPU placement is unmeasured
+### F5 — the KV setting the seat needs to fit 131072 is absent, and the GPU placement is unmeasured
 
 ```bash
 $ systemctl show ollama -p Environment
@@ -174,11 +176,15 @@ Environment=… OLLAMA_HOST=0.0.0.0:11434 OLLAMA_ORIGINS=192.168.86.103 http://*
             OLLAMA_FLASH_ATTENTION=1 OLLAMA_MODELS=/mnt/nas-ai-models/ollama
 ```
 
-Neither the unit nor the live daemon (F4) sets `OLLAMA_KV_CACHE_TYPE`. The wrap's own `Modelfile` states why
+Neither the unit nor the live daemon (F4) sets `OLLAMA_KV_CACHE_TYPE`. The seat's own `Modelfile` states why
 that matters — with `num_ctx 131072` and no `OLLAMA_KV_CACHE_TYPE=q8_0`, it *will not fit* a 24 GiB card. The
 one GPU figure this repo owns is llama.cpp's (23,058 MiB footprint, 464 MiB free at `/health`); the Ollama
 placement is **unmeasured**, and the card is 23,692 MiB busy with the llama.cpp seat while this is written, so
 it cannot be measured now.
+
+Under Q3 this is again the infra owner's setting, not ours — which is exactly why **D9 makes our side
+observable**: we read `ollama ps` and record what the card actually got, rather than assuming the seat's
+declared context is the context we are served.
 
 ### F6 — the seat is 29 files, not one call site
 
@@ -206,20 +212,29 @@ Two of those reads are engine-specific and will silently mis-report after a swit
   (llama.cpp's shape); Ollama's native switch is `"think": false` per request. A planner that gets a
   `reasoning_content` trace and an empty `content` raises `empty response from brain`.
 
-### F7 — the Ollama seat is built by a project this repo does not own
+### F7 — the seat's build is a sibling project, and Q3 makes that the boundary
 
-The build lives in a **sibling directory**: `/home/tim/source/activity/brain-ollama/` (`Modelfile`,
-`bin/build.sh`, `bin/probe.py`, `README.md`). Its README is explicit that it is a secondary project:
-*"This is a secondary project, not a replacement… Nothing here is imported by the Rails app, and deleting this
-directory does not change the harness's behaviour."*
+The build lives in `/home/tim/source/activity/brain-ollama/` (`Modelfile`, `bin/build.sh`, `bin/probe.py`,
+`README.md`). Its README states the intent plainly: it exists so that *"a **different** consumer — a second
+project, a laptop, a plain `ollama run` — can use the same weights without taking the 4090 claim or learning
+the harness."*
 
-But `brain.yml`'s own header claims the opposite boundary for the seat: *"This file is the single home for the
-seat's data: the harness (#24) reads it and the serving parameters live under `serving`, not in a second
-file."* If Ollama becomes the requirement while the build that produces `brain:latest` lives in an unlisted
-directory outside the repo, then **the seat's definition is not in the repo** — and a next agent cannot
-rebuild or verify it from this checkout.
+**Q3 asked whether this repo should adopt that build. Ruled: no — the seat is shared, externally managed
+infrastructure.** So this is not a gap to close; it is the boundary of what this repo owns. Three consequences:
 
-### F8 — the switch doubles the seat's bytes on the same NAS
+- **`brain.yml`'s claim narrows to what it can honestly own.** Its header says it is "the single home for the
+  seat's data". Under Q3 it is the single home for **the contract this repo requires of the seat** — the
+  artefact and projector hashes, the context, the timeout, the endpoint and the alias — and *not* for how the
+  seat is built or run. That is a wording defect this PRD fixes rather than a design change.
+- **Verifying what we consume replaces owning it.** The digest check currently lives in the sibling project's
+  `build.sh`, which refuses to build on a hash mismatch — a guarantee we get only if that project runs *and*
+  only if we own the build. Once it is shared infrastructure, the check has to live on **our** side, at
+  ensure-time, against the running seat.
+- **We cannot assume our declared settings are the served ones.** F4/F5 show the live daemon carrying none of
+  the three env knobs the seat needs, so the placement and identity readings (D2, D9) are the only honest
+  answer to "is the seat we are paying for the seat we asked for?"
+
+### F8 — the switch doubles the seat's bytes on the same NAS (recorded, no action)
 
 Ollama stores blobs by content digest and cannot reference an external path, so `brain:latest` is a second
 copy of the same two files, on the same volume:
@@ -230,8 +245,9 @@ copy of the same two files, on the same volume:
 | the same bytes, content-addressed | `/mnt/nas-ai-models/ollama/blobs/sha256-ba36dc3c…` | 17,923,393,664 |
 
 That is **~17.56 GiB duplicated** (the store also holds 2,096 other blobs across every model on the box; the
-duplicate attributable to *this* seat is its own two layers). It is a deliberate cost, but it must be
-recorded — and it is the reason Q4 asks whether the loose copy should be retired *after* the switch.
+duplicate attributable to *this* seat is its own two layers). **Q4 ruled this is not this repo's problem —
+leave it.** Recorded here so a future agent reading "the same weights twice" does not go looking for a task:
+both homes are shared-storage facts, and neither is turbo-carnival's to retire.
 
 ### F9 — "ollama" already means a *different* thing in this repo
 
@@ -245,17 +261,21 @@ transition must not be read as reviving `AI::OllamaClient`.
 ## Goals / Non-goals
 
 - **Goals**
-  - The seat is served by the Ollama model `brain:latest`, under the **same claim discipline** the ComfyUI
-    harness already imposes — a tenant never holds the 4090 without a live claim covering it.
-  - The Ollama lifecycle is **owned**: unit-managed, claim-gated, verifiable, and not tied to a login session.
+  - The seat is served by the shared Ollama model `brain:latest`, under the **same claim discipline** the
+    ComfyUI harness already imposes on our side — a load we cause never lands on the 4090 without a claim.
+  - **The seat we consume is verified to be the seat we require**: identity (the recorded sha256) and
+    placement (`ollama ps`) are read from the running seat, fail-closed, rather than assumed.
   - Parity is **measured**, not assumed: the capability matrix in F3 is re-derived on this card, including
     the throughput the MTP loss actually costs and whether `num_ctx 131072` is placed on the GPU.
-  - The seat's definition is reproducible **from this repo** — the Modelfile, the build and the probe stop
-    living only in a sibling directory.
+  - **A seat we do not control is a seat we survive**: absent, mis-served or evicted mid-window, the callers
+    degrade by value exactly as the serving-layer contract already requires.
   - No caller changes its meaning: the caption path, the age-gate vision read, the nightly planner and the
-    check-in keep working, and a down seat still degrades by value.
+    check-in keep working.
 - **Non-goals (explicit Out)**
   - **Out:** the model. Same file, same sha256 (F2). No new weights, no re-quant, no base-model work.
+  - **Out:** the seat's build and its daemon — **shared, externally managed infrastructure** (Q3, F7). No
+    `Modelfile` in this repo, no build script, no daemon lifecycle, no repair of the Ollama unit (F4).
+  - **Out:** the artefact's storage and any de-duplication (Q4, F8).
   - **Out:** the phase machine and the phase handoff (PRD 0001 owns them). The measured-free-VRAM gate, the
     one-claim-per-batch rule and `stop-server` semantics are unchanged — this PRD re-points them.
   - **Out:** any gate's verdict. The age gate, the NSFW read and the realism read are unchanged; the legal
@@ -267,14 +287,14 @@ transition must not be read as reviving `AI::OllamaClient`.
 
 ## Scope — In / Out
 
-**In:** porting the seat's build into the repo (Modelfile + build + probe) · re-pointing
-`config/autonomous/brain.yml` at the Ollama seat · an Ollama-shaped `AI::BrainClient` (probe, thinking switch,
-vision part) · a claim-gated load/unload path replacing the `llama-server` launch · repairing the Ollama unit
-(F4) · the offline parity gate · the measured parity run on the 4090 · updating the docs and the 8 specs that
-read the seat.
+**In:** re-pointing `config/autonomous/brain.yml` at the shared Ollama seat (and narrowing its header to the
+contract it owns) · an Ollama-shaped `AI::BrainClient` (probe, thinking switch, vision part) · a claim-gated
+**warm/verify/release** path replacing the `llama-server` launch · ensure-time identity and placement
+verification against the running seat · the `serving.timeout_s` change (Q2) and its caller-budget consequence ·
+the measured parity run on the 4090 · updating the docs and the 8 specs that read the seat.
 
-**Out:** the phase machine, the gates, the floor, the retired caption Ollama, and any change to the render
-side of the app.
+**Out:** the phase machine, the gates, the floor, the seat's build, the daemon, the artefact's storage, the
+retired caption Ollama, and any change to the render side of the app.
 
 ## Boundary
 
@@ -283,6 +303,8 @@ side of the app.
 | the seat's existence, the artefact, the phase machine, `stop-server` semantics | **PRD 0001** | this PRD only re-points *who serves* the seat |
 | the legal floor, the advisory gates, the age band | **PRD 0007** | unchanged; the vision read keeps its meaning |
 | the caption path's serving home and its degrade-by-value contract | **#103** / `CONTRACTS.md` | unchanged — only the engine behind `AI::BrainClient` moves |
+| **the Ollama daemon, its unit, its env, and the `brain:latest` build** | **the infra owner — shared, externally managed (Q3)** | explicitly out: consumed and reported, never repaired here |
+| the artefact's two homes on shared storage | shared storage (Q4) | explicitly out: recorded, no action (F8) |
 | the retired caption Ollama (`AI::OllamaClient`, `:11434` on `192.168.86.49`) | existing code | explicitly out (F9) |
 | the GPU scheduler and its FIFO | `gpu_scheduler.py` / the `gpu-scheduler` skill | consumed, never modified |
 
@@ -300,12 +322,25 @@ Scenario: the seat is served by Ollama, not by a llama.cpp binary
   And it does not report a llama-server binary path
   And a missing or unreachable Ollama reports FAILED with a non-zero exit
 
+Scenario: the seat we consume is verified to be the seat we require
+  Given the seat's data file records the artefact and projector sha256
+  When the harness ensures the seat against the running Ollama
+  Then it checks the served model's identity against those recorded hashes
+  And on a mismatch the seat is NOT reported up, and the mismatch is reported loudly
+  And the check is made against the running seat, not against a build this repo owns
+
+Scenario: the seat's placement is read, never assumed
+  Given the seat is up
+  When its residency is inspected
+  Then the context actually loaded and the processor actually used are read from the seat
+  And a seat served entirely on CPU is reported as a degraded placement, not as up-and-well
+
 Scenario: the seat is never loaded without a live claim
   Given no GPU claim is held
   When the harness is asked to ensure the seat
   Then it exits 2 and loads nothing
   And the refusal appears as a brain_unclaimed decision row
-  And the 4090 holds no brain-model allocation afterwards
+  And the 4090 holds no brain-model allocation caused by us afterwards
 
 Scenario: a model that was already resident is left running
   Given the brain model is already resident when the harness arrives
@@ -320,6 +355,13 @@ Scenario: a model the harness had to start does not outlive its window
   Then the load carries no keep-alive
   And at the window's end the model is no longer resident
   And residency is verified from the device, never from an unload's exit code
+
+Scenario: a shared seat can vanish mid-window and the caller still finishes
+  Given the seat was resident and another consumer evicts it mid-window
+  When a planning or caption call is made
+  Then the call does not hang beyond its budget
+  And a cold reload is permitted, because the request timeout is sized for one
+  And if the seat cannot be recovered the caller degrades by value
 
 Scenario: an up seat is not read as down
   Given the Ollama seat is answering
@@ -341,12 +383,12 @@ Scenario: the vision read still reads the frame
   Then the reply describes what is actually in frame
   And an unreadable read still leaves the gate unmeasured (fail-open), never a verdict
 
-Scenario: the seat's identity is checkable
-  Given the seat's data file records the artefact and projector sha256
-  When the offline parity gate runs
-  Then it fails if the seat's build names a different artefact than the data file
-  And it fails if the harness's launch path names a llama.cpp binary
-  And it passes with no GPU, no network and no Ollama
+Scenario: the repo takes no action against shared infrastructure
+  Given the Ollama daemon is running outside this repo's control
+  When the harness stops the seat
+  Then it stops only a residency this repo launched
+  And it never stops, restarts, reconfigures or kills the daemon itself
+  And it never acts on the systemd unit
 
 Scenario: a failed load is never reported as success
   Given the Ollama seat cannot load the model
@@ -357,14 +399,14 @@ Scenario: a failed load is never reported as success
 
 ## User stories / job-to-be-done
 
-- As **the Director**, I want the seat's daemon to be a service the repo owns, so that a login session ending
-  cannot take the seat down and a stranger process cannot hold the 4090 unclaimed.
+- As **the Director**, I want our side of the shared card held correctly, so that a load we cause is always
+  covered by a claim and we never blame shared infrastructure for our own unclaimed load.
 - As the **Thinker**, I want the same weights behind an endpoint that is stable, so a serving-engine change
   does not change what I plan.
 - As the **Reviewer/age gate**, I want the vision read to keep reading the frame, so the floor's measurement
   does not silently become fluent nonsense.
-- As a **next agent**, I want the seat rebuildable and verifiable from this checkout, so I do not have to
-  discover a sibling directory to understand what is being served.
+- As a **next agent**, I want to know exactly which half of the seat this repo owns, so I neither rebuild
+  shared infrastructure nor assume shared infrastructure will be maintained for me.
 
 ## Capability matrix — the price, stated
 
@@ -379,35 +421,39 @@ Scenario: a failed load is never reported as success
 | projector device | forced CPU (the launch that survived) | Ollama decides | **loss of control, re-measured** |
 | `--image-min-tokens 1024` | set | absent | **loss** (Ollama's own minimum) |
 | thinking off | `chat_template_kwargs` | `"think": false` | **parity, different wire** (F6) |
+| request timeout | 120 s | **600 s** (Q2) | **gain** — a cold load now fits |
 | tool calling | unused by our client | declared capability | **gain** |
 | model identity | a path; nothing verifies the bytes at load | sha256 digest, checkable | **gain** |
-| process ownership | harness-launched transient unit | a shippable systemd service | **gain** |
+| build ownership | ours (a binary we launch) | **theirs — shared infra** (Q3) | **loss of control, deliberately** |
+| daemon lifecycle | harness-launched transient unit | **not ours** (Q3, F4) | **out of scope** — a reported dependency risk |
 
 ## Edge cases & red lines
 
-- **A tenant never holds the card without a claim.** Unchanged from PRD 0001 and non-negotiable: an Ollama
-  model left resident with no claim makes the scheduler read the 4090 as idle — the double-book failure the
-  harness exists to prevent. **The claim must cover model residency, not merely process existence**, because
-  Ollama's daemon is idle at 0 VRAM and only the *model* occupies the card.
-- **Residency follows ownership** (Q1, below). A model already resident when the harness arrives is **left
-  running**; a model the harness had to start is loaded **without keep-alive**, so it does not outlive the
-  window that needed it. Do not unload what you did not load.
-- **An unmanaged daemon is not a seat.** F4 must be resolved before anything else is built on it: a server
-  that lives in a login session cannot be a dependency.
+- **A load we cause never lands on the card without a claim.** Unchanged from PRD 0001 and non-negotiable: a
+  model resident with no claim covering it makes the scheduler read the 4090 as idle — the double-book failure
+  the harness exists to prevent. **Our claim covers a load we caused**, not the shared daemon and not other
+  consumers' loads (Q3).
+- **Residency follows ownership** (Q1). A model already resident when the harness arrives is **left running**;
+  a model the harness had to start is loaded **without keep-alive**, so it does not outlive the window that
+  needed it. Do not unload what you did not load.
+- **Shared infrastructure is consumed, never repaired.** The Ollama daemon, its unit and its env (F4, F5) are
+  the infra owner's. This repo reports the discrepancy once and moves on: no `systemctl`, no `kill`, no
+  `OLLAMA_*` rewrite, no adopted-daemon fixes. A dependency we do not control is a reason to verify and
+  degrade, never a licence to reconfigure someone else's service.
 - **`stop-server` changes meaning, and must keep its meaning.** Under llama.cpp it SIGTERMs a process; under
-  Ollama the correct action is to *unload the model* while the daemon stays up. The phase handoff's contract
-  (outgoing tenant verified down, then measured free VRAM) must keep reading the device, never the unload's
-  exit code.
+  Ollama the correct action is to end **our** residency while the shared daemon stays up. The phase handoff's
+  contract (outgoing tenant verified down, then measured free VRAM) must keep reading the device, never an
+  unload's exit code — and the *idle expiry* is now part of that clock, not an instant.
 - **NULL ≠ false, and unmeasured ≠ down.** A seat that cannot be measured is not a seat that is absent. The
   probe's failure mode must stay fail-closed for the claim and fail-open (degrade by value) for the callers.
 - **A failed load must never be reported as success.** The harness's existing rule, restated because the
   failure mode here is a *silent* CPU fallback: Ollama will happily serve a partially-offloaded model at a
-  fraction of the throughput. The seat's placement must be read from `ollama ps` (`PROCESSOR` must not be
-  `100% CPU`), not inferred from a 200.
-- **Never kill or reconfigure a foreign tenant** — including the hand-started daemon of F4. Bringing `:11434`
-  under management is a founder-visible infrastructure action; it must be an owned, recorded step, not an
-  opportunistic `kill`.
-- **No exfiltration.** The seat's build, hash and probe stay in this repo and on the owner's hosts
+  fraction of the throughput. Placement must be read from `ollama ps` (`PROCESSOR` must not be `100% CPU`),
+  not inferred from a 200.
+- **A shared seat can leave mid-window.** Another consumer may evict our model — and under Q1 we must not
+  re-adopt a stranger's residency as if it were ours. The caller's contract is unchanged: finish inside its
+  budget or degrade by value; the request timeout (Q2) is what makes one cold reload affordable.
+- **No exfiltration.** Seat hashes, probes and readings stay in this repo and on the owner's hosts
   (`AGENTS.md` § the content contract).
 - **One truth per topic.** The switch lands with the llama.cpp launch path **removed from the requirement**,
   not left beside it. Two live serving paths under one name is the drift the repo's doc rules exist to stop.
@@ -435,17 +481,16 @@ Consequences, so the next agent does not re-derive them:
   bequeathing our own. Neither is a preference about the card — it is the line between *mine* and *not mine*,
   which is exactly what `origin` already encodes.
 - **`ollama ps` becomes the residency ledger**, and it is a better instrument than a pid: it names the resident
-  model and its `size_vram` and `expires_at`. The check-in's `brain_up && !ours` arm (a model resident with no
-  claim covering it) is unchanged and now has a direct read.
+  model and its `size_vram` and `expires_at`.
 - **This corrects the PRD's own first lean** (*"unload at window end"*). That lean was unconditional, and
   therefore wrong in the adopted case: it would have had the harness evict a model it did not start, which is
-  the "never kill a foreign tenant" red line applied to residency. The ruling is *conditional on ownership*,
+  the "never touch a foreign tenant" red line applied to residency. The ruling is *conditional on ownership*,
   and it is the better rule.
 - **One implementation detail is left to the ticket, not the founder:** whether "no keep-alive" means a literal
   `keep_alive: 0` per request (which expires the model the moment the request finishes, and would force a cold
-  load per request — ~17.6 GiB from NFS each time, a measurable cost) or simply *omitting a pin* so
-  `OLLAMA_KEEP_ALIVE` governs the idle window. The ticket **measures** which reading satisfies the ruling at
-  acceptable cost; do not guess it here, and do not pin the model forever in either reading.
+  load per request — ~17.6 GiB from NFS each time) or simply *omitting a pin* so `OLLAMA_KEEP_ALIVE` governs
+  the idle window. The ticket **measures** which reading satisfies the ruling at acceptable cost; do not guess
+  it here, and do not pin the model forever in either reading.
 - **Truthfulness over tidiness:** after the window, `ollama ps` may legitimately still show the model — because
   it was adopted. An entry there is **not** by itself a leak; it is a leak only when no claim covers it.
   Reporting residency as a proxy for "we cleaned up" is the reading this rule forbids.
@@ -460,48 +505,76 @@ Consequences, so the next agent does not re-derive them:
   **+ no adoption record** = leak. Getting this wrong turns a correct ruling into an alarm that cries every
   night — and a noisy alarm is one nobody reads when the real orphan appears.
 
+## The serving timeout — founder ruling (2026-10-24)
+
+**Q2, resolved: 10 minutes.** `serving.timeout_s: 600`, superseding the **120** recorded in `brain.yml` and the
+`DEFAULT_TIMEOUT = 120` in `lib/ai/brain_client.rb`.
+
+It is the right number *because of* the other three rulings, not independently of them: it is what makes a
+**cold load survivable**. A launched window (Q1) starts with no resident model, so its first request pays a
+17.6 GiB NFS read plus model init — minutes, not seconds. At 120 s that first request would fail and every
+caption in the window would degrade to `brain_unavailable`; at 600 s a window can pay the cold-load cost once
+and then answer warm. Under Q3 it also covers the eviction case: a shared seat can be dropped by another
+consumer mid-window, and 600 s is what lets the next call re-load instead of failing.
+
+Consequences, so the next agent does not re-derive them:
+
+- **The timeout is a *request* budget, not a probe budget.** The short fail-closed probe stays short
+  (`BrainClient::PROBE_TIMEOUT`, 3 s) and the harness's own `UP_WAIT` stays its own number. A long request
+  timeout beside a long probe would make every caller wait ten minutes to learn the seat is down — the exact
+  opposite of the degrade-by-value contract.
+- **One number, read from one place.** `AI::BrainClient.config` reads `serving.timeout_s` and
+  `packs/caption_generation/…/model_config.rb` resolves endpoint/model/timeout through it, so the caption path,
+  the age gate and the planner cannot drift onto different values.
+- **⚠ The caller budget is the open question this ruling exposes, and it is a *build* problem, not a ruling.**
+  A 600 s request cannot be spent inside a tick that dies sooner — the harness has measured a foreground tool
+  call SIGKILLed at **~420 s** and a 360 s producer budget. So a 10-minute timeout only means something if the
+  call moves off the tick. The ticket resolves it (the Sidekiq substrate from PRD 0006 Q5 now exists, so a
+  caption/plan call can be a job rather than an in-tick request) and records which caller can actually reach
+  600 s. Setting the number without moving the caller would be a timeout nothing can ever use.
+
 ## Metrics / definition of done
 
-Every line maps to an enforced gate. Two lines name numbers; both name their emitted metric.
+Every line maps to an enforced gate. Three lines name numbers; each names its emitted metric.
 
 | # | done line | enforced by |
 |---|---|---|
 | D1 | the seat is served by Ollama — `deps` reports the Ollama seat and no llama-server path | a `--check`-able `bin/brain_harness.sh deps`, asserted by a spec |
-| D2 | the seat's identity is checkable offline: the build names the same artefact + projector hashes as `brain.yml` | a new offline gate (`bin/check_brain_seat.rb`), an `bin/verify` member, fail-closed on a missing tree |
-| D3 | a claim is required to load the model; the refusal is a `brain_unclaimed` decision row | `Growth::BrainGate` + the existing check-in cron |
+| D2 | **the seat we consume is verified to be the seat we require** — the served model's identity is checked against `brain.yml`'s recorded sha256, fail-closed | an ensure-time identity check in the harness + a spec with a mismatch fixture; `deps` prints the served digest |
+| D3 | a load we cause requires a claim; the refusal is a `brain_unclaimed` decision row | `Growth::BrainGate` + the existing check-in cron |
 | D4 | a model the harness **started** is not resident after its window; a model it **adopted** is left running | the harness's `origin=launched` / `origin=adopted` record plus `ollama ps`, and a device read in `log/brain_harness.log` |
-| D5 | the probe answers correctly against Ollama (up ⇒ true, down ⇒ false) | `spec/services/ai_brain_client_spec.rb` |
+| D5 | the probe answers correctly against Ollama (up ⇒ true, down ⇒ false) without blocking a caller | `spec/services/ai_brain_client_spec.rb` |
 | D6 | a planning role runs against the Ollama seat in a real nightly window | `rake brain:plan` writes suggestions (the PRD 0001 definition of done, re-pointed) |
 | D7 | the age-gate vision read still grounds against a known frame | a recorded read-back in the ticket evidence, plus the gate's own fail-open spec |
 | D8 | **number:** the seat's decode rate under Ollama is measured and recorded next to the 51.8 t/s it replaces | emitted by the seat probe and written into `log/brain_harness.log` / the ticket evidence — *measurement gap to name: this repo has no dashboard for it; the record is the log and the PRD* |
 | D9 | **number:** `num_ctx 131072` is placed on the GPU, not silently offloaded | `ollama ps` (`CONTEXT` and `PROCESSOR` columns) read at the first real load — *measurement gap to name: no automated assertion exists; the reading is manual* |
 | D10 | no caller's meaning changed: the caption path, the age gate and the planner behave as before, or their degradation is recorded | `bin/verify` (lint, packwerk, rspec, cucumber) |
-| D11 | the residency rule holds by ownership: an adopted model is never unloaded, and a resident model with no claim covering it is recorded as a leak | `Growth::BrainGate`'s `brain_up && !ours` arm + the check-in cron, re-pointed at `ollama ps` |
+| D11 | the residency rule holds by ownership: an adopted model is never unloaded, and a resident model with no claim covering it and no adoption record is recorded as a leak | `Growth::BrainGate`'s `brain_up && !ours` arm + the check-in cron, re-pointed at `ollama ps` |
+| D12 | **number:** the seat's request timeout is **600 s**, read from one place, with at least one caller that can actually reach it | `brain.yml` `serving.timeout_s` + `AI::BrainClient.config`, asserted by a spec; the caller-budget resolution recorded in the ticket |
+| D13 | the repo takes no action against shared infrastructure: no `systemctl`, `kill` or `OLLAMA_*` write targets the daemon or its unit | a spec asserting the harness's command surface, plus code review (`AGENTS.md` PR gate) |
 
 ## Open questions
+
+All four are resolved. Recorded in the order they were ruled.
 
 1. ~~**The seat's residency policy** — GPU policy, so the founder's call.~~ **RESOLVED — founder ruling,
    2026-10-24:** *"if the model was running, keep it running. If it had to be started, it should have been
    started without keepalive."* Restated as the ownership rule for residency — adopted residency is left
-   running, launched residency carries no keep-alive — in **§ The residency rule** above. This supersedes the
-   PRD's first lean (*"unload at window end"*), which was unconditional and would therefore have evicted a
-   model the harness did not start.
-2. **What throughput fails the transition?** The MTP loss is real and unbounded until measured (F3/F5). The
-   seat must answer a vision request inside its own `serving.timeout_s`, or every caption degrades to
-   `brain_unavailable`.
-   **Lean: measure first, then set the number.** Provisional gate — a single vision request completes inside a
-   timeout set from the measurement, and the recorded decode rate is not so far below 51.8 t/s that the
-   nightly window cannot finish. *Who rules: the measurement (the system); the recorded number is the
-   evidence, not a preference.*
-3. **Is the seat's build owned by this repo?** F7 — today it is not, so the seat's definition is not in the
-   tree that claims to be its single home.
-   **Lean: yes, port it in** (`config/autonomous/ollama/Modelfile` + a build script + the probe, with
-   `bin/check_brain_seat.rb` as the gate that keeps the Modelfile and `brain.yml` in agreement). A sibling
-   directory may remain as a convenience, but nothing load-bearing may live only there.
-4. **Do we keep the loose GGUF at `LLM/gguf/` after the switch?** F8 — ~17.56 GiB duplicated on one volume.
-   **Lean: keep it.** It is the artefact `brain.yml` names and the thing every hash in this PRD is verified
-   against; deleting it would remove the reference copy to save space on a NAS that is not reported as full.
-   Record both homes and their sha256 in `brain.yml` so the duplication is deliberate and visible.
+   running, launched residency carries no keep-alive — in **§ The residency rule**. This supersedes the PRD's
+   first lean (*"unload at window end"*), which was unconditional and would therefore have evicted a model the
+   harness did not start.
+2. ~~**What throughput fails the transition?**~~ **RESOLVED — founder ruling, 2026-10-24: a 10-minute
+   timeout.** `serving.timeout_s: 600`, sized so a cold load fits, with the caller's own budget named as the
+   build problem it is — see **§ The serving timeout**. This replaces the PRD's lean (a number derived from the
+   measurement) with a founder-set ceiling; the measured decode rate (D8) is still recorded beside it.
+3. ~~**Is the seat's build owned by this repo?**~~ **RESOLVED — founder ruling, 2026-10-24: no — "it is
+   shared, externally managed infrastructure."** The build, the daemon and its env stay outside this repo; the
+   repo consumes and verifies them. This reverses the PRD's lean (*"port it in"*), and it is why D2 moved from
+   an offline gate over a repo-owned Modelfile to an **ensure-time check against the running seat**, and why F4
+   is a reported dependency risk rather than a repair ticket. See F4 and F7.
+4. ~~**Do we keep the loose GGUF at `LLM/gguf/` after the switch?**~~ **RESOLVED — founder ruling, 2026-10-24:
+   "not this repos problem. Leave it."** F8 records the ~17.56 GiB duplication as a shared-storage fact with no
+   action attached, so nobody re-opens it looking for a task.
 
 ---
 

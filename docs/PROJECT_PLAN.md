@@ -131,10 +131,11 @@ Ordering is the part the board cannot express, so it is stated here explicitly.
   `bin/verify` composes, and it does not touch the test-signal layer (issue #19).
 - **W1.6** (the brain seat served by Ollama) — blocks no capability; it **re-points W1.1's serving half**
   without moving its phase machine, so nothing that waits on W1.1 re-opens. It is on the critical path only
-  for *ownership*: the daemon actually serving the seat today is a hand-started process in a login session
-  (PRD 0008 F4), so until W1.6 lands the seat's availability is not something this repo controls. Its Q1 is
-  **resolved** (founder ruling, 2026-10-24: keep a running model, start one without keep-alive) — the
-  ownership rule for residency, so the spec is buildable.
+  for *what this repo owns*: the seat's Ollama is **shared, externally managed infrastructure** (Q3), so the
+  work is to consume and verify it and to survive its absence — not to build, host or repair it. All four
+  questions are **resolved** (founder rulings, 2026-10-24): residency follows ownership (Q1), a 10-minute
+  request timeout (Q2), the seat is consumed not owned (Q3), the artefact's duplication is not our problem
+  (Q4). The spec is buildable.
 - **W1.5** (safety-posture reduction) — blocks no capability; its A items are what the intensity
   experiment (PRD 0005's wardrobe ladder) waits on, and the founder's tier pre-flight (PRD 0007 §A5)
   is the only gate there. Nothing blocks it — the spec is complete, all five questions resolved
@@ -203,11 +204,13 @@ their tickets not yet cut._
 - **W1.6** — the seat's *engine* is `llama.cpp`, and Ollama on this box already holds the same weights, proven
   by hash: the `brain:latest` manifest's layer digests are byte-identical to `brain.yml`'s `artefact.sha256`
   and `vision.sha256` (PRD 0008 F2). What the switch costs is stated rather than glossed — MTP/speculative
-  decode has no Ollama equivalent, so the recorded 51.8 t/s does not transfer (F3) — and what it buys is
-  ownership: today the daemon answering `:11434` is a hand-started process in a transient login session while
-  the unit for it has crash-looped 164,432 times on a port conflict (F4), which is the unclaimed-tenant shape
-  PRD 0001 exists to prevent. **Serves:** a seat this repo owns, rebuilds and can verify — not one it hopes is
-  still running.
+  decode has no Ollama equivalent, so the recorded 51.8 t/s does not transfer (F3). What it buys is a seat
+  that does not depend on a binary we launch, and a division of responsibility that is finally written down:
+  per founder ruling Q3 the Ollama daemon and the model build are **shared, externally managed
+  infrastructure**, so this repo's half is to **consume, verify and survive** it. That reframes the live
+  finding F4 (a hand-started daemon in a transient login session, the unit for it crash-looped 164,432 times)
+  from a repair to a recorded, reported dependency risk. **Serves:** a clear boundary — shared infrastructure
+  we verify rather than infrastructure we quietly depend on and nobody owns.
 
 ### W2 — experiment
 
