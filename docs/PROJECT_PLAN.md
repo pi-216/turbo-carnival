@@ -129,6 +129,13 @@ Ordering is the part the board cannot express, so it is stated here explicitly.
 - **W1.4** (harness conformance) — like W1.3, blocks no capability; it blocks **fleet uniformity**. It
   touches W1.3 only where the template names a gate member (`bundler-audit`, `erb_lint`) that W1.3's
   `bin/verify` composes, and it does not touch the test-signal layer (issue #19).
+- **W1.6** (the brain seat served by Ollama) — blocks no capability; it **re-points W1.1's serving half**
+  without moving its phase machine, so nothing that waits on W1.1 re-opens. It is on the critical path only
+  for *what this repo owns*: the seat's Ollama is **shared, externally managed infrastructure** (Q3), so the
+  work is to consume and verify it and to survive its absence — not to build, host or repair it. All four
+  questions are **resolved** (founder rulings, 2026-10-24): residency follows ownership (Q1), a 10-minute
+  request timeout (Q2), the seat is consumed not owned (Q3), the artefact's duplication is not our problem
+  (Q4). The spec is buildable.
 - **W1.5** (safety-posture reduction) — blocks no capability; its A items are what the intensity
   experiment (PRD 0005's wardrobe ladder) waits on, and the founder's tier pre-flight (PRD 0007 §A5)
   is the only gate there. Nothing blocks it — the spec is complete, all five questions resolved
@@ -153,6 +160,7 @@ their tickets not yet cut._
 | W1.3 | repo conventions — `AGENTS.md`, `verify`, board wiring | `docs/prd/0003-…` | **done** · epic #44 · tickets #45–#50, #107, #112, #121 |
 | W1.4 | harness conformance to `rails-venture-template` | `docs/prd/0006-…` | **open** · epic #75 · tickets #76–#85, #90–#91 · 11/12 done |
 | **W1.5** | safety-posture reduction — the legal floor + A/B/C triage of the agent-authored controls | `docs/prd/0007-…` | **done** · epic #113 · tickets #103–#106, #108–#111 |
+| W1.6 | the brain seat served by Ollama — re-points the seat's serving requirement off `llama.cpp` | `docs/prd/0008-…` | no tickets yet |
 <!-- plan:index:end W1 -->
 
 - **W1.1** — the planners currently run on a hosted, risk-averse model that hedges on briefs that are
@@ -193,6 +201,16 @@ their tickets not yet cut._
   Ruling 2026-10-20: intensity is class 3 — the
   system acts, measured, bounded by the floor — with the founder verifying each new tier at its start
   (the A5 pre-flight). **Serves:** an uncensored model that finds no plausible story for being timid.
+- **W1.6** — the seat's *engine* is `llama.cpp`, and Ollama on this box already holds the same weights, proven
+  by hash: the `brain:latest` manifest's layer digests are byte-identical to `brain.yml`'s `artefact.sha256`
+  and `vision.sha256` (PRD 0008 F2). What the switch costs is stated rather than glossed — MTP/speculative
+  decode has no Ollama equivalent, so the recorded 51.8 t/s does not transfer (F3). What it buys is a seat
+  that does not depend on a binary we launch, and a division of responsibility that is finally written down:
+  per founder ruling Q3 the Ollama daemon and the model build are **shared, externally managed
+  infrastructure**, so this repo's half is to **consume, verify and survive** it. That reframes the live
+  finding F4 (a hand-started daemon in a transient login session, the unit for it crash-looped 164,432 times)
+  from a repair to a recorded, reported dependency risk. **Serves:** a clear boundary — shared infrastructure
+  we verify rather than infrastructure we quietly depend on and nobody owns.
 
 ### W2 — experiment
 
